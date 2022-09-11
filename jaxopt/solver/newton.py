@@ -8,8 +8,8 @@ from ..root_finding import AbstractRootFindSolver
 
 
 def _small(diffsize: Scalar) -> bool:
-  # TODO: make a more careful choice here -- the existence of this function is
-  # pretty ad-hoc.
+  # TODO(kidger): make a more careful choice here -- the existence of this
+  # function is pretty ad-hoc.
   resolution = 10 ** (2 - jnp.finfo(diffsize.dtype).precision)
   return diffsize < resolution
 
@@ -29,6 +29,14 @@ class _NewtonChordState(eqx.Module):
   diffsize_prev: Scalar
 
 
+class _WithArgs(eqx.Module):
+  root_fn: Callable
+  args: PyTree
+
+  def __call__(self, y):
+    return self.root_fn(y, self.args)
+
+
 class _NewtonChord(AbstractRootFindSolver):
   rtol: float
   atol: float
@@ -46,25 +54,21 @@ class _NewtonChord(AbstractRootFindSolver):
     if self._is_newton:
       linear_state = None
     else:
-      flat, unflatten = jfu.ravel_pytree(y)
-      curried = lambda z: jfu.ravel_pytree(root_fn(unflatten(z), args))[0]
-      jac = JacobianLinearOperator(curried, flat)
+      jac = JacobianLinearOperator(_WithArgs(root_fn, args), y)
       linear_state = self.linear_solver.init(jac)
     return _NewtonChordState(linear_state=linear_state, step=jnp.array(0), diffsize=jnp.array(0.0), diffsize_prev=jnp.array(0.0))
 
   def step(self, root_fun, y, args, state):
-    flat, unflatten = jfu.ravel_pytree(y)
-    curried = lambda z: jfu.ravel_pytree(root_fn(unflatten(z), args))[0]
-    fx = curried(flat)
+    fx = root_fun(y, args)
     if self._is_newton:
-      jac = JacobianLinearOperator(curried, flat)
+      jac = JacobianLinearOperator(_WithArgs(root_fn, args), y)
       diff = linear_solve(jac, fx, self.linear_solver).solution
     else:
       diff = linear_solve(state.linear_state, fx, self.linear_solver, is_state=True).solution
     diffsize_prev = diffsize
-    scale = self.atol + self.rtol * flat
-    diffsize = self.norm(diff / scale)
-    new_y = unflatten(flat - diff)
+    scale = (self.atol + self.rtol * y**ω).ω
+    diffsize = self.norm((diff**ω / scale**ω).ω)
+    new_y = (y**ω - diff**ω).ω
     new_state = _NewtonChordState(linear_state=state.linear_state, step=state.step + 1, diffsize=diffsize, diffsize_prev=diffsize_prev)
     return new_y, new_state
 

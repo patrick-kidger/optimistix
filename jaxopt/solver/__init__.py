@@ -3,5 +3,6 @@ from .newton import Newton, Chord
 from .fixed_point import FixedPointIteration
 from .cholesky import Cholesky
 from .lu import LU
-from .qr import QR
 from .cg import CG
+from .svd import SVD
+from .qr import QR
