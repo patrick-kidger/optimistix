@@ -1,3 +1,7 @@
+- Gauss-Newton
+- LM
+- Adam
+- Line search / learning rates for GN, Newton, etc.
 - Figuring out the relationship between least squares, root finding, and fixed points
 - Figuring out the relationship between Newton and Gauss-Newton
 - Handling implicit differentiation + use while_loop not bounded_while_loop when doing so

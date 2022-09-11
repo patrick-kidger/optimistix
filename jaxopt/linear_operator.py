@@ -139,23 +139,26 @@ class PyTreeLinearOperator(AbstractLinearOperator):
 class JacobianLinearOperator(AbstractLinearOperator):
   fn: Callable[[PyTree[Array["_a"]]], PyTree[Array["_b"]]]
   x: PyTree[Array["_a"]]
+  args: Optional[PyTree[Array]] = None
 
   def mv(self, vector):
-    _, out = jax.jvp(self.fn, (self.x,), (vector,))
+    fn = lambda x: self.fn(x, self.args)
+    _, out = jax.jvp(fn, (self.x,), (vector,))
     return out
 
   def as_matrix(self):
     return self.materialise().as_matrix()
 
   def materialise(self):
-    jac = jax.jacfwd(self.fn)(self.x)
+    fn = lambda x: self.fn(x, self.args)
+    jac = jax.jacfwd(fn)(self.x)
     return PyTreeLinearOperator(jac)
 
   def in_structure(self):
     return jtu.tree_map(jnp.shape, self.x)
 
   def out_structure(self):
-    out = jax.eval_shape(fn, x)
+    out = jax.eval_shape(self.fn, self.x, self.args)
     return jtu.tree_map(lambda o: o.shape)
 
 

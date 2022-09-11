@@ -29,14 +29,6 @@ class _NewtonChordState(eqx.Module):
   diffsize_prev: Scalar
 
 
-class _WithArgs(eqx.Module):
-  root_fn: Callable
-  args: PyTree
-
-  def __call__(self, y):
-    return self.root_fn(y, self.args)
-
-
 class _NewtonChord(AbstractRootFindSolver):
   rtol: float
   atol: float
@@ -54,17 +46,18 @@ class _NewtonChord(AbstractRootFindSolver):
     if self._is_newton:
       linear_state = None
     else:
-      jac = JacobianLinearOperator(_WithArgs(root_fn, args), y)
-      linear_state = self.linear_solver.init(jac)
+      jac = JacobianLinearOperator(root_fn, y, args)
+      linear_state = (jac, self.linear_solver.init(jac))
     return _NewtonChordState(linear_state=linear_state, step=jnp.array(0), diffsize=jnp.array(0.0), diffsize_prev=jnp.array(0.0))
 
   def step(self, root_fun, y, args, state):
     fx = root_fun(y, args)
     if self._is_newton:
-      jac = JacobianLinearOperator(_WithArgs(root_fn, args), y)
+      jac = JacobianLinearOperator(root_fn, y, args)
       diff = linear_solve(jac, fx, self.linear_solver).solution
     else:
-      diff = linear_solve(state.linear_state, fx, self.linear_solver, is_state=True).solution
+      jac, state = state.linear_state
+      diff = linear_solve(jac, fx, self.linear_solver, state=state).solution
     diffsize_prev = diffsize
     scale = (self.atol + self.rtol * y**ω).ω
     diffsize = self.norm((diff**ω / scale**ω).ω)

@@ -92,6 +92,9 @@ class LinearSolution(eqx.Module):
   stats: Dict[str, Array]
 
 
+_sentinel = object()
+
+
 # TODO(kidger): gmres, bicg, triangular solvers, diagonal solvers
 # TODO(kidger): preconditioners
 # TODO(kidger): adjoint
@@ -100,12 +103,10 @@ def linear_solve(
     vector: PyTree[Array],
     solver: AbstractLinearSolver = AutoLinearSolver(),
     *,
-    is_state: bool = False,
+    state: PyTree[Array] = _sentinel,
     throw: bool = True
 ) -> LinearSolveSolution:
-  if is_state:
-    state = operator
-  else:
+  if state is _sentinel:
     vector_structure = jtu.tree_map(jnp.shape, vector)
     if isinstance(operator, AbstractLinearOperator):
       if vector != operator.in_structure():
@@ -115,7 +116,6 @@ def linear_solve(
     else:
       operator = PyTreeLinearOperator(operator, vector_structure)
     state = solver.init(operator)
-  del operator
   solution, result, stats = solver.compute(state, vector)
   has_nans = jnp.any(jnp.isnan(solution))
   result = jnp.where((result == RESULTS.successful) & has_nans, RESULTS.singular, result)

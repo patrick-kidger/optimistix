@@ -39,7 +39,7 @@ def root_find_solve(
     args: PyTree = None,
     options: Optional[Dict[str, Any]] = None,
     *,
-    max_steps: Optional[int] = 16,  # TODO: base, checkpointing?
+    max_steps: Optional[int] = 16,
     adjoint: AbstractAdjoint = ImplicitAdjoint()  # TODO
     throw: bool = True,
 ):
@@ -57,7 +57,7 @@ def root_find_solve(
     new_y, new_state = solver.step(y, args, state)
     return num_steps + 1, new_y, new_state
 
-  final_val = bounded_while_loop(cond_fun, body_fun, init_val, max_steps)
+  final_val = bounded_while_loop(cond_fun, body_fun, init_val, max_steps, base=4)
   num_steps, root, final_state = final_val
   terminate, result = solver.terminate(final_y, args, final_state)
   result = jnp.where(result == RESULTS.successful, jnp.where(terminate, RESULTS.successful, RESULTS.max_steps_reached), result)
