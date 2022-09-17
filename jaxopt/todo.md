@@ -1,11 +1,10 @@
-- Gauss-Newton
+- Examine termination conditions for Newton, GN
+- QR for rectangular
 - LM
 - Adam
 - Line search / learning rates for GN, Newton, etc.
-- Figuring out the relationship between least squares, root finding, and fixed points
-- Figuring out the relationship between Newton and Gauss-Newton
 - Handling Optax-like things
-- Make sure Newton can use symmetric-capable solvers for when solving minimisations problems (root = grad(fn) so jac(root) = hessian(fn) is symmetric)
+- Linear solve adjoints
 
 Done?
 - Handling Newton/Chord when n != m (or at least add a check that n==m)
@@ -15,3 +14,14 @@ Done?
 - Handling implicit differentiation + use while_loop not bounded_while_loop when doing so
 - Handling bounded while loops efficiently (current approach uses no checkpointing because max_steps=16?)
 - Have newton take in a linear solver for the backward pass
+- Make sure Newton can use symmetric-capable solvers for when solving minimisations problems (root = grad(fn) so jac(root) = hessian(fn) is symmetric)
+- Figuring out the relationship between least squares, root finding, and fixed points
+
+Problems with existing JAXopt:
+- LM etc. evaluates during init, so 2x as long to compile
+- Base solvers unroll an iteration, so 2x as long to compile: `https://github.com/google/jaxopt/blob/ddd6c30953f6c02d8022c1358aa67d9114aed3a6/jaxopt/_src/base.py#L159`
+- Normal CG is ludicrously inefficient to compile: evaluate matvec many times.
+- Implicit diff done using reverse mode instead of forward mode?
+- Loops are inefficient, e.g. under vmap
+Lesser problems with JAXopt:
+- LM doesn't work with PyTrees.

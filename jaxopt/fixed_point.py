@@ -1,19 +1,12 @@
 _SolverState = TypeVar("_SolverState")
 
 
-class AbstractFixedPointSolver(AbstractIterativeSolver):
-  pass
-
-
-class _ToRootFn(eqx.Module):
-  fixed_point_fn: Callable
-
-  def __call__(self, y, args):
-    return self.fixed_point_fn(y, args) - y
-
-
 class FixedPointProblem(AbstractIterativeProblem):
   fn: Callable
+
+
+class AbstractFixedPointSolver(AbstractIterativeSolver):
+  pass
 
 
 class FixedPointSolution(eqx.Module):
@@ -24,9 +17,16 @@ class FixedPointSolution(eqx.Module):
 
 
 def _fixed_point(root, _, inputs, __):
-  fixed_point_fn, args = inputs
+  fixed_point_prob, args = inputs
   del inputs
-  return fixed_point_fn(root, args) - root
+  return fixed_point_prob.fn(root, args) - root
+
+
+class _ToRootFn(eqx.Module):
+  fixed_point_fn: Callable
+
+  def __call__(self, y, args):
+    return self.fixed_point_fn(y, args) - y
 
 
 def fixed_point_solve(
@@ -46,7 +46,7 @@ def fixed_point_solve(
     fixed_point_prob = FixedPointProblem(fixed_point_fn)
   del fixed_point_fn
 
-  if jax.eval_shape(lambda: y0)() != jax.eval_shape(fixed_point_prob.fn, y0, args)():
+  if jax.eval_shape(lambda: y0) != jax.eval_shape(fixed_point_prob.fn, y0, args):
     raise ValueError("The input and output of `fixed_point_fn` must have the same structure")
 
   if isinstance(solver, AbstractRootFindSolver):

@@ -1,21 +1,12 @@
 _SolverState = TypeVar("_SolverState")
 
 
-class AbstractLeastSquaresSolver(AbstractIterativeSolver):
-  pass
-
-
-class _ToRootFn(eqx.Module):
-  residual_fn: Callable
-
-  def __call__(self, y, args):
-    def objective(_y):
-      return jnp.sum(self.residual_fn(_y, args)**2)
-    return jax.grad(objective)(y)
-
-
 class LeastSquaresProblem(AbstractIterativeProblem):
   fn: Callable
+
+
+class AbstractLeastSquaresSolver(AbstractIterativeSolver):
+  pass
 
 
 class LeastSquaresSolution(eqx.Module):
@@ -26,12 +17,21 @@ class LeastSquaresSolution(eqx.Module):
 
 
 def _residual(root, _, inputs, __):
-  residual_fn, args = inputs
+  residual_prob, args = inputs
   del inputs
 
   def objective(_y):
-    return jnp.sum(residual_fn(_y, args)**2)
+    return jnp.sum(residual_prob.fn(_y, args)**2)
   return jax.grad(objective)(root)
+
+
+class _ToRootFn(eqx.Module):
+  residual_fn: Callable
+
+  def __call__(self, y, args):
+    def objective(_y):
+      return jnp.sum(self.residual_fn(_y, args)**2)
+    return jax.grad(objective)(y)
 
 
 def least_squares_solve(
@@ -53,7 +53,7 @@ def least_squares_solve(
 
   if isinstance(solver, AbstractRootFindSolver):
     root_fn = _ToRootFn(residual_prob.fn)
-    root_prob = RootFindProblem(root_fn, symmetric=True)
+    root_prob = RootFindProblem(root_fn, patterns=frozenset({"symmetric"}))
     sol = root_find_solve(root_prob, solver, y0, args, options, max_steps=max_steps, adjoint=adjoint, throw=throw)
     return LeastSquaresSolution(optimum=sol.root, result=sol.result, state=sol.state, stats=sol.stats)
   else:

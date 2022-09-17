@@ -36,8 +36,8 @@ class AutoLinearSolver(AbstractLinearSolver):
   def init(self, operator):
     from . import solvers
     if operator.in_size() == operator.out_size():
-      if operator.symmetric:
-        if operator.maybe_singular:
+      if operator.patterns.symmetric:
+        if operator.patterns.maybe_singular:
           # CG converges to pseudoinverse/least-squares solution.
           token = _cg_token
           solver = solvers.CG()
@@ -46,7 +46,7 @@ class AutoLinearSolver(AbstractLinearSolver):
           token = _cholesky_token
           solver = solvers.Cholesky()
       else:
-        if operator.maybe_singular:
+        if operator.patterns.maybe_singular:
           # SVD converges to pseudoinverse/least-squares solution, and can handle
           # singular matrices.
           # TODO(kidger): make this QR once that solver can handle singular matrices.
@@ -91,10 +91,10 @@ class LinearSolution(eqx.Module):
 _sentinel = object()
 
 
-# TODO(kidger): gmres, bicg, triangular solvers, diagonal solvers
+# TODO(kidger): gmres, bicgstab
 # TODO(kidger): adjoint
 def linear_solve(
-    operator: Union[PyTree[Array], AbstractLinearOperator, _SolverState],
+    operator: Union[PyTree[Array], AbstractLinearOperator],
     vector: PyTree[Array],
     solver: AbstractLinearSolver = AutoLinearSolver(),
     options: Optional[Dict[str, Any]],
@@ -105,9 +105,9 @@ def linear_solve(
   if options is None:
     options = {}
   if state is _sentinel:
-    vector_structure = jtu.tree_map(jnp.shape, vector)
+    vector_structure = jax.eval_shape(lambda: vector)
     if isinstance(operator, AbstractLinearOperator):
-      if vector != operator.in_structure():
+      if vector_structure != operator.in_structure():
         raise ValueError("Vector and operator structures do not match")
       if isinstance(operator, IdentityLinearOperator):
         return vector

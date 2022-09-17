@@ -7,15 +7,15 @@ class AbstractIterativeProblem(eqx.Module):
 
 class AbstractIterativeSolver(eqx.Module):
   @abc.abstractmethod
-  def init(self, fn: AbstractIterativeProblem, y: PyTree[Array], args: PyTree, options: Dict[str, Any]) -> _SolverState:
+  def init(self, prob: AbstractIterativeProblem, y: PyTree[Array], args: PyTree, options: Dict[str, Any]) -> _SolverState:
     ...
 
   @abc.abstractmethod
-  def step(self, fn: AbstractIterativeProblem, y: PyTree[Array], args: PyTree, options: Dict[str, Any], state: _SolverState) -> Tuple[PyTree[Array], _SolverState]:
+  def step(self, prob: AbstractIterativeProblem, y: PyTree[Array], args: PyTree, options: Dict[str, Any], state: _SolverState) -> Tuple[PyTree[Array], _SolverState]:
     ...
 
   @abc.abstractmethod
-  def terminate(self, fn: AbstractIterativeProblem, y: PyTree[Array], args: PyTree, options: Dict[str, Any], state: _SolverState) -> bool:
+  def terminate(self, prob: AbstractIterativeProblem, y: PyTree[Array], args: PyTree, options: Dict[str, Any], state: _SolverState) -> bool:
     ...
 
 
@@ -65,13 +65,14 @@ def iterate_solve(
     options: Optional[Dict[str, Any]] = None,
     *,
     rewrite_fn: Callable,
+    patterns: Patterns,
     max_steps: Optional[int] = 16,
     adjoint: AbstractAdjoint = ImplicitAdjoint()
     throw: bool = True,
 ):
   inputs = prob, args
   closure = solver, y0, options, max_steps
-  out, (num_steps, residual) = adjoint.apply(_iterate, rewrite_fn, inputs, closure)
+  out, (num_steps, residual) = adjoint.apply(_iterate, rewrite_fn, inputs, closure, patterns)
   error_index = unvmap_max(result)
   branched_error_if(
     throw & (results != RESULTS.successful),

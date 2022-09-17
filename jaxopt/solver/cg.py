@@ -4,19 +4,26 @@ def _tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Scalar:
   assert len(a) == len(b)
   return sum([jnp.sum(ai * bi) for ai, bi in zip(a, b)])
 
+
+# TODO(kidger): this is pretty slow to compile.
+# - CG evaluates `operator.mv` twice.
+# - Normal CG evaluates `operator.mv` six times.
+# Possibly this can be cheapend a bit somehow?
 class CG(AbstractLinearSolver):
   rtol: float
   atol: float
+  normal: bool = False
   norm: Callable = rms_norm
   materialise: bool = False
   max_steps: Optional[int] = None
 
   def init(self, operator, options):
     del options
-    if operator.in_structure() != operator.out_structure():
-      raise ValueError("`CG` may only be used for linear solves with square matrices")
-    if not operator.symmetric:
-      raise ValueError("`CG` may only be used for symmetric linear operators")
+    if not self.normal:
+      if operator.in_structure() != operator.out_structure():
+        raise ValueError("`CG(..., normal=False)` may only be used for linear solves with square matrices")
+      if not operator.patterns.symmetric:
+        raise ValueError("`CG(..., normal=False)` may only be used for symmetric linear operators")
     if self.materialise:
       operator = operator.materialise()
     return operator
@@ -29,18 +36,25 @@ class CG(AbstractLinearSolver):
   # 3. We don't try to support complex numbers. (Yet.)
   # 4. We support PyTree-valued state.
   def compute(self, state, vector, options):
-    operator = state
+    if self.normal:
+      _transpose_mv = jax.linear_transpose(state.mv, state.in_structure())
+      mv = lambda v: _transpose_mv(state.mv(v))
+      vector = _transpose_mv(vector)
+    else:
+      mv = state.mv
+    structure = state.in_structure()
     del state
+
     try:
       preconditioner = options["preconditioner"]
     except KeyError:
-      preconditioner = IdentityLinearOperator(operator.in_structure())
+      preconditioner = IdentityLinearOperator(structure)
     else:
       if not isinstance(preconditioner, AbstractLinearOperator):
         raise ValueError("preconditioner must be a linear operator")
-      in preconditioner.in_structure() != operator.out_structure():
-        raise ValueError("preconditioner must have `in_structure` that matches the operator's `out_strucure`")
-      in preconditioner.out_structure() != operator.in_structure():
+      in preconditioner.in_structure() != structure:
+        raise ValueError("preconditioner must have `in_structure` that matches the operator's `in_strucure`")
+      in preconditioner.out_structure() != structure:
         raise ValueError("preconditioner must have `out_structure` that matches the operator's `in_strucure`")
     try:
       y0 = options["y0"]
@@ -49,7 +63,8 @@ class CG(AbstractLinearSolver):
     else:
       if jax.eval_shape(lambda: y0)() != jax.eval_shape(lambda: vector)():
         raise ValueError("`y0` must have the same structure, shape, and dtype as `vector`")
-    r0 = (vector**ω - state.mv(y0)**ω).ω
+
+    r0 = (vector**ω - mv(y0)**ω).ω
     p0 = preconditioner.mv(r0)
     gamma0 = _tree_dot(r0, p0)
     scale = (self.atol + self.rtol * vector**ω).ω
@@ -64,7 +79,7 @@ class CG(AbstractLinearSolver):
 
     def body_fun(value):
       y, r, p, gamma, step = value
-      mat_p = state.mv(p)
+      mat_p = mv(p)
       alpha = gamma / _tree_dot(p, mat_p)
       y = (y**ω + alpha * p**ω).ω
       r = (r**ω - alpha * mat_p**ω).ω
