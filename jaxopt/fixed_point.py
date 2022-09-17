@@ -5,23 +5,11 @@ class AbstractFixedPointSolver(AbstractIterativeSolver):
   pass
 
 
-class _RootFindToFixedPoint(AbstractFixedPointSolver):
-  solver: AbstractRootFindSolver
+class _ToRootFn(eqx.Module):
+  fixed_point_fn: Callable
 
-  def init(self, fixed_point_fn, y, args, options):
-    def root_fn(y, args):
-      return fixed_point_fn(y, args) - y
-    return solver.init(root_fn, y, args, options)
-
-  def step(self, fixed_point_fn, y, args, state):
-    def root_fn(y, args):
-      return fixed_point_fn(y, args) - y
-    return solver.step(root_fn, y, args, state)
-
-  def terminate(self, fixed_point_fn, y, args, state):
-    def root_fn(y, args):
-      return fixed_point_fn(y, args) - y
-    return solver.terminate(root_fn, y, args, state)
+  def __call__(self, y, args):
+    return self.fixed_point_fn(y, args) - y
 
 
 class FixedPointSolution(eqx.Module):
@@ -29,6 +17,12 @@ class FixedPointSolution(eqx.Module):
   result: RESULTS
   state: _SolverState
   stats: Dict[str, Array]
+
+
+def _fixed_point(root, _, inputs, __):
+  fixed_point_fn, _, args = inputs
+  del inputs
+  return fixed_point_fn(root, args) - root
 
 
 def fixed_point_solve(
@@ -42,9 +36,13 @@ def fixed_point_solve(
     adjoint: AbstractAdjoint = ImplicitAdjoint()
     throw: bool = True,
 ):
-  assert jax.eval_shape(lambda: y0)() == jax.eval_shape(fixed_point_fn, y0, args)()
+  if jax.eval_shape(lambda: y0)() != jax.eval_shape(fixed_point_fn, y0, args)():
+    raise ValueError("The input and output of `fixed_point_fn` must have the same structure")
   if isinstance(solver, AbstractRootFindSolver):
-    solver = _RootFindingToFixedPoint(solver)
-  fixed_point, result, state, stats = iterative_solve(fixed_point_fn, solver, y0, args, options, rewrite_fn=_fixed_point, max_steps=max_steps, adjoint=adjoint, throw=throw)
-  return FixedPointSolution(fixed_point=fixed_point, result=result, state=final_state, stats=stats)
+    root_fn = _ToRootFn(fixed_point_fn)
+    sol = root_find_solve(root_fn, solver, y0, args, options, max_steps=max_steps, adjoint=adjoint, throw=throw)
+    return FixedPointSolution(fixed_point=sol.root, result=sol.result, state=sol.state, stats=sol.stats)
+  else:
+    fixed_point, result, state, stats = iterative_solve(fixed_point_fn, solver, y0, args, options, rewrite_fn=_fixed_point, max_steps=max_steps, adjoint=adjoint, throw=throw)
+    return FixedPointSolution(fixed_point=fixed_point, result=result, state=state, stats=stats)
 
