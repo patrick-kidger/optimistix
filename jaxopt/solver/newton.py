@@ -41,19 +41,18 @@ class _NewtonChord(AbstractRootFindSolver):
   def _is_newton(self) -> bool:
     ...
 
-  def init(self, root_fn, y, args, options: None):
-    del options
+  def init(self, root_prob, y, args, options):
     if self._is_newton:
       linear_state = None
     else:
-      jac = JacobianLinearOperator(root_fn, y, args)
+      jac = JacobianLinearOperator(root_prob.fn, y, args, symmetric=root_prob.symmetric, maybe_singular=root_prob.maybe_singular)
       linear_state = (jac, self.linear_solver.init(jac))
     return _NewtonChordState(linear_state=linear_state, step=jnp.array(0), diffsize=jnp.array(0.0), diffsize_prev=jnp.array(0.0))
 
-  def step(self, root_fn, y, args, state):
-    fx = root_fn(y, args)
+  def step(self, root_prob, y, args, options, state):
+    fx = root_prob.fn(y, args)
     if self._is_newton:
-      jac = JacobianLinearOperator(root_fn, y, args)
+      jac = JacobianLinearOperator(root_prob.fn, y, args, symmetric=root_prob.symmetric, maybe_singular=root_prob.maybe_singular)
       diff = linear_solve(jac, fx, self.linear_solver).solution
     else:
       jac, state = state.linear_state
@@ -65,8 +64,8 @@ class _NewtonChord(AbstractRootFindSolver):
     new_state = _NewtonChordState(linear_state=state.linear_state, step=state.step + 1, diffsize=diffsize, diffsize_prev=diffsize_prev)
     return new_y, new_state
 
-  def terminate(self, root_fn, y, args, state):
-    del root_fn, y, args
+  def terminate(self, root_prob, y, args, options, state):
+    del root_prob, y, args, options
     at_least_two = state.step >= 2
     rate = state.diffsize / state.diffsize_prev
     factor = diffsize * rate / (1  - rate)

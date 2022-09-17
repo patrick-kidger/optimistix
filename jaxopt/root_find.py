@@ -5,6 +5,12 @@ class AbstractRootFindSolver(AbstractIterativeSolver):
   pass
 
 
+class RootFindProblem(AbstractIterativeProblem):
+  fn: Callable
+  symmetric: bool = False
+  maybe_singular: bool = True
+
+
 class RootFindSolution(eqx.Module):
   root: Array
   result: RESULTS
@@ -13,13 +19,13 @@ class RootFindSolution(eqx.Module):
 
 
 def _root(root, _, inputs, __):
-  root_fn, _, args = inputs
+  root_fn, args = inputs
   del inputs
   return root_fn(root, args)
 
 
 def root_find_solve(
-    root_fn: Callable
+    root_fn: Union[Callable, RootFindProblem],
     solver: AbstractRootFindSolver,
     y0: PyTree[Array],
     args: PyTree = None,
@@ -29,6 +35,12 @@ def root_find_solve(
     adjoint: AbstractAdjoint = ImplicitAdjoint()
     throw: bool = True,
 ):
-  root, result, state, stats = iterative_solve(root_fn, solver, y0, args, options, rewrite_fn=_root, max_steps=max_steps, adjoint=adjoint, throw=throw)
+  if isinstance(root_fn, RootFindProblem):
+    root_prob = root_fn
+  else:
+    root_prob = RootFindProblem(root_prob)
+  del root_fn
+
+  root, result, state, stats = iterative_solve(root_prob, solver, y0, args, options, rewrite_fn=_root, max_steps=max_steps, adjoint=adjoint, throw=throw)
   return RootFindSolution(root=root, result=result, state=state, stats=stats)
 

@@ -11,9 +11,12 @@ class CG(AbstractLinearSolver):
   materialise: bool = False
   max_steps: Optional[int] = None
 
-  def init(self, operator):
-    if operator.in_size() != operator.out_size():
+  def init(self, operator, options):
+    del options
+    if operator.in_structure() != operator.out_structure():
       raise ValueError("`CG` may only be used for linear solves with square matrices")
+    if not operator.symmetric:
+      raise ValueError("`CG` may only be used for symmetric linear operators")
     if self.materialise:
       operator = operator.materialise()
     return operator
@@ -24,11 +27,28 @@ class CG(AbstractLinearSolver):
   # 2. We return the number of steps, and whether or not the solve succeeded, as
   #    additional information.
   # 3. We don't try to support complex numbers. (Yet.)
-  def compute(self, state, vector):
+  # 4. We support PyTree-valued state.
+  def compute(self, state, vector, options):
     operator = state
     del state
-    preconditioner = IdentityLinearOperator(operator.in_structure()) # TODO(kidger): offer this as a proper argument
-    y0 = jtu.tree_map(jnp.zeros_like, vector)  # TODO(kidger): offer this as a proper argument
+    try:
+      preconditioner = options["preconditioner"]
+    except KeyError:
+      preconditioner = IdentityLinearOperator(operator.in_structure())
+    else:
+      if not isinstance(preconditioner, AbstractLinearOperator):
+        raise ValueError("preconditioner must be a linear operator")
+      in preconditioner.in_structure() != operator.out_structure():
+        raise ValueError("preconditioner must have `in_structure` that matches the operator's `out_strucure`")
+      in preconditioner.out_structure() != operator.in_structure():
+        raise ValueError("preconditioner must have `out_structure` that matches the operator's `in_strucure`")
+    try:
+      y0 = options["y0"]
+    except KeyError:
+      y0 = jtu.tree_map(jnp.zeros_like, vector)
+    else:
+      if jax.eval_shape(lambda: y0)() != jax.eval_shape(lambda: vector)():
+        raise ValueError("`y0` must have the same structure, shape, and dtype as `vector`")
     r0 = (vector**ω - state.mv(y0)**ω).ω
     p0 = preconditioner.mv(r0)
     gamma0 = _tree_dot(r0, p0)

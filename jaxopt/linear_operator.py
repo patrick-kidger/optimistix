@@ -3,6 +3,10 @@ def _is_tuple_int(x):
 
 
 class AbstractLinearOperator(eqx.Module):
+  def __post_init__(self):
+    if self.symmetric and self.in_size() != self.out_size():
+      raise ValueError("Cannot have symmetric non-square operator")
+
   @abc.abstractmethod
   def mv(self, vector: PyTree[Float[Array, "_b"]]) -> PyTree[Float[Array, "_a"]]:
     ...
@@ -21,6 +25,16 @@ class AbstractLinearOperator(eqx.Module):
 
   @abc.abstractmethod
   def out_structure(self) -> PyTree[Tuple[int, ...]]:
+    ...
+
+  @property
+  @abc.abstractmethod
+  def symmetric(self) -> bool:
+    ...
+
+  @property
+  @abc.abstractmethod
+  def maybe_singular(self) -> bool:
     ...
 
   def in_size(self) -> int:
@@ -49,6 +63,8 @@ def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
 
 class MatrixLinearOperator(AbstractLinearOperator):
   matrix: Float[Array, "a b"]
+  symmetric: bool = False
+  maybe_singular: bool = False
 
   def mv(self, vector):
     return self.matrix @ vector
@@ -73,6 +89,8 @@ class MatrixLinearOperator(AbstractLinearOperator):
 class PyTreeLinearOperator(AbstractLinearOperator):
   pytree: PyTree[Array]
   input_structure: PyTree[Tuple[int, ...]]
+  symmetric: bool = False
+  maybe_singular: bool = False
   output_structure: PyTree[Tuple[int, ...]] = field(init=False)
 
   def __post_init__(self):
@@ -140,6 +158,8 @@ class JacobianLinearOperator(AbstractLinearOperator):
   fn: Callable[[PyTree[Array["_a"]]], PyTree[Array["_b"]]]
   x: PyTree[Array["_a"]]
   args: Optional[PyTree[Array]] = None
+  symmetric: bool = False
+  maybe_singular: bool = False
 
   def mv(self, vector):
     fn = lambda x: self.fn(x, self.args)
@@ -181,3 +201,11 @@ class IdentityLinearOperator(eqx.Module):
 
   def out_structure(self):
     return self.structure
+
+  @property
+  def symmetric(self):
+    return True
+
+  @property
+  def maybe_singular(self):
+    return False

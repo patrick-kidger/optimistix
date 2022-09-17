@@ -9,7 +9,13 @@ class _ToRootFn(eqx.Module):
   residual_fn: Callable
 
   def __call__(self, y, args):
-    return jax.jacfwd(self.residual_fn)(y, args)
+    def objective(_y):
+      return jnp.sum(self.residual_fn(_y, args)**2)
+    return jax.grad(objective)(y)
+
+
+class LeastSquaresProblem(AbstractIterativeProblem):
+  fn: Callable
 
 
 class LeastSquaresSolution(eqx.Module):
@@ -20,13 +26,16 @@ class LeastSquaresSolution(eqx.Module):
 
 
 def _residual(root, _, inputs, __):
-  residual_fn, _, args = inputs
+  residual_fn, args = inputs
   del inputs
-  return jax.jacfwd(residual_fn)(root, args)
+
+  def objective(_y):
+    return jnp.sum(residual_fn(_y, args)**2)
+  return jax.grad(objective)(root)
 
 
 def least_squares_solve(
-    residual_fn: Callable,
+    residual_fn: Union[Callable, LeastSquaresProblem],
     solver: Union[AbstractLeastSquaresSolver, AbstractRootFindSolver],
     y0: PyTree[Array],
     args: PyTree = None,
@@ -36,10 +45,17 @@ def least_squares_solve(
     adjoint: AbstractAdjoint = ImplicitAdjoint()
     throw: bool = True,
 ):
+  if isinstance(residual_fn, LeastSquaresProblem):
+    residual_prob = residual_fn
+  else:
+    residual_prob = LeastSquaresProblem(residual_fn)
+  del residual_fn
+
   if isinstance(solver, AbstractRootFindSolver):
-    root_fn = _ToRootFn(residual_fn)
-    sol = root_find_solve(root_fn, solver, y0, args, options, max_steps=max_steps, adjoint=adjoint, throw=throw)
+    root_fn = _ToRootFn(residual_prob.fn)
+    root_prob = RootFindProblem(root_fn, symmetric=True)
+    sol = root_find_solve(root_prob, solver, y0, args, options, max_steps=max_steps, adjoint=adjoint, throw=throw)
     return LeastSquaresSolution(optimum=sol.root, result=sol.result, state=sol.state, stats=sol.stats)
   else:
-    optimum, result, state, stats = iterative_solve(residual_fn, solver, y0, args, options, rewrite_fn=_residual, max_steps=max_steps, adjoint=adjoint, throw=throw)
+    optimum, result, state, stats = iterative_solve(residual_prob, solver, y0, args, options, rewrite_fn=_residual, max_steps=max_steps, adjoint=adjoint, throw=throw)
     return LeastSquaresSolution(optimum=optimum, result=result, state=state, stats=stats)

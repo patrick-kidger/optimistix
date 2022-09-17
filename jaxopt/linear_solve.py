@@ -14,11 +14,11 @@ _SolverState = TypeVar("_SolverState")
 
 class AbstractLinearSolver(eqx.Module):
   @abc.abstractmethod
-  def init(self, operator: AbstractLinearOperator) -> _SolverState:
+  def init(self, operator: AbstractLinearOperator, options: Dict[str, Any]) -> _SolverState:
     ...
 
   @abc.abstractmethod
-  def compute(self, state: _SolverState, vector: Array["b"]) -> Tuple[Array["a"], RESULTS, Dict[str, Any]]:
+  def compute(self, state: _SolverState, vector: Array["b"], options: Dict[str, Any]) -> Tuple[Array["a"], RESULTS, Dict[str, Any]]:
     ...
 
 
@@ -32,14 +32,12 @@ _svd_token = str2jax("SVD")
 # linear_solve -> AutoLinearSolver -> {Cholesky,...} -> AbstractLinearSolver
 # but we want linear_solver and AbstractLinearSolver in the same file.
 class AutoLinearSolver(AbstractLinearSolver):
-  symmetric: bool = False
-  maybe_singular: bool = False
 
   def init(self, operator):
     from . import solvers
     if operator.in_size() == operator.out_size():
-      if self.symmetric:
-        if self.maybe_singular:
+      if operator.symmetric:
+        if operator.maybe_singular:
           # CG converges to pseudoinverse/least-squares solution.
           token = _cg_token
           solver = solvers.CG()
@@ -48,7 +46,7 @@ class AutoLinearSolver(AbstractLinearSolver):
           token = _cholesky_token
           solver = solvers.Cholesky()
       else:
-        if self.maybe_singular:
+        if operator.maybe_singular:
           # SVD converges to pseudoinverse/least-squares solution, and can handle
           # singular matrices.
           # TODO(kidger): make this QR once that solver can handle singular matrices.
@@ -60,8 +58,6 @@ class AutoLinearSolver(AbstractLinearSolver):
           token = _lu_token
           solver = solvers.LU()
     else:
-      if self.symmetric:
-        raise ValueError("Cannot have symmetric non-square operator")
       # SVD converges to pseudoinverse/least-squares solution, and can handle
       # rectangular matrices.
       # TODO(kidger): make this QR once that solver can handle nonsquare matrices.
@@ -96,16 +92,18 @@ _sentinel = object()
 
 
 # TODO(kidger): gmres, bicg, triangular solvers, diagonal solvers
-# TODO(kidger): preconditioners
 # TODO(kidger): adjoint
 def linear_solve(
     operator: Union[PyTree[Array], AbstractLinearOperator, _SolverState],
     vector: PyTree[Array],
     solver: AbstractLinearSolver = AutoLinearSolver(),
+    options: Optional[Dict[str, Any]],
     *,
     state: PyTree[Array] = _sentinel,
     throw: bool = True
 ) -> LinearSolveSolution:
+  if options is None:
+    options = {}
   if state is _sentinel:
     vector_structure = jtu.tree_map(jnp.shape, vector)
     if isinstance(operator, AbstractLinearOperator):
@@ -115,8 +113,8 @@ def linear_solve(
         return vector
     else:
       operator = PyTreeLinearOperator(operator, vector_structure)
-    state = solver.init(operator)
-  solution, result, stats = solver.compute(state, vector)
+    state = solver.init(operator, options)
+  solution, result, stats = solver.compute(state, vector, options)
   has_nans = jnp.any(jnp.isnan(solution))
   result = jnp.where((result == RESULTS.successful) & has_nans, RESULTS.singular, result)
   error_index = unvmap_max(result)

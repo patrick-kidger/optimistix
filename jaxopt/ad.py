@@ -52,6 +52,6 @@ def _implicit_backprop_jvp(
     operator = JacobianLinearOperator(_for_jac, _root)
     _, jvp_diff_args = jax.jvp(_for_jvp, (diff_args,), (tang_diff_args,))
 
-    tang_root = -(linear_solve(operator, jvp_diff_args, linear_solver)**ω).ω
+    tang_root = (-linear_solve(operator, jvp_diff_args, linear_solver)**ω).ω
     tang_residual = jtu.tree_map(jnp.zeros_like, residual)
     return (root, residual), (tang_root, tang_residual)

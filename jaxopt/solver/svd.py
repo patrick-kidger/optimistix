@@ -1,10 +1,12 @@
 class SVD(AbstractLinearSolver):
   rcond: Optional[float] = None
 
-  def init(self, operator):
+  def init(self, operator, options):
+    del options
     return jsp.linalg.svd(operator.as_matrix(), full_matrices=False)
 
-  def compute(self, state, vector):
+  def compute(self, state, vector, options):
+    del options
     vector, unflatten = jfu.ravel_pytree(vector)
     u, s, vt = state
     m, _ = u.shape
