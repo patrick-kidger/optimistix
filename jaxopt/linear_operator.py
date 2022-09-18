@@ -186,7 +186,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
   def materialise(self):
     fn = lambda x: self.fn(x, self.args)
     jac = jax.jacfwd(fn)(self.x)
-    return PyTreeLinearOperator(jac)
+    return PyTreeLinearOperator(jac self.out_structure())
 
   def in_structure(self):
     return jax.eval_shape(lambda: self.x)

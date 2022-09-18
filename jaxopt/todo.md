@@ -1,10 +1,12 @@
-- Examine termination conditions for Newton, GN
+- Examine termination conditions for Newton, GN/LM
 - QR for rectangular
 - LM
-- Adam
+- Geodesic acceleration for LM
+- Adam/LBFGS/etc.
 - Line search / learning rates for GN, Newton, etc.
 - Handling Optax-like things
 - Linear solve adjoints
+- Aux output
 
 Done?
 - Handling Newton/Chord when n != m (or at least add a check that n==m)
