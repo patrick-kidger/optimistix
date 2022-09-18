@@ -3,9 +3,9 @@ class Triangular(AbstractLinearSolver):
     del options
     if operator.in_size() != operator.out_size():
       raise ValueError("`Triangular` may only be used for linear solves with square matrices")
-    if "triangular" not in operator.patterns:
+    if "triangular" not in operator.pattern:
       raise ValueError("`Triangular` may only be used for linear solves with triangular matrices")
-    return (operator.as_matrix(), Static("lower_triangular" in operator.patterns), Static("unit_diagonal" in operator.patterns))
+    return (operator.as_matrix(), Static("lower_triangular" in operator.pattern), Static("unit_diagonal" in operator.pattern))
 
   def compute(self, state, vector, options):
     matrix, lower, unit_diagonal = state

@@ -36,8 +36,8 @@ class AutoLinearSolver(AbstractLinearSolver):
   def init(self, operator):
     from . import solvers
     if operator.in_size() == operator.out_size():
-      if operator.patterns.symmetric:
-        if operator.patterns.maybe_singular:
+      if operator.pattern.symmetric:
+        if operator.pattern.maybe_singular:
           # CG converges to pseudoinverse/least-squares solution.
           token = _cg_token
           solver = solvers.CG()
@@ -46,7 +46,7 @@ class AutoLinearSolver(AbstractLinearSolver):
           token = _cholesky_token
           solver = solvers.Cholesky()
       else:
-        if operator.patterns.maybe_singular:
+        if operator.pattern.maybe_singular:
           # SVD converges to pseudoinverse/least-squares solution, and can handle
           # singular matrices.
           # TODO(kidger): make this QR once that solver can handle singular matrices.

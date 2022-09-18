@@ -65,14 +65,14 @@ def iterate_solve(
     options: Optional[Dict[str, Any]] = None,
     *,
     rewrite_fn: Callable,
-    patterns: Patterns,
     max_steps: Optional[int] = 16,
     adjoint: AbstractAdjoint = ImplicitAdjoint()
     throw: bool = True,
+    pattern: Pattern = Pattern(),
 ):
   inputs = prob, args
   closure = solver, y0, options, max_steps
-  out, (num_steps, residual) = adjoint.apply(_iterate, rewrite_fn, inputs, closure, patterns)
+  out, (num_steps, residual) = adjoint.apply(_iterate, rewrite_fn, inputs, closure, pattern)
   error_index = unvmap_max(result)
   branched_error_if(
     throw & (results != RESULTS.successful),

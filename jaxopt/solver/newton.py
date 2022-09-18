@@ -45,14 +45,14 @@ class _NewtonChord(AbstractRootFindSolver):
     if self._is_newton:
       linear_state = None
     else:
-      jac = JacobianLinearOperator(root_prob.fn, y, args, patterns=root_prob.patterns)
+      jac = JacobianLinearOperator(root_prob.fn, y, args, pattern=root_prob.pattern)
       linear_state = (jac, self.linear_solver.init(jac))
     return _NewtonChordState(linear_state=linear_state, step=jnp.array(0), diffsize=jnp.array(0.0), diffsize_prev=jnp.array(0.0))
 
   def step(self, root_prob, y, args, options, state):
     fx = root_prob.fn(y, args)
     if self._is_newton:
-      jac = JacobianLinearOperator(root_prob.fn, y, args, patterns=root_prob.patterns)
+      jac = JacobianLinearOperator(root_prob.fn, y, args, pattern=root_prob.pattern)
       diff = linear_solve(jac, fx, self.linear_solver).solution
     else:
       jac, state = state.linear_state

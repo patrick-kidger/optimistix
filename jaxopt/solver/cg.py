@@ -22,7 +22,7 @@ class CG(AbstractLinearSolver):
     if not self.normal:
       if operator.in_structure() != operator.out_structure():
         raise ValueError("`CG(..., normal=False)` may only be used for linear solves with square matrices")
-      if not operator.patterns.symmetric:
+      if not operator.pattern.symmetric:
         raise ValueError("`CG(..., normal=False)` may only be used for symmetric linear operators")
     if self.materialise:
       operator = operator.materialise()

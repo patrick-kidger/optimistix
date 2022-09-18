@@ -1,4 +1,4 @@
-class Patterns(eqx.Module):
+class Pattern(eqx.Module):
   symmetric: bool
   unit_diagonal: bool
   maybe_singular: bool
@@ -34,13 +34,13 @@ class Patterns(eqx.Module):
 class AbstractLinearOperator(eqx.Module):
   def __post_init__(self):
     if self.in_size() != self.out_size():
-      if self.patterns.symmetric:
+      if self.pattern.symmetric:
         raise ValueError("Cannot have symmetric non-square operator")
-      if self.patterns.diagonal:
+      if self.pattern.diagonal:
         raise ValueError("Cannot have diagonal non-square operator")
-      if self.patterns.unit_diagonal:
+      if self.pattern.unit_diagonal:
         raise ValueError("Cannot have non-square operator with unit diagonal")
-      if self.patterns.triangular:
+      if self.pattern.triangular:
         raise ValueError("Cannot have triangular non-square operator")
 
   @abc.abstractmethod
@@ -65,7 +65,7 @@ class AbstractLinearOperator(eqx.Module):
 
   @property
   @abc.abstractmethod
-  def patterns(self) -> Pattern:
+  def pattern(self) -> Pattern:
     ...
 
   def in_size(self) -> int:
@@ -79,7 +79,7 @@ class AbstractLinearOperator(eqx.Module):
 
 class MatrixLinearOperator(AbstractLinearOperator):
   matrix: Float[Array, "a b"]
-  patterns: Patterns = Patterns()
+  pattern: Pattern = Pattern()
 
   def mv(self, vector):
     return self.matrix @ vector
@@ -121,7 +121,7 @@ def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
 class PyTreeLinearOperator(AbstractLinearOperator):
   pytree: PyTree[Array]
   output_structure: PyTree[jax.core.ShapeDtypeStruct]
-  patterns: Patterns = Patterns()
+  pattern: Pattern = Pattern()
   input_structure: PyTree[jax.core.ShapeDtypeStruct] = field(init=False)
 
   def __post_init__(self):
@@ -173,7 +173,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
   fn: Callable[[PyTree[Array["_a"]]], PyTree[Array["_b"]]]
   x: PyTree[Array["_a"]]
   args: Optional[PyTree[Array]] = None
-  patterns: Patterns = Patterns()
+  pattern: Pattern = Pattern()
 
   def mv(self, vector):
     fn = lambda x: self.fn(x, self.args)
@@ -216,5 +216,5 @@ class IdentityLinearOperator(eqx.Module):
     return self.structure
 
   @property
-  def patterns(self):
-    return Patterns(symmetric=True, unit_diagonal=True, diagonal=True)
+  def pattern(self):
+    return Pattern(symmetric=True, unit_diagonal=True, diagonal=True)

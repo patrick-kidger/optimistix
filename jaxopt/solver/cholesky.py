@@ -12,7 +12,7 @@ class Cholesky(AbstractLinearSolver):
     else:
       if operator.in_size() != operator.out_size():
         raise ValueError("`Cholesky(..., normal=False)` may only be used for linear solves with square matrices")
-      if not operator.patterns.symmetric:
+      if not operator.pattern.symmetric:
         raise ValueError("`Cholesky(..., normal=False)` may only be used for symmetric linear operators")
       state, lower = jsp.linalg.cho_factor(operator.as_matrix())
     # Fix lower triangular, so that the boolean flag doesn't get needlessly promoted

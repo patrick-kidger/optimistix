@@ -3,7 +3,7 @@ _SolverState = TypeVar("_SolverState")
 
 class RootFindProblem(AbstractIterativeProblem):
   fn: Callable
-  patterns: Patterns = Patterns()
+  pattern: Pattern = Pattern()
 
 
 class AbstractRootFindSolver(AbstractIterativeSolver):
@@ -40,6 +40,6 @@ def root_find_solve(
     root_prob = RootFindProblem(root_prob)
   del root_fn
 
-  root, result, state, stats = iterative_solve(root_prob, solver, y0, args, options, rewrite_fn=_root, patterns=root_prob.patterns, max_steps=max_steps, adjoint=adjoint, throw=throw)
+  root, result, state, stats = iterative_solve(root_prob, solver, y0, args, options, rewrite_fn=_root, max_steps=max_steps, adjoint=adjoint, throw=throw, pattern=root_prob.pattern)
   return RootFindSolution(root=root, result=result, state=state, stats=stats)
 

@@ -1,9 +1,15 @@
-- Examine termination conditions for Newton, GN/LM
+- Examine termination conditions for ~Newton, GN/LM~ all methods. (e.g. FixedPointIteration has a plain `tol`)
 - QR for rectangular
 - LM
 - Geodesic acceleration for LM
 - Adam/LBFGS/etc.
+- Falsi
 - Line search / learning rates for GN, Newton, etc.
+ - Hager-Zhang
+ - Zoom
+ - Frank Wolfe
+ - Armijo backatracking
+ - Fista
 - Handling Optax-like things
 - Linear solve adjoints
 - Aux output
