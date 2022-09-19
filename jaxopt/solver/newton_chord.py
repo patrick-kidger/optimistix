@@ -27,6 +27,7 @@ class _NewtonChordState(eqx.Module):
   step: Scalar
   diffsize: Scalar
   diffsize_prev: Scalar
+  result: RESULTS
 
 
 class _NewtonChord(AbstractRootFindSolver):
@@ -42,25 +43,28 @@ class _NewtonChord(AbstractRootFindSolver):
     ...
 
   def init(self, root_prob, y, args, options):
+    del options
     if self._is_newton:
       linear_state = None
     else:
       jac = JacobianLinearOperator(root_prob.fn, y, args, pattern=root_prob.pattern)
       linear_state = (jac, self.linear_solver.init(jac))
-    return _NewtonChordState(linear_state=linear_state, step=jnp.array(0), diffsize=jnp.array(0.0), diffsize_prev=jnp.array(0.0))
+    return _NewtonChordState(linear_state=linear_state, step=jnp.array(0), diffsize=jnp.array(0.0), diffsize_prev=jnp.array(0.0), result=jnp.array(RESULTS.successful))
 
   def step(self, root_prob, y, args, options, state):
+    del options
     fx = root_prob.fn(y, args)
     if self._is_newton:
       jac = JacobianLinearOperator(root_prob.fn, y, args, pattern=root_prob.pattern)
-      diff = linear_solve(jac, fx, self.linear_solver).solution
+      sol = linear_solve(jac, fx, self.linear_solver, throw=False)
     else:
       jac, state = state.linear_state
-      diff = linear_solve(jac, fx, self.linear_solver, state=state).solution
+      sol = linear_solve(jac, fx, self.linear_solver, state=state, throw=False)
+    diff = sol.optimum
     scale = (self.atol + self.rtol * y**ω).ω
     diffsize = self.norm((diff**ω / scale**ω).ω)
     new_y = (y**ω - diff**ω).ω
-    new_state = _NewtonChordState(linear_state=state.linear_state, step=state.step + 1, diffsize=diffsize, diffsize_prev=state.diffsize)
+    new_state = _NewtonChordState(linear_state=state.linear_state, step=state.step + 1, diffsize=diffsize, diffsize_prev=state.diffsize, result=sol.result)
     return new_y, new_state
 
   def terminate(self, root_prob, y, args, options, state):
@@ -71,10 +75,10 @@ class _NewtonChord(AbstractRootFindSolver):
     small = _small(state.diffsize)
     diverged = _diverged(rate)
     converged = _converged(factor, self.kappa)
-    terminate = at_least_two & (small | diverged | converged)
-    result = jnp.where(converged, RESULTS.successful, RESULTS.nonconvergence)
-    result = jnp.where(diverged, RESULTS.divergence, result)
-    result = jnp.where(small, RESULTS.successful, result)
+    linsolve_fail = state.result != RESULTS.successful
+    terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
+    result = jnp.where(diverged, RESULTS.divergence, RESULTS.successful)
+    result = jnp.where(linsolve_fail, state.result, result)
     return terminate, result
 
 

@@ -5,7 +5,7 @@
 - Adam/LBFGS/etc.
 - Falsi
 - Line search / learning rates for GN, Newton, etc.
- - Hager-Zhang
+ - Hager-Zhang [https://github.com/JuliaNLSolvers/Optim.jl/issues/153 claims 2005 paper is worse than 2012 paper]
  - Zoom
  - Frank Wolfe
  - Armijo backatracking

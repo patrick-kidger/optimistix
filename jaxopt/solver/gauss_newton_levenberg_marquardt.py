@@ -26,6 +26,7 @@ class _GaussNewtonLevenbergMarquardtState(eqx.Module):
   step: Scalar
   diffsize: Scalar
   diffsize_prev: Scalar
+  result: RESULTS
 
 
 class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
@@ -42,7 +43,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
 
   def init(self, residual_prob, y, args, options):
     del residual_prob, y, args, options
-    return _GaussNewtonLevenbergMarquardtState(step=jnp.array(0), diffsize=jnp.array(0.0), diffsize_prev=jnp.array(0.0))
+    return _GaussNewtonLevenbergMarquardtState(step=jnp.array(0), diffsize=jnp.array(0.0), diffsize_prev=jnp.array(0.0), result=jnp.array(RESULTS.successful))
 
   def step(self, residual_prob, y, args, options, state):
     del options
@@ -53,7 +54,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
       damping = # TODO(kidger)
       matrix = JacobianLinearOperator(_Damped(residual_prob.fn, damping), y, args)
       residuals = (residuals, jtu.tree_map(jnp.zeros_like, y))
-    diff = linear_solve(matrix, residuals, self.linear_solver).solution
+    sol = linear_solve(matrix, residuals, self.linear_solver, throw=False)
     # Yep, no `J^T J` here.
     #
     # So Gauss-Newton is often defined as `diff = (J^T J)^{-1} J^T r`.
@@ -79,10 +80,11 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
     # the normal equations in the textbook way! (In practice if you go looking
     # around, you'll see that most sophisticated implementations actually solve this
     # using a QR decomposition.)
+    diff = sol.optimum
     scale = (self.atol + self.rtol * y**ω).ω
     diffsize = self.norm((diff**ω / scale**ω).ω)
     new_y = (y**ω - diff**ω).ω
-    new_state = _GaussNewtonLevenbergMarquardtState(step=state.step + 1, diffsize=diffsize, diffsize_prev=state.diffsize)
+    new_state = _GaussNewtonLevenbergMarquardtState(step=state.step + 1, diffsize=diffsize, diffsize_prev=state.diffsize, result=sol.result)
     return new_y, new_state
 
   def terminate(self, residual_prob, y, args, options, state):
@@ -93,10 +95,10 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
     small = _small(state.diffsize)
     diverged = _diverged(rate)
     converged = _converged(factor, self.kappa)
-    terminate = at_least_two & (small | diverged | converged)
-    result = jnp.where(converged, RESULTS.successful, RESULTS.nonconvergence)
-    result = jnp.where(diverged, RESULTS.divergence, result)
-    result = jnp.where(small, RESULTS.successful, result)
+    linsolve_fail = state.result != RESULTS.successful
+    terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
+    result = jnp.where(diverged, RESULTS.divergence, RESULTS.successful)
+    result = jnp.where(linsolve_fail, state.result, result)
     return terminate, result
 
 
