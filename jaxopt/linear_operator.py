@@ -1,13 +1,12 @@
 class Pattern(eqx.Module):
   symmetric: bool
   unit_diagonal: bool
-  maybe_singular: bool
   lower_triangular: bool
   upper_triangular: bool
   triangular: bool
   diagonal: bool
 
-  def __init__(self, *, symmetric: bool = False, unit_diagonal: bool = False, maybe_singular: bool = False, lower_triangular: Optional[bool] = None, upper_triangular: Optional[bool] = None, triangular: Optional[bool] = None, diagonal: Optional[bool] = None):
+  def __init__(self, *, symmetric: bool = False, unit_diagonal: bool = False, lower_triangular: Optional[bool] = None, upper_triangular: Optional[bool] = None, triangular: Optional[bool] = None, diagonal: Optional[bool] = None):
     if lower_triangular is None:
       lower_triangular = diagonal is True
     if upper_triangular is None:
@@ -16,6 +15,8 @@ class Pattern(eqx.Module):
       triangular = lower_triangular or upper_triangular
     if diagonal is None:
       diagonal = lower_triangular and upper_triangular
+    if symmetric and lower_triangular != upper_triangular:
+      raise ValueError("A symmetric operator cannot be only lower or upper triangular")
     if triangular and not (lower_triangular or upper_triangular):
       raise ValueError("A triangular operator must be either lower trianglar or upper triangular")
     if lower_triangular or upper_triangular and not triangular:
@@ -24,11 +25,16 @@ class Pattern(eqx.Module):
       raise ValueError("A diagonal operator must be both lower and upper triangular")
     self.symmetric = symmetric
     self.unit_diagonal = unit_diagonal
-    self.maybe_singular = maybe_singular
     self.lower_triangular = lower_triangular
     self.upper_triangular = upper_triangular
     self.triangular = triangular
     self.diagonal = diagonal
+
+  def transpose(self):
+    if self.symmetric:
+      return self
+    else:
+      return Pattern(symmetric=self.symmetric, unit_diagonal=self.unit_diagonal, lower_triangular=self.upper_triangular, upper_triangular=lower_triangular, triangular=self.triangular, diagonal=self.diagonal)
 
 
 class AbstractLinearOperator(eqx.Module):
@@ -53,6 +59,10 @@ class AbstractLinearOperator(eqx.Module):
 
   @abc.abstractmethod
   def materialise(self) -> AbstractLinearOperator:
+    ...
+
+  @abc.abstractmethod
+  def transpose(self) -> AbstractLinearOperator:
     ...
 
   @abc.abstractmethod
@@ -89,6 +99,11 @@ class MatrixLinearOperator(AbstractLinearOperator):
 
   def materialise(self):
     return self
+
+  def transpose(self):
+    if self.pattern.symmetric:
+      return self
+    return MatrixLinearOperator(self.matrix.T, self.pattern.transpose())
 
   def in_structure(self):
     in_size, _ = jnp.shape(self.matrix)
@@ -162,6 +177,13 @@ class PyTreeLinearOperator(AbstractLinearOperator):
   def materialise(self):
     return self
 
+  def transpose(self):
+    if self.pattern.symmetric:
+      return self
+    pytree_transpose = jtu.tree_transpose(self.pytree, jax.tree_structure(self.out_structure()), jax.tree_structure(self.in_structure()))
+    pytree_transpose = jtu.tree_map(jnp.transpose, pytree_transpose)
+    return PyTreeLinearOperator(pytree_transpose, self.in_structure(), self.pattern.transpose())
+
   def in_structure(self):
     return self.input_structure
 
@@ -186,7 +208,12 @@ class JacobianLinearOperator(AbstractLinearOperator):
   def materialise(self):
     fn = lambda x: self.fn(x, self.args)
     jac = jax.jacfwd(fn)(self.x)
-    return PyTreeLinearOperator(jac self.out_structure())
+    return PyTreeLinearOperator(jac, self.out_structure())
+
+  def transpose(self):
+    if self.pattern.symmetric:
+      return self
+    return TransposeJacobianLinearOperator(self)
 
   def in_structure(self):
     return jax.eval_shape(lambda: self.x)
@@ -194,6 +221,33 @@ class JacobianLinearOperator(AbstractLinearOperator):
   def out_structure(self):
     return jax.eval_shape(self.fn, self.x, self.args)
 
+
+class TransposeJacobianLinearOperator(AbstractLinearOperator):
+  operator: JacobianLinearOperator
+
+  def mv(self, vector):
+    fn = lambda x: self.operator.fn(x, self.args)
+    _, vjpfn = jax.vjp(fn, self.operator.x)
+    return vjpfn(vector)
+
+  def as_matrix(self):
+    return self.operator.as_matrix().T
+
+  def materialise(self):
+    return self.operator.materialise().transpose()
+
+  def transpose(self):
+    return self.operator
+
+  @property
+  def pattern(self):
+    return self.operator.pattern.transpose()
+
+  def in_structure(self):
+    return self.operator.out_structure()
+
+  def out_structure(self):
+    return self.operator.in_structure()
 
 class IdentityLinearOperator(eqx.Module):
   structure: PyTree[jax.core.ShapeDtypeStruct]
@@ -209,6 +263,9 @@ class IdentityLinearOperator(eqx.Module):
   def materialise(self):
     return self
 
+  def transpose(self):
+    return self
+
   def in_structure(self):
     return self.structure
 
@@ -218,3 +275,38 @@ class IdentityLinearOperator(eqx.Module):
   @property
   def pattern(self):
     return Pattern(symmetric=True, unit_diagonal=True, diagonal=True)
+
+
+class TangentLinearOperator(AbstractLinearOperator):
+  primal: AbstractLinearOperator
+  tangent: AbstractLinearOperator
+
+  def mv(self, vector):
+    mv = lambda operator: operator.mv(vector)
+    _, out = eqx.filter_jvp(mv, self.primal, self.tangent)
+    return out
+
+  def as_matrix(self):
+    as_matrix = lambda operator: operator.as_matrix()
+    _, out = eqx.filter_jvp(as_matrix, self.primal, self.tangent)
+    return out
+
+  def materialise(self):
+    materialise = lambda operator: operator.materialise()
+    primal_out, tangent_out = eqx.filter_jvp(materialise), self.primal, self.tangent)
+    return TangentLinearOperator(primal_out, tangent_out)
+
+  def transpose(self):
+    transpose = lambda operator: operator.transpose()
+    primal_out, tangent_out = eqx.filter_jvp(transpose, self.primal, self.tangent)
+    return TangentLinearOperator(primal_out, tangent_out)
+
+  def in_structure(self):
+      return self.primal.in_structure()
+
+  def out_structure(self):
+      return self.primal.out_structure()
+
+  @property
+  def pattern(self):
+      return self.primal.pattern

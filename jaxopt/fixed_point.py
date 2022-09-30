@@ -29,6 +29,7 @@ class _ToRootFn(eqx.Module):
     return self.fixed_point_fn(y, args) - y
 
 
+@eqx.filter_jit
 def fixed_point_solve(
     fixed_point_fn: Union[Callable, FixedPointProblem],
     solver: Union[AbstractFixedPointSolver, AbstractRootFindSolver],

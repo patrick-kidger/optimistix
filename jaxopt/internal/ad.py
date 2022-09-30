@@ -1,5 +1,15 @@
-# TODO: I think the jacfwd and the jvp can probably be combined, as they both
-# basically do the same thing. That might improve efficiency via parallelism.
+from typing import Array, Callable
+
+import equinox as eqx
+import equinox.internals as eqxi
+import jax
+import jax.tree_util as jtu
+from jaxtyping import Array, PyTree
+
+from ..linear_operator import Pattern
+from ..linear_solver import AbstractLinearsolver
+
+
 def implicit_jvp(
     fn_primal: Callable,
     fn_rewrite: Callable,
@@ -43,7 +53,7 @@ def implicit_jvp(
     return root, jtu.tree_map(lax.stop_gradient, residual)
 
 
-@ft.partial(fixed_custom_jvp, nondiff_argnums=(0, 1, 2, 3, 4, 5))
+@ft.partial(eqxi.fixed_custom_jvp, nondiff_argnums=(0, 1, 2, 3, 4, 5))
 def _implicit_impl(fn_primal, fn_rewrite, nondiff_args, closure, pattern, linear_solver, diff_args):
     del fn_rewrite, pattern, linear_solver
     args = eqx.combine(diff_args, nondiff_args)

@@ -24,7 +24,7 @@ class Bisection(AbstractRootFindSolver):
       raise ValueError("Bisection can only be used to find the roots of a function producing a scalar output")
     upper_sign = jnp.sign(upper)
     lower_sign = jnp.sign(lower)
-    error_if(upper_sign == lower_sign, "The root is not contained in [lower, upper]")
+    upper_sign = error_if(upper_sign, upper_sign == lower_sign, "The root is not contained in [lower, upper]")
     return _BisectionState(lower=lower, upper=upper, sign=upper_sign, error=jnp.asarray(jnp.inf))
 
   def step(self, root_prob, y: Scalar, args, options, state):

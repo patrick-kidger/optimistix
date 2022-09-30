@@ -1,5 +1,4 @@
 - Examine termination conditions for ~Newton, GN/LM~ all methods. (e.g. FixedPointIteration has a plain `tol`)
-- QR for rectangular
 - LM
 - Geodesic acceleration for LM
 - Adam/LBFGS/etc.
@@ -11,10 +10,16 @@
  - Armijo backatracking
  - Fista
 - Handling Optax-like things
-- Linear solve adjoints
 - Aux output
+- Tests:
+  - all the complexity of {PyTree,TransposeJacobian,Tangent}LinearOperator
+  - transposing all linear solvers
+  - unit_diagonal for triangular solvers
+  - filter primitives with nontrivial f
+  - vprim
 
 Done?
+- QR for rectangular
 - Handling Newton/Chord when n != m (or at least add a check that n==m)
   - At the very least, least_squares seems to require m >= n. But what about the appending-zeros-to-state case?
 - Need to think about choice of linear solvers: in particular LU vs lstsq
@@ -24,6 +29,7 @@ Done?
 - Have newton take in a linear solver for the backward pass
 - Make sure Newton can use symmetric-capable solvers for when solving minimisations problems (root = grad(fn) so jac(root) = hessian(fn) is symmetric)
 - Figuring out the relationship between least squares, root finding, and fixed points
+- Linear solve transposes
 
 Problems with existing JAXopt:
 - LM etc. evaluates during init, so 2x as long to compile
@@ -33,3 +39,5 @@ Problems with existing JAXopt:
 - Loops are inefficient, e.g. under vmap
 Lesser problems with JAXopt:
 - LM doesn't work with PyTrees.
+- Insufficiently advanced linear solvers
+- https://github.com/google/jaxopt/blob/c3ed0fb76054fcae4ecae1746fef3addeadfb0fa/jaxopt/_src/gauss_newton.py#L131

@@ -41,7 +41,7 @@ def _iterate(inputs, closure, reverse_autodiffable):
     return new_y, num_steps + 1, new_state
 
   if reverse_autodiffable:
-    final_val = bounded_while_loop(cond_fun, body_fun, init_val, max_steps, base=4)
+    final_val = eqxi.bounded_while_loop(cond_fun, body_fun, init_val, max_steps, base=4)
   else:
     if max_steps is None:
       _cond_fun = cond_fun
@@ -49,7 +49,7 @@ def _iterate(inputs, closure, reverse_autodiffable):
       def _cond_fun(carry):
         _, num_steps, _ = carry
         return cond_fun(carry) & (num_steps < max_steps)
-    final_val = bounded_while_loop(cond_fun, body_fun, init_val, max_steps=None)
+    final_val = eqxi.bounded_while_loop(cond_fun, body_fun, init_val, max_steps=None)
 
   out, num_steps, final_state = final_val
   terminate, result = solver.terminate(prob, final_y, args, final_state, options)
@@ -73,11 +73,14 @@ def iterate_solve(
   inputs = prob, args
   closure = solver, y0, options, max_steps
   out, (num_steps, residual) = adjoint.apply(_iterate, rewrite_fn, inputs, closure, pattern)
+  stats = {"num_steps": num_steps, "max_steps": max_steps}
+  outputs = out, result, final_state, stats
+
   error_index = unvmap_max(result)
-  branched_error_if(
+  outputs = branched_error_if(
+    outputs,
     throw & (results != RESULTS.successful),
     error_index,
     RESULTS.reverse_lookup
   )
-  stats = {"num_steps": num_steps, "max_steps": max_steps}
-  return out, result, final_state, stats
+  return outputs

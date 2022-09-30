@@ -10,12 +10,16 @@ def _tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Scalar:
 # - Normal CG evaluates `operator.mv` six times.
 # Possibly this can be cheapend a bit somehow?
 class CG(AbstractLinearSolver):
+  maybe_singular: bool = True
   rtol: float
   atol: float
   normal: bool = False
   norm: Callable = rms_norm
   materialise: bool = False
   max_steps: Optional[int] = None
+
+  def is_maybe_singular(self):
+    return self.maybe_singular
 
   def init(self, operator, options):
     del options
@@ -96,3 +100,14 @@ class CG(AbstractLinearSolver):
     else:
       result = jnp.where(num_steps == self.max_steps, RESULTS.max_steps_reached, RESULTS.successful)
     return solution, result, {"num_steps": num_steps, "max_steps": self.max_steps}
+
+  def transpose(self, state, options):
+    transpose_state = state.transpose()
+    try:
+      preconditioner = options["preconditioner"]
+    except KeyError:
+      transpose_options = {}
+    else:
+      transpose_options = dict(preconditioner=preconditioner.transpose())
+    return transpose_state, transpose_options
+

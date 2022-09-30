@@ -29,7 +29,8 @@ class _ToRootFn(eqx.Module):
     return jax.grad(self.minimise_fn)(y, args)
 
 
-def minimise(
+@eqx.filter_jit
+def minimise_solve(
     minimise_fn: Union[Callable, MinimiseProblem],
     solver: Union[AbstractMinimiseSolver, AbstractRootFindSolver],
     y0: PyTree[Array],

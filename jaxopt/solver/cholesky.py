@@ -1,6 +1,13 @@
 class Cholesky(AbstractLinearSolver):
+  maybe_singular: Optional[bool] = None
   normal: bool = False
   jitter: float = 0
+
+  def is_maybe_singular(self):
+    if self.maybe_singular is None:
+      return self.normal and self.jitter > 0
+    else:
+      return self.maybe_singular
 
   def init(self, operator, options):
     del options
@@ -29,3 +36,17 @@ class Cholesky(AbstractLinearSolver):
     else:
       factor = state
     return unflatten(jsp.linalg.cho_solve((factor, False), vector))
+
+  def transpose(self, state, options):
+    if self.normal:
+      # TODO(kidger): is there a way to compute this from the Cholesky factorisation directly?
+      matrix, _ = state
+      m, _ = matrix.shape
+      transpose_factor, lower = jsp.linalg.cho_factor(matrix @ matrix.T + self.jitter * jnp.eye(m))
+      assert lower is False
+      transpose_state = matrix.T, transpose_factor
+      transpose_options = {}
+      return transpose_state, transpose_options
+    else:
+      # Matrix is symmetric anyway
+      return state, options

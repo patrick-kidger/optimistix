@@ -1,4 +1,10 @@
 class Diagonal(AbstractLinearSolver):
+  maybe_singular: bool = True
+  rcond: Optional[float] = None
+
+  def is_maybe_singular(self):
+    return self.maybe_singular
+
   def init(self, operator, options):
     del options
     if operator.in_size() != operator.out_size():
@@ -15,5 +21,12 @@ class Diagonal(AbstractLinearSolver):
     else:
       # TODO(kidger): do diagonal solves more efficiently than this.
       vector, unflatten = jfu.ravel_pytree(vector)
-      solution = unflatten(vector / jnp.diag(operator.as_matrix()))
+      diag = jnp.diag(operator.as_matrix())
+      rcond = resolve_rcond(self.rcond, diag.size, diag.size, diag.dtype)
+      diag = jnp.where(diag >= rcond * jnp.max(diag), diag, jnp.inf)
+      solution = unflatten(vector / diag)
     return solution, RESULTS.successful, {}
+
+  def transpose(self, state, options):
+    # Matrix is symmetric
+    return state, options

@@ -1,3 +1,4 @@
+from . import internal
 from .fixed_point import AbstractFixedPointSolver, fixed_point_solve, FixedPointSolution, FixedPointProblem
 from .least_squares import AbstractLeastSquaresSolver, least_squares_solve, LeastSquaresSolution, FixedPointSolution
 from .linear_operator import AbstractLinearOperator, JacobianLinearOperator, MatrixLinearOperator, IdentityLinearOperator, PyTreeLinearOperator, Pattern

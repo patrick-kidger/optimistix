@@ -23,6 +23,7 @@ def _root(root, _, inputs, __):
   return root_fn(root, args)
 
 
+@eqx.filter_jit
 def root_find_solve(
     root_fn: Union[Callable, RootFindProblem],
     solver: AbstractRootFindSolver,
