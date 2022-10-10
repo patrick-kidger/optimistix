@@ -49,8 +49,7 @@ def implicit_jvp(
     root, residual = _implicit_impl(
         fn_primal, jac_rewrite, nondiff_args, closure, pattern, linear_solver, diff_args
     )
-    # Trim off the zero tangents we added to `residual`.
-    return root, jtu.tree_map(lax.stop_gradient, residual)
+    return root, jtu.tree_map(eqxi.nondifferentible_bwd, residual)
 
 
 @ft.partial(eqxi.fixed_custom_jvp, nondiff_argnums=(0, 1, 2, 3, 4, 5))

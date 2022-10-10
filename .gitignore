@@ -1,0 +1,10 @@
+**/__pycache__
+**/.ipynb_checkpoints
+*.egg-info/
+build/
+dist/
+site/
+examples/data
+.all_objects.cache
+.pymon
+.idea

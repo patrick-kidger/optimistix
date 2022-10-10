@@ -5,10 +5,15 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.interpeters.ad as ad
-from jaxtyping import PyTree, Array
+from jaxtyping import Array, PyTree
 
 from .custom_types import sentinel
-from .linear_operator import AbstractLinearOperator, PyTreeLinearOperator, IdentityLinearOperator, TangentLinearOperator
+from .linear_operator import (
+    AbstractLinearOperator,
+    IdentityLinearOperator,
+    PyTreeLinearOperator,
+    TangentLinearOperator,
+)
 from .results import RESULTS
 
 
@@ -202,6 +207,7 @@ class AutoLinearSolver(AbstractLinearSolver):
 
   def init(self, operator):
     from . import solvers
+
     # Of these solvers: QR, Diagonal, Triangular, CG can handle ill-posed
     # problems, i.e. they converge to the pseudoinverse solution.
     if operator.in_size() != operator.out_size():
