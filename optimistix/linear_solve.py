@@ -18,7 +18,7 @@ from .linear_operator import (
     PyTreeLinearOperator,
     TangentLinearOperator,
 )
-from .results import RESULTS
+from .solution import RESULTS, Solution
 
 
 #
@@ -274,13 +274,6 @@ class AutoLinearSolver(AbstractLinearSolver):
         return solver.transpose(state, options)
 
 
-class LinearSolveSolution(eqx.Module):
-    solution: Array
-    result: RESULTS
-    state: _SolverState
-    stats: Dict[str, Array]
-
-
 # TODO(kidger): gmres, bicgstab
 @eqx.filter_jit
 def linear_solve(
@@ -291,7 +284,7 @@ def linear_solve(
     *,
     state: PyTree[Array] = sentinel,
     throw: bool = True,
-) -> LinearSolveSolution:
+) -> Solution:
     if options is None:
         options = {}
     if state is sentinel:
@@ -310,22 +303,22 @@ def linear_solve(
     solution, result, stats = eqxi.filter_primitive_bind(
         _linear_solve_p, operator, state, vector, options, solver
     )
-    # TODO: prevent autodiff through stats
-    result, stats = lax.stop_gradient((result, stats))
+    # TODO: prevent forward-mode autodiff through stats
+    stats = eqxi.nondifferentiable_backward(stats)
 
-    has_nans = jnp.any(jnp.isnan(solution))
+    has_nans = jnp.any(
+        jnp.stack([jnp.any(jnp.isnan(x)) for x in jtu.tree_leaves(solution)])
+    )
     result = jnp.where(
         (result == RESULTS.successful) & has_nans, RESULTS.linear_singular, result
     )
-    output = LinearSolveSolution(
-        solution=solution, result=result, state=state, stats=stats
-    )
+    sol = Solution(value=solution, result=result, state=state, stats=stats)
 
     error_index = eqxi.unvmap_max(result)
-    output = eqxi.branched_error_if(
-        output,
+    sol = eqxi.branched_error_if(
+        sol,
         throw & (result != RESULTS.successful),
         error_index,
         RESULTS.reverse_lookup,
     )
-    return output
+    return sol

@@ -1,6 +1,7 @@
+- Tidy up solutions/problems
+- Aux output
 - Examine termination conditions for ~Newton, GN/LM~ all methods. (e.g. FixedPointIteration has a plain `tol`)
 - LM
-- Aux output
 - Tests:
   - all the complexity of {PyTree,TransposeJacobian,Tangent}LinearOperator
   - transposing all linear solvers

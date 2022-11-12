@@ -7,8 +7,8 @@ from jaxtyping import Array, PyTree
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
 from .linear_operator import Pattern
-from .results import RESULTS
-from .root_find import AbstractRootFindSolver, root_find_solve, RootFindProblem
+from .root_find import AbstractRootFinder, root_find, RootFindProblem
+from .solution import Solution
 
 
 _SolverState = TypeVar("_SolverState")
@@ -18,15 +18,8 @@ class MinimiseProblem(AbstractIterativeProblem):
     fn: Callable
 
 
-class AbstractMinimiseSolver(AbstractIterativeSolver):
+class AbstractMinimiser(AbstractIterativeSolver):
     pass
-
-
-class MinimiseSolution(eqx.Module):
-    optimum: Array
-    result: RESULTS
-    state: _SolverState
-    stats: Dict[str, Array]
 
 
 def _minimum(optimum, _, inputs, __):
@@ -43,9 +36,9 @@ class _ToRootFn(eqx.Module):
 
 
 @eqx.filter_jit
-def minimise_solve(
+def minimise(
     minimise_fn: Union[Callable, MinimiseProblem],
-    solver: Union[AbstractMinimiseSolver, AbstractRootFindSolver],
+    solver: Union[AbstractMinimiser, AbstractRootFinder],
     y0: PyTree[Array],
     args: PyTree = None,
     options: Optional[Dict[str, Any]] = None,
@@ -53,17 +46,17 @@ def minimise_solve(
     max_steps: Optional[int] = 16,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
-):
+) -> Solution:
     if isinstance(minimise_fn, MinimiseProblem):
         minimise_prob = minimise_fn
     else:
         minimise_prob = MinimiseProblem(minimise_fn)
     del minimise_fn
 
-    if isinstance(solver, AbstractMinimiseSolver):
+    if isinstance(solver, AbstractRootFinder):
         root_fn = _ToRootFn(minimise_prob.fn)
         root_prob = RootFindProblem(root_fn, pattern=Pattern(symmetric=True))
-        sol = root_find_solve(
+        return root_find(
             root_prob,
             solver,
             y0,
@@ -73,11 +66,8 @@ def minimise_solve(
             adjoint=adjoint,
             throw=throw,
         )
-        return MinimiseSolution(
-            optimum=sol.root, result=sol.result, state=sol.state, stats=sol.stats
-        )
     else:
-        optimum, result, state, stats = iterative_solve(
+        return iterative_solve(
             minimise_prob,
             solver,
             y0,
@@ -87,7 +77,4 @@ def minimise_solve(
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
-        )
-        return MinimiseSolution(
-            optimum=optimum, result=result, state=state, stats=stats
         )

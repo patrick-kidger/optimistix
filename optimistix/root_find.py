@@ -6,7 +6,7 @@ from jaxtyping import Array, PyTree
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
 from .linear_operator import Pattern
-from .results import RESULTS
+from .solution import Solution
 
 
 _SolverState = TypeVar("_SolverState")
@@ -14,18 +14,11 @@ _SolverState = TypeVar("_SolverState")
 
 class RootFindProblem(AbstractIterativeProblem):
     fn: Callable
-    pattern: Pattern = Pattern()
+    pattern: Pattern
 
 
-class AbstractRootFindSolver(AbstractIterativeSolver):
+class AbstractRootFinder(AbstractIterativeSolver):
     pass
-
-
-class RootFindSolution(eqx.Module):
-    root: Array
-    result: RESULTS
-    state: _SolverState
-    stats: Dict[str, Array]
 
 
 def _root(root, _, inputs, __):
@@ -35,9 +28,9 @@ def _root(root, _, inputs, __):
 
 
 @eqx.filter_jit
-def root_find_solve(
+def root_find(
     root_fn: Union[Callable, RootFindProblem],
-    solver: AbstractRootFindSolver,
+    solver: AbstractRootFinder,
     y0: PyTree[Array],
     args: PyTree = None,
     options: Optional[Dict[str, Any]] = None,
@@ -45,14 +38,14 @@ def root_find_solve(
     max_steps: Optional[int] = 16,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
-):
+) -> Solution:
     if isinstance(root_fn, RootFindProblem):
         root_prob = root_fn
     else:
-        root_prob = RootFindProblem(root_prob)
+        root_prob = RootFindProblem(root_prob, pattern=Pattern())
     del root_fn
 
-    root, result, state, stats = iterative_solve(
+    return iterative_solve(
         root_prob,
         solver,
         y0,
@@ -64,4 +57,3 @@ def root_find_solve(
         throw=throw,
         pattern=root_prob.pattern,
     )
-    return RootFindSolution(root=root, result=result, state=state, stats=stats)

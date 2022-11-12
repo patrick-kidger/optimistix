@@ -1,12 +1,16 @@
-from typing import Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
-from .iterate import iterative_solve
-from .results import RESULTS
+from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
+from .linear_operator import Pattern
+from .minimise import AbstractMinimiser, minimise
+from .root_find import AbstractRootFinder, root_find, RootFindProblem
+from .solution import Solution
 
 
 _SolverState = TypeVar("_SolverState")
@@ -14,17 +18,11 @@ _SolverState = TypeVar("_SolverState")
 
 class LeastSquaresProblem(AbstractIterativeProblem):
     fn: Callable
+    pattern: Pattern
 
 
 class AbstractLeastSquaresSolver(AbstractIterativeSolver):
     pass
-
-
-class LeastSquaresSolution(eqx.Module):
-    optimum: Array
-    result: RESULTS
-    state: _SolverState
-    stats: Dict[str, Array]
 
 
 def _residual(optimum, _, inputs, __):
@@ -55,11 +53,9 @@ class _ToMinimiseFn(eqx.Module):
 
 
 @eqx.filter_jit
-def least_squares_solve(
+def least_squares(
     residual_fn: Union[Callable, LeastSquaresProblem],
-    solver: Union[
-        AbstractLeastSquaresSolver, AbstractMinimiseSolver, AbstractRootFindSolver
-    ],
+    solver: Union[AbstractLeastSquaresSolver, AbstractMinimiser, AbstractRootFinder],
     y0: PyTree[Array],
     args: PyTree = None,
     options: Optional[Dict[str, Any]] = None,
@@ -67,17 +63,17 @@ def least_squares_solve(
     max_steps: Optional[int] = 16,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
-):
+) -> Solution:
     if isinstance(residual_fn, LeastSquaresProblem):
         residual_prob = residual_fn
     else:
-        residual_prob = LeastSquaresProblem(residual_fn)
+        residual_prob = LeastSquaresProblem(residual_fn, pattern=Pattern())
     del residual_fn
 
-    if isinstance(solver, AbstractRootFindSolver):
+    if isinstance(solver, AbstractRootFinder):
         root_fn = _ToRootFn(residual_prob.fn)
         root_prob = RootFindProblem(root_fn, pattern=Pattern(symmetric=True))
-        sol = root_find_solve(
+        return root_find(
             root_prob,
             solver,
             y0,
@@ -87,15 +83,11 @@ def least_squares_solve(
             adjoint=adjoint,
             throw=throw,
         )
-        return LeastSquaresSolution(
-            optimum=sol.root, result=sol.result, state=sol.state, stats=sol.stats
-        )
 
-    elif isinstance(solver, AbstractMinimiseSolver):
+    elif isinstance(solver, AbstractMinimiser):
         minimise_fn = _ToMinimiseFn(residual_prob.fn)
-        minimise_prob = MinimiseProblem(minimise_fn)
-        sol = minimise(
-            minimise_prob,
+        return minimise(
+            minimise_fn,
             solver,
             y0,
             args,
@@ -104,12 +96,9 @@ def least_squares_solve(
             adjoint=adjoint,
             throw=throw,
         )
-        return LeastSquaresSolution(
-            optimum=sol.optimum, result=sol.result, state=sol.state, stats=sol.stats
-        )
 
     else:
-        optimum, result, state, stats = iterative_solve(
+        return iterative_solve(
             residual_prob,
             solver,
             y0,
@@ -119,7 +108,4 @@ def least_squares_solve(
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
-        )
-        return LeastSquaresSolution(
-            optimum=optimum, result=result, state=state, stats=stats
         )
