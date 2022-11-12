@@ -1,4 +1,3 @@
-- Tidy up solutions/problems
 - Aux output
 - Examine termination conditions for ~Newton, GN/LM~ all methods. (e.g. FixedPointIteration has a plain `tol`)
 - LM

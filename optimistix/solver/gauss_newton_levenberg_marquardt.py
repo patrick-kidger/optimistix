@@ -70,10 +70,16 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
         del options
         residuals = residual_prob.fn(y, args)
         if self._is_gauss_newton:
-            matrix = JacobianLinearOperator(residual_prob.fn, y, args)
+            matrix = JacobianLinearOperator(
+                residual_prob.fn, y, args, pattern=residual_prob.pattern
+            )
         else:
             damping = ...  # TODO(kidger)
-            matrix = JacobianLinearOperator(_Damped(residual_prob.fn, damping), y, args)
+            matrix = JacobianLinearOperator(
+                _Damped(residual_prob.fn, damping, pattern=residual_prob.pattern),
+                y,
+                args,
+            )
             residuals = (residuals, jtu.tree_map(jnp.zeros_like, y))
         sol = linear_solve(matrix, residuals, self.linear_solver, throw=False)
         # Yep, no `J^T J` here.
