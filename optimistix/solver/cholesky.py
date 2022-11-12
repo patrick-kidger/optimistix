@@ -1,6 +1,7 @@
-import jax.numpy as jnp
-import jax.flatten_util as jfu
 from typing import Optional
+
+import jax.flatten_util as jfu
+import jax.numpy as jnp
 import jax.scipy as jsp
 
 from ..linear_solve import AbstractLinearSolver
@@ -29,11 +30,13 @@ class Cholesky(AbstractLinearSolver):
         else:
             if operator.in_size() != operator.out_size():
                 raise ValueError(
-                    "`Cholesky(..., normal=False)` may only be used for linear solves with square matrices"
+                    "`Cholesky(..., normal=False)` may only be used for linear solves "
+                    "with square matrices"
                 )
             if not operator.pattern.symmetric:
                 raise ValueError(
-                    "`Cholesky(..., normal=False)` may only be used for symmetric linear operators"
+                    "`Cholesky(..., normal=False)` may only be used for symmetric "
+                    "linear operators"
                 )
             state, lower = jsp.linalg.cho_factor(operator.as_matrix())
         # Fix lower triangular, so that the boolean flag doesn't get needlessly promoted
@@ -53,7 +56,8 @@ class Cholesky(AbstractLinearSolver):
 
     def transpose(self, state, options):
         if self.normal:
-            # TODO(kidger): is there a way to compute this from the Cholesky factorisation directly?
+            # TODO(kidger): is there a way to compute this from the Cholesky
+            # factorisation directly?
             matrix, _ = state
             m, _ = matrix.shape
             transpose_factor, lower = jsp.linalg.cho_factor(

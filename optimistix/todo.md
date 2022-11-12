@@ -1,5 +1,10 @@
 - Examine termination conditions for ~Newton, GN/LM~ all methods. (e.g. FixedPointIteration has a plain `tol`)
 - LM
+- Aux output
+- Tests:
+  - all the complexity of {PyTree,TransposeJacobian,Tangent}LinearOperator
+  - transposing all linear solvers
+  - unit_diagonal for triangular solvers
 - Geodesic acceleration for LM
 - Adam/LBFGS/etc.
 - Falsi
@@ -10,13 +15,6 @@
  - Armijo backatracking
  - Fista
 - Handling Optax-like things
-- Aux output
-- Tests:
-  - all the complexity of {PyTree,TransposeJacobian,Tangent}LinearOperator
-  - transposing all linear solvers
-  - unit_diagonal for triangular solvers
-  - filter primitives with nontrivial f
-  - vprim
 
 Done?
 - QR for rectangular
@@ -37,6 +35,7 @@ Problems with existing JAXopt:
 - Normal CG is ludicrously inefficient to compile: evaluate matvec many times.
 - Implicit diff done using reverse mode instead of forward mode?
 - Loops are inefficient, e.g. under vmap
+
 Lesser problems with JAXopt:
 - LM doesn't work with PyTrees.
 - Insufficiently advanced linear solvers

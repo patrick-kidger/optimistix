@@ -1,5 +1,6 @@
 import equinox as eqx
 import equinox.internal as eqxi
+import jax
 import jax.numpy as jnp
 
 from ..custom_types import Scalar
@@ -25,7 +26,8 @@ class Bisection(AbstractRootFindSolver):
                 "Bisection can only be used to find the roots of a function taking a "
                 "scalar input"
             )
-        if jnp.shape(root_prob.fn(y)) != ():
+        out_struct = jax.eval_shape(root_prob.fn, y)
+        if not isinstance(out_struct, jax.ShapeDtypeStruct) or out_struct.shape != ():
             raise ValueError(
                 "Bisection can only be used to find the roots of a function producing "
                 "a scalar output"

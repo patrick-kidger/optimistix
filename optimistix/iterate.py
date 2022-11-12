@@ -2,7 +2,7 @@ import abc
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
 import equinox as eqx
-import equinox.internax as eqxi
+import equinox.internal as eqxi
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
