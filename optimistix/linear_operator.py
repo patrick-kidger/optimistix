@@ -73,6 +73,8 @@ class Pattern(eqx.Module):
 
 
 class AbstractLinearOperator(eqx.Module):
+    pattern = field(init=False, repr=False)
+
     def __post_init__(self):
         if self.in_size() != self.out_size():
             if self.pattern.symmetric:
@@ -108,11 +110,6 @@ class AbstractLinearOperator(eqx.Module):
     def out_structure(self) -> PyTree[jax.core.ShapeDtypeStruct]:
         ...
 
-    @property
-    @abc.abstractmethod
-    def pattern(self) -> Pattern:
-        ...
-
     def in_size(self) -> int:
         leaves = jax.tree_leaves(self.in_structure())
         leaves = sum(np.prod(leaf.shape) for leaf in leaves)
@@ -124,7 +121,7 @@ class AbstractLinearOperator(eqx.Module):
 
 class MatrixLinearOperator(AbstractLinearOperator):
     matrix: Float[Array, "a b"]
-    pattern: Pattern = Pattern()
+    pattern: Pattern = field(init=True, repr=True, default=Pattern())
 
     def mv(self, vector):
         return self.matrix @ vector
@@ -171,7 +168,7 @@ def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
 class PyTreeLinearOperator(AbstractLinearOperator):
     pytree: PyTree[Array]
     output_structure: PyTree[jax.core.ShapeDtypeStruct]
-    pattern: Pattern = Pattern()
+    pattern: Pattern = field(init=True, repr=True, default=Pattern())
     input_structure: PyTree[jax.core.ShapeDtypeStruct] = field(init=False)
 
     def __post_init__(self):
@@ -247,7 +244,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
     fn: Callable[[PyTree[Array[" _a"]]], PyTree[Array[" _b"]]]
     x: PyTree[Array[" _a"]]
     args: Optional[PyTree[Array]] = None
-    pattern: Pattern = Pattern()
+    pattern: Pattern = field(init=True, repr=True, default=Pattern())
 
     def mv(self, vector):
         fn = lambda x: self.fn(x, self.args)
@@ -260,7 +257,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
     def materialise(self):
         fn = lambda x: self.fn(x, self.args)
         jac = jax.jacfwd(fn)(self.x)
-        return PyTreeLinearOperator(jac, self.out_structure())
+        return PyTreeLinearOperator(jac, self.out_structure(), self.pattern)
 
     def transpose(self):
         if self.pattern.symmetric:

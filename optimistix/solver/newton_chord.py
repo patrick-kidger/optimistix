@@ -22,7 +22,7 @@ def _small(diffsize: Scalar) -> bool:
 
 
 def _diverged(rate: Scalar) -> bool:
-    return ~jnp.isfinite(rate) | (rate > 2)
+    return jnp.invert(jnp.isfinite(rate)) | (rate > 2)
 
 
 def _converged(factor: Scalar, tol: Scalar) -> bool:
@@ -77,10 +77,10 @@ class _NewtonChord(AbstractRootFindSolver):
         else:
             jac, state = state.linear_state
             sol = linear_solve(jac, fx, self.linear_solver, state=state, throw=False)
-        diff = sol.optimum
-        scale = (self.atol + self.rtol * y**ω).ω
-        diffsize = self.norm((diff**ω / scale**ω).ω)
+        diff = sol.value
         new_y = (y**ω - diff**ω).ω
+        scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
+        diffsize = self.norm((diff**ω / scale**ω).ω)
         new_state = _NewtonChordState(
             linear_state=state.linear_state,
             step=state.step + 1,

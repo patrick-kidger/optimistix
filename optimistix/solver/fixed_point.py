@@ -10,7 +10,8 @@ from ..results import RESULTS
 
 
 class FixedPointIteration(AbstractFixedPointSolver):
-    tol: float
+    rtol: float
+    atol: float
     norm: Callable = rms_norm
 
     def init(self, fixed_point_fn, y, args, options) -> Scalar:
@@ -19,8 +20,9 @@ class FixedPointIteration(AbstractFixedPointSolver):
 
     def step(self, fixed_point_fn, y, args, options, state: Scalar):
         y_next = fixed_point_fn(y, args)
-        return y_next, self.norm((y**ω - y_next**ω).ω)
+        error = (y**ω - y_next**ω).ω
+        scale = (self.atol + self.rtol * ω(y_next).call(jnp.abs)).ω
+        return y_next, self.norm((error**ω / scale**ω).ω)
 
     def terminate(self, fixed_point_fn, y, args, options, state: Scalar):
-        error = state
-        return error < self.tol, RESULTS.successful
+        return state < 1, RESULTS.successful

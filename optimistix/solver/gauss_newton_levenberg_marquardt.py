@@ -22,7 +22,7 @@ def _small(diffsize: Scalar) -> bool:
 
 
 def _diverged(rate: Scalar) -> bool:
-    return ~jnp.isfinite(rate) | (rate > 2)
+    return jnp.invert(jnp.isfinite(rate)) | (rate > 2)
 
 
 def _converged(factor: Scalar, tol: Scalar) -> bool:
@@ -107,10 +107,10 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
         # the normal equations in the textbook way! (In practice if you go looking
         # around, you'll see that most sophisticated implementations actually solve this
         # using a QR decomposition.)
-        diff = sol.optimum
-        scale = (self.atol + self.rtol * y**ω).ω
-        diffsize = self.norm((diff**ω / scale**ω).ω)
+        diff = sol.value
         new_y = (y**ω - diff**ω).ω
+        scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
+        diffsize = self.norm((diff**ω / scale**ω).ω)
         new_state = _GaussNewtonLevenbergMarquardtState(
             step=state.step + 1,
             diffsize=diffsize,

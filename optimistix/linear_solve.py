@@ -31,7 +31,7 @@ def _call(_, state, vector, options, solver):
 
 
 def _to_shapedarray(x: jax.core.ShapeDtypeStruct):
-    return jax.core.ShapedArray(shape=x.shape, dtype=x.dtype)
+    return jax.core.ShapedArray(x.shape, x.dtype)
 
 
 def _assert_none(x):
@@ -90,11 +90,11 @@ def _linear_solve_jvp(primals, tangents):
     #
     vecs = []
     sols = []
-    if any(t is not None for t in jtu.tree_leaves(t_vector)):
+    if any(t is not None for t in jtu.tree_leaves(t_vector, is_leaf=_is_none)):
         vecs.append(
             jtu.tree_map(eqxi.materialise_zeros, vector, t_vector, is_leaf=_is_none)
         )
-    if any(t is not None for t in jtu.tree_leaves(t_operator)):
+    if any(t is not None for t in jtu.tree_leaves(t_operator, is_leaf=_is_none)):
         t_operator = TangentLinearOperator(operator, t_operator)
         vec = (-t_operator.mv(solution) ** ω).ω
         vecs.append(vec)

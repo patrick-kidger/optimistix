@@ -2,6 +2,7 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Bool
 
 from ..custom_types import Scalar
 from ..results import RESULTS
@@ -11,12 +12,13 @@ from ..root_finding import AbstractRootFindSolver
 class _BisectionState(eqx.Module):
     lower: Scalar
     upper: Scalar
-    sign: Scalar
     error: Scalar
+    flip: Bool[Array, ""]
 
 
 class Bisection(AbstractRootFindSolver):
-    tol: float
+    rtol: float
+    atol: float
 
     def init(self, root_prob, y: Scalar, args, options):
         upper = options["upper"]
@@ -40,20 +42,21 @@ class Bisection(AbstractRootFindSolver):
             "The root is not contained in [lower, upper]",
         )
         return _BisectionState(
-            lower=lower, upper=upper, sign=upper_sign, error=jnp.asarray(jnp.inf)
+            lower=lower, upper=upper, error=jnp.asarray(jnp.inf), flip=upper_sign < 0
         )
 
     def step(self, root_prob, y: Scalar, args, options, state):
         del y, options
         new_y = state.lower + 0.5 * (state.upper - state.lower)
         error = root_prob.fn(new_y, args)
-        too_large = state.sign * error
+        too_large = state.flip ^ (error > 0)
         new_lower = jnp.where(too_large, new_y, state.lower)
-        new_upper = jnp.where(too_large, state.uppwer, new_y)
+        new_upper = jnp.where(too_large, state.upper, new_y)
         return new_y, _BisectionState(
-            lower=new_lower, upper=new_upper, sign=state.sign, error=error
+            lower=new_lower, upper=new_upper, error=error, flip=state.flip
         )
 
     def terminate(self, root_prob, y: Scalar, args, options, state):
-        del root_prob, y, args, options
-        return state.error < self.tol, RESULTS.successful
+        del root_prob, args, options
+        scale = self.atol + self.rtol * jnp.abs(y)
+        return jnp.abs(state.error) < scale, RESULTS.successful
