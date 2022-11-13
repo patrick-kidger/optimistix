@@ -19,6 +19,9 @@ class Triangular(AbstractLinearSolver):
     def is_maybe_singular(self):
         return self.maybe_singular
 
+    def will_materialise(self):
+        return True
+
     def init(self, operator, options):
         del options
         if operator.in_size() != operator.out_size():

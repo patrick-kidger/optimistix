@@ -18,6 +18,9 @@ class Cholesky(AbstractLinearSolver):
         else:
             return self.maybe_singular
 
+    def will_materialise(self):
+        return True
+
     def init(self, operator, options):
         del options
         if self.normal:

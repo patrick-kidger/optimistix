@@ -55,8 +55,12 @@ class _NewtonChord(AbstractRootFindSolver):
             linear_state = None
         else:
             jac = JacobianLinearOperator(
-                root_prob.fn, y, args, pattern=root_prob.pattern
+                root_prob.fn, y, args, pattern=root_prob.pattern, has_aux=True
             )
+            if self.linear_solver.will_materialise():
+                jac = jac.materialise()
+            else:
+                jac = jac.linearise()
             linear_state = (jac, self.linear_solver.init(jac))
         return _NewtonChordState(
             linear_state=linear_state,
@@ -73,6 +77,10 @@ class _NewtonChord(AbstractRootFindSolver):
             jac = JacobianLinearOperator(
                 root_prob.fn, y, args, pattern=root_prob.pattern
             )
+            if self.linear_solver.will_materialise():
+                jac = jac.materialise()
+            else:
+                jac = jac.linearise()
             sol = linear_solve(jac, fx, self.linear_solver, throw=False)
         else:
             jac, state = state.linear_state
@@ -88,7 +96,7 @@ class _NewtonChord(AbstractRootFindSolver):
             diffsize_prev=state.diffsize,
             result=sol.result,
         )
-        return new_y, new_state
+        return new_y, new_state, jac.aux
 
     def terminate(self, root_prob, y, args, options, state):
         del root_prob, y, args, options

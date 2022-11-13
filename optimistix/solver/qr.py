@@ -1,3 +1,14 @@
+from typing import Optional
+
+import equinox.internal as eqxi
+import jax.flatten_util as jfu
+import jax.numpy as jnp
+
+from ..linear_solve import AbstractLinearSolver
+from ..solution import RESULTS
+from .triangular import solve_triangular
+
+
 class QR(AbstractLinearSolver):
     maybe_singular: bool = True
     rcond: Optional[float] = None
@@ -13,7 +24,7 @@ class QR(AbstractLinearSolver):
         if transpose:
             matrix = matrix.T
         qr = jnp.linalg.qr(matrix, mode="reduced")
-        return qr, Static(transpose)
+        return qr, eqxi.Static(transpose)
 
     def compute(self, state, vector, options):
         (q, r), transpose = state
@@ -34,6 +45,9 @@ class QR(AbstractLinearSolver):
 
     def transpose(self, state, options):
         (q, r), transpose = state
-        transpose_state = (q, r), Static(not transpose.value)
+        transpose_state = (q, r), eqxi.Static(not transpose.value)
         transpose_options = {}
         return transpose_state, transpose_options
+
+    def will_materialise(self):
+        return True

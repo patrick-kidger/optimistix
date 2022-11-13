@@ -34,8 +34,10 @@ class _Damped(eqx.Module):
     damping: float
 
     def __call__(self, y, args):
-        damp = jnp.sqrt(self.damping)
-        return self.fn(y, args), jtu.tree_map(lambda x: damp * x, y)
+        damping = jnp.sqrt(self.damping)
+        f, aux = self.fn(y, args)
+        damped = jtu.tree_map(lambda yi: damping * yi, y)
+        return (f, damped), aux
 
 
 class _GaussNewtonLevenbergMarquardtState(eqx.Module):
@@ -70,18 +72,23 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
         del options
         residuals = residual_prob.fn(y, args)
         if self._is_gauss_newton:
-            matrix = JacobianLinearOperator(
-                residual_prob.fn, y, args, pattern=residual_prob.pattern
+            jac = JacobianLinearOperator(
+                residual_prob.fn, y, args, pattern=residual_prob.pattern, has_aux=True
             )
         else:
             damping = ...  # TODO(kidger)
-            matrix = JacobianLinearOperator(
+            jac = JacobianLinearOperator(
                 _Damped(residual_prob.fn, damping, pattern=residual_prob.pattern),
                 y,
                 args,
+                has_aux=True,
             )
             residuals = (residuals, jtu.tree_map(jnp.zeros_like, y))
-        sol = linear_solve(matrix, residuals, self.linear_solver, throw=False)
+        if self.linear_solver.will_materialise():
+            jac = jac.materialise()
+        else:
+            jac = jac.linearise()
+        sol = linear_solve(jac, residuals, self.linear_solver, throw=False)
         # Yep, no `J^T J` here.
         #
         # So Gauss-Newton is often defined as `diff = (J^T J)^{-1} J^T r`.
@@ -117,7 +124,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
             diffsize_prev=state.diffsize,
             result=sol.result,
         )
-        return new_y, new_state
+        return new_y, new_state, jac.aux
 
     def terminate(self, residual_prob, y, args, options, state):
         del residual_prob, y, args, options

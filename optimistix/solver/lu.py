@@ -1,6 +1,17 @@
+import equinox.internal as eqxi
+import jax.flatten_util as jfu
+import jax.scipy as jsp
+
+from ..linear_solve import AbstractLinearSolver
+from ..solution import RESULTS
+
+
 class LU(AbstractLinearSolver):
     def is_maybe_singular(self):
         return False
+
+    def will_materialise(self):
+        return True
 
     def init(self, operator, options):
         del options
@@ -8,7 +19,7 @@ class LU(AbstractLinearSolver):
             raise ValueError(
                 "`LU` may only be used for linear solves with square matrices"
             )
-        return jsp.linalg.lu_factor(operator.as_matrix()), Static(False)
+        return jsp.linalg.lu_factor(operator.as_matrix()), eqxi.Static(False)
 
     def compute(self, state, vector, options):
         del options
@@ -20,6 +31,6 @@ class LU(AbstractLinearSolver):
 
     def transpose(self, state, options):
         lu_and_piv, transpose = state
-        transpose_state = lu_and_piv, Static(not transpose)
+        transpose_state = lu_and_piv, eqxi.Static(not transpose)
         transpose_options = {}
         return transpose_state, transpose_options

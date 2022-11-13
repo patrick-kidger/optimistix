@@ -14,15 +14,16 @@ class FixedPointIteration(AbstractFixedPointSolver):
     atol: float
     norm: Callable = rms_norm
 
-    def init(self, fixed_point_fn, y, args, options) -> Scalar:
-        del fixed_point_fn, y, args, options
+    def init(self, fixed_point_prob, y, args, options) -> Scalar:
+        del fixed_point_prob, y, args, options
         return jnp.array(jnp.inf)
 
-    def step(self, fixed_point_fn, y, args, options, state: Scalar):
-        y_next = fixed_point_fn(y, args)
-        error = (y**ω - y_next**ω).ω
-        scale = (self.atol + self.rtol * ω(y_next).call(jnp.abs)).ω
-        return y_next, self.norm((error**ω / scale**ω).ω)
+    def step(self, fixed_point_prob, y, args, options, state: Scalar):
+        new_y, aux = fixed_point_prob.fn(y, args)
+        error = (y**ω - new_y**ω).ω
+        scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
+        new_state = self.norm((error**ω / scale**ω).ω)
+        return new_y, new_state, aux
 
     def terminate(self, fixed_point_fn, y, args, options, state: Scalar):
         return state < 1, RESULTS.successful

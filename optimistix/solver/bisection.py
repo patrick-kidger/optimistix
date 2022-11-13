@@ -48,13 +48,14 @@ class Bisection(AbstractRootFindSolver):
     def step(self, root_prob, y: Scalar, args, options, state):
         del y, options
         new_y = state.lower + 0.5 * (state.upper - state.lower)
-        error = root_prob.fn(new_y, args)
+        error, aux = root_prob.fn(new_y, args)
         too_large = state.flip ^ (error > 0)
         new_lower = jnp.where(too_large, new_y, state.lower)
         new_upper = jnp.where(too_large, state.upper, new_y)
-        return new_y, _BisectionState(
+        new_state = _BisectionState(
             lower=new_lower, upper=new_upper, error=error, flip=state.flip
         )
+        return new_y, new_state, aux
 
     def terminate(self, root_prob, y: Scalar, args, options, state):
         del root_prob, args, options

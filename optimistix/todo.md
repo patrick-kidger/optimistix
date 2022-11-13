@@ -1,10 +1,9 @@
-- Aux output
-- LM
 - Tests:
   - all the complexity of {PyTree,TransposeJacobian,Tangent}LinearOperator
   - transposing all linear solvers
   - unit_diagonal for triangular solvers
-- Geodesic acceleration for LM
+- LM
+  - Geodesic acceleration for LM
 - Adam/LBFGS/etc.
 - Falsi
 - Line search / learning rates for GN, Newton, etc.

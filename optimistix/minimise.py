@@ -15,7 +15,7 @@ _SolverState = TypeVar("_SolverState")
 
 
 class MinimiseProblem(AbstractIterativeProblem):
-    fn: Callable
+    pass
 
 
 class AbstractMinimiser(AbstractIterativeSolver):
@@ -55,7 +55,9 @@ def minimise(
 
     if isinstance(solver, AbstractRootFinder):
         root_fn = _ToRootFn(minimise_prob.fn)
-        root_prob = RootFindProblem(root_fn, pattern=Pattern(symmetric=True))
+        root_prob = RootFindProblem(
+            root_fn, has_aux=minimise_prob.has_aux, pattern=Pattern(symmetric=True)
+        )
         return root_find(
             root_prob,
             solver,

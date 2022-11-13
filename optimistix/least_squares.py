@@ -8,7 +8,7 @@ from jaxtyping import Array, PyTree
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
 from .linear_operator import Pattern
-from .minimise import AbstractMinimiser, minimise
+from .minimise import AbstractMinimiser, minimise, MinimiseProblem
 from .root_find import AbstractRootFinder, root_find, RootFindProblem
 from .solution import Solution
 
@@ -17,7 +17,6 @@ _SolverState = TypeVar("_SolverState")
 
 
 class LeastSquaresProblem(AbstractIterativeProblem):
-    fn: Callable
     pattern: Pattern
 
 
@@ -72,7 +71,9 @@ def least_squares(
 
     if isinstance(solver, AbstractRootFinder):
         root_fn = _ToRootFn(residual_prob.fn)
-        root_prob = RootFindProblem(root_fn, pattern=Pattern(symmetric=True))
+        root_prob = RootFindProblem(
+            fn=root_fn, has_aux=residual_prob.has_aux, pattern=Pattern(symmetric=True)
+        )
         return root_find(
             root_prob,
             solver,
@@ -86,8 +87,9 @@ def least_squares(
 
     elif isinstance(solver, AbstractMinimiser):
         minimise_fn = _ToMinimiseFn(residual_prob.fn)
+        minimise_prob = MinimiseProblem(fn=minimise_fn, has_aux=residual_prob.has_aux)
         return minimise(
-            minimise_fn,
+            minimise_prob,
             solver,
             y0,
             args,

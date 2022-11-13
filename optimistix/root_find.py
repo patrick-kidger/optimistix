@@ -13,7 +13,6 @@ _SolverState = TypeVar("_SolverState")
 
 
 class RootFindProblem(AbstractIterativeProblem):
-    fn: Callable
     pattern: Pattern
 
 

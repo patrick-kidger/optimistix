@@ -96,6 +96,7 @@ def _linear_solve_jvp(primals, tangents):
         )
     if any(t is not None for t in jtu.tree_leaves(t_operator, is_leaf=_is_none)):
         t_operator = TangentLinearOperator(operator, t_operator)
+        t_operator = t_operator.linearise()  # optimise for matvecs
         vec = (-t_operator.mv(solution) ** ω).ω
         vecs.append(vec)
         if solver.is_maybe_singular():
@@ -188,6 +189,10 @@ _SolverState = TypeVar("_SolverState")
 class AbstractLinearSolver(eqx.Module):
     @abc.abstractmethod
     def is_maybe_singular(self):
+        ...
+
+    @abc.abstractmethod
+    def will_materialise(self) -> bool:
         ...
 
     @abc.abstractmethod

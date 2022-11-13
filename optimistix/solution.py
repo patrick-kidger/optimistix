@@ -21,4 +21,5 @@ class Solution(eqx.Module):
     value: PyTree[Array]
     result: RESULTS
     state: PyTree[Array]
+    aux: PyTree[Array]
     stats: Dict[str, Array]

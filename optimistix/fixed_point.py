@@ -3,10 +3,11 @@ from typing import Any, Callable, Dict, Optional, TypeVar, Union
 import equinox as eqx
 import jax
 from jaxtyping import Array, PyTree
+from linear_operator import Pattern
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
-from .root_find import AbstractRootFinder, root_find
+from .root_find import AbstractRootFinder, root_find, RootFindProblem
 from .solution import Solution
 
 
@@ -14,7 +15,7 @@ _SolverState = TypeVar("_SolverState")
 
 
 class FixedPointProblem(AbstractIterativeProblem):
-    fn: Callable
+    pass
 
 
 class AbstractFixedPointSolver(AbstractIterativeSolver):
@@ -49,7 +50,7 @@ def fixed_point_solve(
     if isinstance(fixed_point_fn, FixedPointProblem):
         fixed_point_prob = fixed_point_fn
     else:
-        fixed_point_prob = FixedPointProblem(fixed_point_fn)
+        fixed_point_prob = FixedPointProblem(fn=fixed_point_fn, has_aux=False)
     del fixed_point_fn
 
     if jax.eval_shape(lambda: y0) != jax.eval_shape(fixed_point_prob.fn, y0, args):
@@ -59,8 +60,11 @@ def fixed_point_solve(
 
     if isinstance(solver, AbstractRootFinder):
         root_fn = _ToRootFn(fixed_point_prob.fn)
+        root_prob = RootFindProblem(
+            fn=root_fn, has_aux=fixed_point_prob.has_aux, pattern=Pattern()
+        )
         return root_find(
-            root_fn,
+            root_prob,
             solver,
             y0,
             args,

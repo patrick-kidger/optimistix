@@ -7,7 +7,9 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-from jaxtyping import Array, Float, PyTree
+from jaxtyping import Array, PyTree, Shaped
+
+from .misc import jacobian, NoneAux
 
 
 class Pattern(eqx.Module):
@@ -87,15 +89,19 @@ class AbstractLinearOperator(eqx.Module):
                 raise ValueError("Cannot have triangular non-square operator")
 
     @abc.abstractmethod
-    def mv(self, vector: PyTree[Float[Array, " _b"]]) -> PyTree[Float[Array, " _a"]]:
+    def mv(self, vector: PyTree[Shaped[Array, " _b"]]) -> PyTree[Shaped[Array, " _a"]]:
         ...
 
     @abc.abstractmethod
-    def as_matrix(self) -> Float[Array, "a b"]:
+    def as_matrix(self) -> Shaped[Array, "a b"]:
         ...
 
     @abc.abstractmethod
     def materialise(self) -> "AbstractLinearOperator":
+        ...
+
+    @abc.abstractmethod
+    def linearise(self) -> "AbstractLinearOperator":
         ...
 
     @abc.abstractmethod
@@ -112,7 +118,7 @@ class AbstractLinearOperator(eqx.Module):
 
     def in_size(self) -> int:
         leaves = jax.tree_leaves(self.in_structure())
-        leaves = sum(np.prod(leaf.shape) for leaf in leaves)
+        return sum(np.prod(leaf.shape) for leaf in leaves)
 
     def out_size(self) -> int:
         leaves = jax.tree_leaves(self.out_structure())
@@ -120,7 +126,7 @@ class AbstractLinearOperator(eqx.Module):
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
-    matrix: Float[Array, "a b"]
+    matrix: Shaped[Array, "a b"]
     pattern: Pattern = field(init=True, repr=True, default=Pattern())
 
     def mv(self, vector):
@@ -130,6 +136,9 @@ class MatrixLinearOperator(AbstractLinearOperator):
         return self.matrix
 
     def materialise(self):
+        return self
+
+    def linearise(self):
         return self
 
     def transpose(self):
@@ -220,6 +229,9 @@ class PyTreeLinearOperator(AbstractLinearOperator):
     def materialise(self):
         return self
 
+    def linearise(self):
+        return self
+
     def transpose(self):
         if self.pattern.symmetric:
             return self
@@ -240,14 +252,38 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         return self.output_structure
 
 
+class _NoAux(eqx.Module):
+    fn: Callable
+    args: PyTree[Array]
+
+    def __call__(self, x):
+        f, _ = self.fn(x, self.args)
+        return f
+
+
 class JacobianLinearOperator(AbstractLinearOperator):
-    fn: Callable[[PyTree[Array[" _a"]]], PyTree[Array[" _b"]]]
-    x: PyTree[Array[" _a"]]
+    fn: Callable
+    x: PyTree[Array]
     args: Optional[PyTree[Array]] = None
-    pattern: Pattern = field(init=True, repr=True, default=Pattern())
+    pattern: Pattern = field(repr=True)
+
+    def __init__(
+        self,
+        fn: Callable,
+        x: PyTree[Array],
+        args: Optional[PyTree[Array]] = None,
+        pattern: Pattern = Pattern(),
+        has_aux: bool = False,
+    ):
+        if not has_aux:
+            fn = NoneAux(fn)
+        self.fn = fn
+        self.x = x
+        self.args = args
+        self.pattern = pattern
 
     def mv(self, vector):
-        fn = lambda x: self.fn(x, self.args)
+        fn = lambda x: self.fn(x, self.args)[0]
         _, out = jax.jvp(fn, (self.x,), (vector,))
         return out
 
@@ -256,13 +292,25 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
     def materialise(self):
         fn = lambda x: self.fn(x, self.args)
-        jac = jax.jacfwd(fn)(self.x)
-        return PyTreeLinearOperator(jac, self.out_structure(), self.pattern)
+        jac, aux = jacobian(fn, self.in_size(), self.out_size(), has_aux=True)(self.x)
+        out = PyTreeLinearOperator(jac, self.out_structure(), self.pattern)
+        return _AuxLinearOperator(out, aux)
+
+    def linearise(self):
+        (_, aux), lin = jax.linearize(self.fn, self.x, self.args)
+        lin = _NoAux(lin, self.args)
+        out = FunctionLinearOperator(lin, self.in_structure(), self.pattern)
+        return _AuxLinearOperator(out, aux)
 
     def transpose(self):
         if self.pattern.symmetric:
             return self
-        return TransposeJacobianLinearOperator(self)
+        fn = _NoAux(self.fn, self.args)
+        # Works because vjpfn is a PyTree
+        _, vjpfn = jax.vjp(fn, self.operator.x)
+        return FunctionLinearOperator(
+            vjpfn, self.out_structure(), self.pattern.transpose()
+        )
 
     def in_structure(self):
         return jax.eval_shape(lambda: self.x)
@@ -271,32 +319,40 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return jax.eval_shape(self.fn, self.x, self.args)
 
 
-class TransposeJacobianLinearOperator(AbstractLinearOperator):
-    operator: JacobianLinearOperator
+class FunctionLinearOperator(AbstractLinearOperator):
+    fn: Callable[[PyTree[Array]], PyTree[Array]]
+    input_structure: PyTree[jax.ShapeDtypeStruct]
+    pattern: Pattern = Pattern()
 
     def mv(self, vector):
-        fn = lambda x: self.operator.fn(x, self.args)
-        _, vjpfn = jax.vjp(fn, self.operator.x)
-        return vjpfn(vector)
+        return self.fn(vector)
 
     def as_matrix(self):
-        return self.operator.as_matrix().T
+        return self.materialise().as_matrix()
 
     def materialise(self):
-        return self.operator.materialise().transpose()
+        # TODO(kidger): implement more efficiently, without the relinearisation
+        zeros = jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), self.in_structure())
+        jac = jacobian(self.fn, self.in_size(), self.out_size())(zeros)
+        return PyTreeLinearOperator(jac, self.out_structure(), self.pattern)
+
+    def linearise(self):
+        return self
 
     def transpose(self):
-        return self.operator
-
-    @property
-    def pattern(self):
-        return self.operator.pattern.transpose()
+        if self.pattern.symmetric:
+            return self
+        transpose_fn = jax.linear_transpose(self.fn, self.in_structure())
+        # Works because transpose_fn is a PyTree
+        return FunctionLinearOperator(
+            transpose_fn, self.out_structure(), self.pattern.transpose()
+        )
 
     def in_structure(self):
-        return self.operator.out_structure()
+        return self.input_structure
 
     def out_structure(self):
-        return self.operator.in_structure()
+        return jax.eval_shape(self.fn, self.in_structure())
 
 
 class IdentityLinearOperator(eqx.Module):
@@ -316,6 +372,9 @@ class IdentityLinearOperator(eqx.Module):
     def transpose(self):
         return self
 
+    def linearise(self):
+        return self
+
     def in_structure(self):
         return self.structure
 
@@ -325,6 +384,11 @@ class IdentityLinearOperator(eqx.Module):
     @property
     def pattern(self):
         return Pattern(symmetric=True, unit_diagonal=True, diagonal=True)
+
+
+#
+# Below this line are ones private to Optimistix
+#
 
 
 class TangentLinearOperator(AbstractLinearOperator):
@@ -351,6 +415,11 @@ class TangentLinearOperator(AbstractLinearOperator):
         primal_out, tangent_out = eqx.filter_jvp(materialise, self.primal, self.tangent)
         return TangentLinearOperator(primal_out, tangent_out)
 
+    def linearise(self):
+        linearise = lambda operator: operator.linearise()
+        primal_out, tangent_out = eqx.filter_jvp(linearise, self.primal, self.tangent)
+        return TangentLinearOperator(primal_out, tangent_out)
+
     def transpose(self):
         transpose = lambda operator: operator.transpose()
         primal_out, tangent_out = eqx.filter_jvp(transpose, self.primal, self.tangent)
@@ -365,3 +434,33 @@ class TangentLinearOperator(AbstractLinearOperator):
     @property
     def pattern(self):
         return self.primal.pattern
+
+
+class _AuxLinearOperator(AbstractLinearOperator):
+    operator: AbstractLinearOperator
+    aux: PyTree[Array]
+
+    def mv(self, vector):
+        return self.operator.mv(vector)
+
+    def as_matrix(self):
+        return self.operator.as_matrix()
+
+    def materialise(self):
+        return self.operator.materialise()
+
+    def linearise(self):
+        return self.operator.linearise()
+
+    def transpose(self):
+        return self.operator.transpose()
+
+    def in_structure(self):
+        return self.operator.in_structure()
+
+    def out_structure(self):
+        return self.operator.out_structure()
+
+    @property
+    def pattern(self):
+        return self.operator.pattern
