@@ -84,7 +84,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
                 has_aux=True,
             )
             residuals = (residuals, jtu.tree_map(jnp.zeros_like, y))
-        if self.linear_solver.will_materialise():
+        if self.linear_solver.will_materialise(jac):
             jac = jac.materialise()
         else:
             jac = jac.linearise()

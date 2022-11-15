@@ -1,15 +1,16 @@
 import abc
 from dataclasses import field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from jaxtyping import Array, PyTree, Shaped
 
-from .misc import jacobian, NoneAux
+from .misc import cached_eval_shape, jacobian, NoneAux
 
 
 class Pattern(eqx.Module):
@@ -75,8 +76,6 @@ class Pattern(eqx.Module):
 
 
 class AbstractLinearOperator(eqx.Module):
-    pattern = field(init=False, repr=False)
-
     def __post_init__(self):
         if self.in_size() != self.out_size():
             if self.pattern.symmetric:
@@ -109,11 +108,11 @@ class AbstractLinearOperator(eqx.Module):
         ...
 
     @abc.abstractmethod
-    def in_structure(self) -> PyTree[jax.core.ShapeDtypeStruct]:
+    def in_structure(self) -> PyTree[jax.ShapeDtypeStruct]:
         ...
 
     @abc.abstractmethod
-    def out_structure(self) -> PyTree[jax.core.ShapeDtypeStruct]:
+    def out_structure(self) -> PyTree[jax.ShapeDtypeStruct]:
         ...
 
     def in_size(self) -> int:
@@ -124,10 +123,14 @@ class AbstractLinearOperator(eqx.Module):
         leaves = jax.tree_leaves(self.out_structure())
         return sum(np.prod(leaf.shape) for leaf in leaves)
 
+    @property
+    def pattern(self):
+        ...
+
 
 class MatrixLinearOperator(AbstractLinearOperator):
     matrix: Shaped[Array, "a b"]
-    pattern: Pattern = field(init=True, repr=True, default=Pattern())
+    pattern: Pattern = Pattern()
 
     def mv(self, vector):
         return self.matrix @ vector
@@ -148,11 +151,11 @@ class MatrixLinearOperator(AbstractLinearOperator):
 
     def in_structure(self):
         in_size, _ = jnp.shape(self.matrix)
-        return jax.core.ShapeDtypeStruct(shape=(in_size,), dtype=self.matrix.dtype)
+        return jax.ShapeDtypeStruct(shape=(in_size,), dtype=self.matrix.dtype)
 
     def out_structure(self):
         _, out_size = jnp.shape(self.matrix)
-        return jax.core.ShapeDtypeStruct(shape=(out_size,), dtype=self.matrix.dtype)
+        return jax.ShapeDtypeStruct(shape=(out_size,), dtype=self.matrix.dtype)
 
 
 def _matmul(matrix: Array, vector: Array) -> Array:
@@ -176,9 +179,9 @@ def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
 # just a single array to taking a PyTree-of-arrays.
 class PyTreeLinearOperator(AbstractLinearOperator):
     pytree: PyTree[Array]
-    output_structure: PyTree[jax.core.ShapeDtypeStruct]
-    pattern: Pattern = field(init=True, repr=True, default=Pattern())
-    input_structure: PyTree[jax.core.ShapeDtypeStruct] = field(init=False)
+    output_structure: PyTree[jax.ShapeDtypeStruct]
+    pattern: Pattern = Pattern()
+    input_structure: PyTree[jax.ShapeDtypeStruct] = field(init=False)
 
     def __post_init__(self):
         # self.out_structure() has structure [tree(out)]
@@ -192,9 +195,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
                     raise ValueError(
                         "`pytree` and `output_structure` are not consistent"
                     )
-                return jax.core.ShapeDtypeStruct(
-                    shape=shape[ndim:], dtype=jnp.dtype(leaf)
-                )
+                return jax.ShapeDtypeStruct(shape=shape[ndim:], dtype=jnp.dtype(leaf))
 
             return jtu.tree_map(sub_get_structure, subpytree)
 
@@ -252,20 +253,27 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         return self.output_structure
 
 
-class _NoAux(eqx.Module):
+class _NoAuxIn(eqx.Module):
     fn: Callable
     args: PyTree[Array]
 
     def __call__(self, x):
-        f, _ = self.fn(x, self.args)
+        return self.fn(x, self.args)
+
+
+class _NoAuxOut(eqx.Module):
+    fn: Callable
+
+    def __call__(self, x):
+        f, _ = self.fn(x)
         return f
 
 
 class JacobianLinearOperator(AbstractLinearOperator):
     fn: Callable
     x: PyTree[Array]
-    args: Optional[PyTree[Array]] = None
-    pattern: Pattern = field(repr=True)
+    args: Optional[PyTree[Any]]
+    pattern: Pattern
 
     def __init__(
         self,
@@ -277,13 +285,22 @@ class JacobianLinearOperator(AbstractLinearOperator):
     ):
         if not has_aux:
             fn = NoneAux(fn)
+        # Flush out any closed-over values, so that we can safely pass `self`
+        # across API boundaries. (In particular, across `linear_solve_p`.)
+        # We don't use `jax.closure_convert` as that only flushes autodiffable
+        # (=floating-point) constants. It probably doesn't matter, but if `fn` is a
+        # PyTree capturing non-floating-point constants, we should probably continue
+        # to respect that, and keep any non-floating-point constants as part of the
+        # PyTree structure.
+        x = jtu.tree_map(jnp.asarray, x)
+        fn = eqxi.filter_closure_convert(fn, x, args)
         self.fn = fn
         self.x = x
         self.args = args
         self.pattern = pattern
 
     def mv(self, vector):
-        fn = lambda x: self.fn(x, self.args)[0]
+        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
         _, out = jax.jvp(fn, (self.x,), (vector,))
         return out
 
@@ -291,23 +308,24 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return self.materialise().as_matrix()
 
     def materialise(self):
-        fn = lambda x: self.fn(x, self.args)
+        fn = _NoAuxIn(self.fn, self.args)
         jac, aux = jacobian(fn, self.in_size(), self.out_size(), has_aux=True)(self.x)
         out = PyTreeLinearOperator(jac, self.out_structure(), self.pattern)
         return _AuxLinearOperator(out, aux)
 
     def linearise(self):
-        (_, aux), lin = jax.linearize(self.fn, self.x, self.args)
-        lin = _NoAux(lin, self.args)
+        fn = _NoAuxIn(self.fn, self.args)
+        (_, aux), lin = jax.linearize(fn, self.x)
+        lin = _NoAuxOut(lin)
         out = FunctionLinearOperator(lin, self.in_structure(), self.pattern)
         return _AuxLinearOperator(out, aux)
 
     def transpose(self):
         if self.pattern.symmetric:
             return self
-        fn = _NoAux(self.fn, self.args)
+        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
         # Works because vjpfn is a PyTree
-        _, vjpfn = jax.vjp(fn, self.operator.x)
+        _, vjpfn = jax.vjp(fn, self.x)
         return FunctionLinearOperator(
             vjpfn, self.out_structure(), self.pattern.transpose()
         )
@@ -316,13 +334,25 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return jax.eval_shape(lambda: self.x)
 
     def out_structure(self):
-        return jax.eval_shape(self.fn, self.x, self.args)
+        return cached_eval_shape(self.fn, self.x, self.args)
 
 
 class FunctionLinearOperator(AbstractLinearOperator):
     fn: Callable[[PyTree[Array]], PyTree[Array]]
     input_structure: PyTree[jax.ShapeDtypeStruct]
-    pattern: Pattern = Pattern()
+    pattern: Pattern
+
+    def __init__(
+        self,
+        fn: Callable[[PyTree[Array]], PyTree[Array]],
+        input_structure: PyTree[jax.ShapeDtypeStruct],
+        pattern: Pattern = Pattern(),
+    ):
+        # See matching comment in JacobianLinearOperator.
+        fn = eqxi.filter_closure_convert(fn, input_structure)
+        self.fn = fn
+        self.input_structure = input_structure
+        self.pattern = pattern
 
     def mv(self, vector):
         return self.fn(vector)
@@ -352,11 +382,11 @@ class FunctionLinearOperator(AbstractLinearOperator):
         return self.input_structure
 
     def out_structure(self):
-        return jax.eval_shape(self.fn, self.in_structure())
+        return cached_eval_shape(self.fn, self.in_structure())
 
 
 class IdentityLinearOperator(eqx.Module):
-    structure: PyTree[jax.core.ShapeDtypeStruct]
+    structure: PyTree[jax.ShapeDtypeStruct]
 
     def mv(self, vector):
         if jax.eval_shape(lambda: vector) != self.in_structure():
@@ -387,7 +417,7 @@ class IdentityLinearOperator(eqx.Module):
 
 
 #
-# Below this line are ones private to Optimistix
+# Below this line are the linear operators private to Optimistix
 #
 
 

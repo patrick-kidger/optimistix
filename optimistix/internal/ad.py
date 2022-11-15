@@ -1,13 +1,14 @@
-from typing import Array, Callable
+from typing import Any, Callable
 
 import equinox as eqx
-import equinox.internals as eqxi
+import equinox.internal as eqxi
 import jax
 import jax.tree_util as jtu
+from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
-from ..linear_operator import Pattern
-from ..linear_solver import AbstractLinearsolver
+from ..linear_operator import JacobianLinearOperator, Pattern
+from ..linear_solve import AbstractLinearSolver, linear_solve
 
 
 def implicit_jvp(
@@ -16,7 +17,7 @@ def implicit_jvp(
     inputs: PyTree[Array],
     closure: Any,
     pattern: Pattern,
-    linear_solver: AbstractLinearSolver:
+    linear_solver: AbstractLinearSolver,
 ):
     """Rewrites gradients via the implicit function theorem.
 
@@ -28,9 +29,9 @@ def implicit_jvp(
         computation.
     - `closure` is an arbitrary Python object, used to pass auxiliary inputs to the
         computation.
-    - `pattern`: any pattern (symmetric, diagonal, ...) in `d(fn_rewrite)/d(root)`.
-        As `AbstractLinearOperator`.
-    - `linear_solver` is an `AbstractLinearSolver`, used to solve the linear problem
+    - `pattern`: any pattern (symmetric, diagonal, ...) in the matrix
+        `d(fn_rewrite)/d(root)`.
+    - `linear_solver`: an `AbstractLinearSolver`, used to solve the linear problem
         on the backward pass.
 
     Note that due to limitations with JAX's custom autodiff, both `fn_primal` and
@@ -45,41 +46,63 @@ def implicit_jvp(
     The primals have tangents `-(d(fn_rewrite)/d(root))^-1 d(fn_rewrite)/d(inputs)`,
     evaluated at `(root, residual, inputs, closure)`.
     """
-    diff_args, nondiff_args = eqx.partition(inputs, eqx.is_inexact_array)
     root, residual = _implicit_impl(
-        fn_primal, jac_rewrite, nondiff_args, closure, pattern, linear_solver, diff_args
+        fn_primal, fn_rewrite, inputs, closure, pattern, linear_solver
     )
     return root, jtu.tree_map(eqxi.nondifferentible_bwd, residual)
 
 
-@ft.partial(eqxi.fixed_custom_jvp, nondiff_argnums=(0, 1, 2, 3, 4, 5))
-def _implicit_impl(fn_primal, fn_rewrite, nondiff_args, closure, pattern, linear_solver, diff_args):
+@eqxi.filter_custom_jvp
+def _implicit_impl(fn_primal, fn_rewrite, inputs, closure, pattern, linear_solver):
     del fn_rewrite, pattern, linear_solver
-    args = eqx.combine(diff_args, nondiff_args)
-    return fn_primal(args, closure)
+    return fn_primal(inputs, closure)
+
+
+def _is_none(x):
+    return x is None
+
+
+def _for_jac(root, args):
+    fn_rewrite, residual, inputs, closure = args
+    return fn_rewrite(root, residual, inputs, closure)
 
 
 @_implicit_impl.defjvp
-def _implicit_impl_jvp(
-    fn_primal, fn_rewrite, nondiff_args, closure, pattern, linear_solver, diff_args, tang_diff_args
-):
-    (diff_args,) = diff_args
-    (tang_diff_args,) = tang_diff_args
-    root, residual = _implicit_backprop(
-        fn_primal, fn_rewrite, nondiff_args, closure, linear_solver, diff_args
+def _implicit_impl_jvp(primals, tangents):
+    fn_primal, fn_rewrite, inputs, closure, pattern, linear_solver = primals
+    (
+        t_fn_primal,
+        t_fn_rewrite,
+        t_inputs,
+        t_closure,
+        t_pattern,
+        t_linear_solver,
+    ) = tangents
+    assert (
+        len(
+            jtu.tree_leaves(
+                (t_fn_primal, t_fn_rewrite, t_closure, t_pattern, t_linear_solver)
+            )
+        )
+        == 0
+    )
+    del t_fn_primal, t_fn_rewrite, t_closure, t_pattern, t_linear_solver
+    no_tangent = jtu.tree_map(_is_none, t_inputs, is_leaf=_is_none)
+    nondiff, diff = eqx.partition(inputs, no_tangent, is_leaf=_is_none)
+
+    root, residual = implicit_jvp(
+        fn_primal, fn_rewrite, inputs, closure, pattern, linear_solver
     )
 
-    def _for_jac(_root, _):
-        args = eqx.combine(nondiff_args, diff_args)
-        return fn_rewrite(_root, residual, args, closure)
+    def _for_jvp(_diff):
+        _inputs = eqx.combine(_diff, nondiff)
+        return fn_rewrite(root, residual, _inputs, closure)
 
-    def _for_jvp(_diff_args):
-        _args = eqx.combine(nondiff_args, _diff_args)
-        return fn_rewrite(root, residual, _args, closure)
+    operator = JacobianLinearOperator(
+        _for_jac, root, (fn_rewrite, residual, inputs, closure), pattern=pattern
+    )
+    _, jvp_diff = jax.jvp(_for_jvp, (diff,), (t_inputs,))
 
-    operator = JacobianLinearOperator(_for_jac, _root, pattern=pattern)
-    _, jvp_diff_args = jax.jvp(_for_jvp, (diff_args,), (tang_diff_args,))
-
-    tang_root = (-linear_solve(operator, jvp_diff_args, linear_solver)**ω).ω
-    tang_residual = jtu.tree_map(jnp.zeros_like, residual)
-    return (root, residual), (tang_root, tang_residual)
+    t_root = (-linear_solve(operator, jvp_diff, linear_solver) ** ω).ω
+    t_residual = jtu.tree_map(lambda _: None, residual)
+    return (root, residual), (t_root, t_residual)

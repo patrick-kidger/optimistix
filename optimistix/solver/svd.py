@@ -17,7 +17,7 @@ class SVD(AbstractLinearSolver):
     def is_maybe_singular(self):
         return self.maybe_singular
 
-    def will_materialise(self):
+    def will_materialise(self, operator):
         return True
 
     def init(self, operator, options):

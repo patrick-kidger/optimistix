@@ -4,12 +4,12 @@ from typing import Any, Dict, Optional, Tuple, TypeVar, Union
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
-import jax.interpeters.ad as ad
+import jax.interpreters.ad as ad
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, PyTree
+from jaxtyping import Array, PyTree, Shaped
 
 from .custom_types import sentinel
 from .linear_operator import (
@@ -26,11 +26,7 @@ from .solution import RESULTS, Solution
 #
 
 
-def _call(_, state, vector, options, solver):
-    return solver.compute(state, vector, options)
-
-
-def _to_shapedarray(x: jax.core.ShapeDtypeStruct):
+def _to_shapedarray(x: jax.ShapeDtypeStruct):
     return jax.core.ShapedArray(x.shape, x.dtype)
 
 
@@ -46,7 +42,16 @@ def _sum(*args):
     return sum(args)
 
 
-_linear_solve_impl = eqxi.filter_primitive_def(_call)
+_detected_closure_autodiff = (
+    "Detected differentiation of an `optimistix.linear_solve` with respect to a "
+    "closed-over value."
+)
+
+
+@eqxi.filter_primitive_def
+def _linear_solve_impl(_, state, vector, options, solver):
+    out = solver.compute(state, vector, options)
+    return eqxi.nondifferentiable(out, msg=_detected_closure_autodiff)
 
 
 @eqxi.filter_primitive_def
@@ -192,7 +197,7 @@ class AbstractLinearSolver(eqx.Module):
         ...
 
     @abc.abstractmethod
-    def will_materialise(self) -> bool:
+    def will_materialise(self, operator: AbstractLinearOperator) -> bool:
         ...
 
     @abc.abstractmethod
@@ -203,8 +208,8 @@ class AbstractLinearSolver(eqx.Module):
 
     @abc.abstractmethod
     def compute(
-        self, state: _SolverState, vector: Array[" b"], options: Dict[str, Any]
-    ) -> Tuple[Array[" a"], RESULTS, Dict[str, Any]]:
+        self, state: _SolverState, vector: Shaped[Array, " b"], options: Dict[str, Any]
+    ) -> Tuple[Shaped[Array, " a"], RESULTS, Dict[str, Any]]:
         ...
 
     @abc.abstractmethod
@@ -225,7 +230,7 @@ _lu_token = eqxi.str2jax("LU")
 # Ugly delayed import because we have the dependency chain
 # linear_solve -> AutoLinearSolver -> {Cholesky,...} -> AbstractLinearSolver
 # but we want linear_solver and AbstractLinearSolver in the same file.
-def _lookup(token):
+def _lookup(token) -> AbstractLinearSolver:
     from . import solvers
 
     _lookup_dict = {
@@ -245,7 +250,7 @@ class AutoLinearSolver(AbstractLinearSolver):
     def is_maybe_singular(self):
         return self.maybe_singular
 
-    def init(self, operator):
+    def _auto_select_solver(self, operator: AbstractLinearOperator):
         # Of these solvers: QR, Diagonal, Triangular, CG can handle ill-posed
         # problems, i.e. they converge to the pseudoinverse solution.
         if operator.in_size() != operator.out_size():
@@ -264,6 +269,14 @@ class AutoLinearSolver(AbstractLinearSolver):
                 token = _qr_token
             else:
                 token = _lu_token
+        return token
+
+    def will_materialise(self, operator):
+        token = self._auto_select_solver(operator)
+        return _lookup(token)().will_materialise(operator)
+
+    def init(self, operator):
+        token = self._auto_select_solver(operator)
         return token, _lookup(token)().init(operator)
 
     def compute(self, state, vector, options):

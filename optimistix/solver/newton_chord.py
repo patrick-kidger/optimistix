@@ -57,7 +57,7 @@ class _NewtonChord(AbstractRootFindSolver):
             jac = JacobianLinearOperator(
                 root_prob.fn, y, args, pattern=root_prob.pattern, has_aux=True
             )
-            if self.linear_solver.will_materialise():
+            if self.linear_solver.will_materialise(jac):
                 jac = jac.materialise()
             else:
                 jac = jac.linearise()
@@ -77,7 +77,7 @@ class _NewtonChord(AbstractRootFindSolver):
             jac = JacobianLinearOperator(
                 root_prob.fn, y, args, pattern=root_prob.pattern
             )
-            if self.linear_solver.will_materialise():
+            if self.linear_solver.will_materialise(jac):
                 jac = jac.materialise()
             else:
                 jac = jac.linearise()

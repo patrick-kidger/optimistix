@@ -2,6 +2,7 @@
   - all the complexity of {PyTree,TransposeJacobian,Tangent}LinearOperator
   - transposing all linear solvers
   - unit_diagonal for triangular solvers
+  - passing AD closures in to `linear_solve_p.impl`
 - LM
   - Geodesic acceleration for LM
 - Adam/LBFGS/etc.
