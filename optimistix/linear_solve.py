@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Dict, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, Optional, Tuple, Type, TypeVar, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -26,8 +26,18 @@ from .solution import RESULTS, Solution
 #
 
 
-def _to_shapedarray(x: jax.ShapeDtypeStruct):
-    return jax.core.ShapedArray(x.shape, x.dtype)
+def _to_shapedarray(x):
+    if isinstance(x, jax.ShapeDtypeStruct):
+        return jax.core.ShapedArray(x.shape, x.dtype)
+    else:
+        return x
+
+
+def _to_struct(x):
+    if isinstance(x, jax.core.ShapedArray):
+        return jax.ShapeDtypeStruct(x.shape, x.dtype)
+    else:
+        return x
 
 
 def _assert_none(x):
@@ -42,21 +52,26 @@ def _sum(*args):
     return sum(args)
 
 
-_detected_closure_autodiff = (
-    "Detected differentiation of an `optimistix.linear_solve` with respect to a "
-    "closed-over value."
-)
+def _call(state, vector, options, solver):
+    return solver.compute(state, vector, options)
 
 
 @eqxi.filter_primitive_def
 def _linear_solve_impl(_, state, vector, options, solver):
-    out = solver.compute(state, vector, options)
-    return eqxi.nondifferentiable(out, msg=_detected_closure_autodiff)
+    out = _call(state, vector, options, solver)
+    return eqxi.nontraceable(
+        out, name="optimistix.linear_solve with respect to a closed-over value"
+    )
 
 
 @eqxi.filter_primitive_def
-def _linear_solve_abstract_eval(operator, _, __, ___, ____):
-    return jtu.tree_map(_to_shapedarray, operator.in_structure())
+def _linear_solve_abstract_eval(_, state, vector, options, solver):
+    state, vector, options, solver = jtu.tree_map(
+        _to_struct, (state, vector, options, solver)
+    )
+    out = eqx.filter_eval_shape(_call, state, vector, options, solver)
+    out = jtu.tree_map(_to_shapedarray, out)
+    return out
 
 
 @eqxi.filter_primitive_jvp
@@ -230,16 +245,16 @@ _lu_token = eqxi.str2jax("LU")
 # Ugly delayed import because we have the dependency chain
 # linear_solve -> AutoLinearSolver -> {Cholesky,...} -> AbstractLinearSolver
 # but we want linear_solver and AbstractLinearSolver in the same file.
-def _lookup(token) -> AbstractLinearSolver:
-    from . import solvers
+def _lookup(token) -> Type[AbstractLinearSolver]:
+    from . import solver
 
     _lookup_dict = {
-        _qr_token: solvers.QR,
-        _diagonal_token: solvers.Diagonal,
-        _triangular_token: solvers.Triangular,
-        _cg_token: solvers.CG,
-        _cholesky_token: solvers.Cholesky,
-        _lu_token: solvers.LU,
+        _qr_token: solver.QR,
+        _diagonal_token: solver.Diagonal,
+        _triangular_token: solver.Triangular,
+        _cg_token: solver.CG,
+        _cholesky_token: solver.Cholesky,
+        _lu_token: solver.LU,
     }
     return _lookup_dict[token]
 
@@ -275,15 +290,14 @@ class AutoLinearSolver(AbstractLinearSolver):
         token = self._auto_select_solver(operator)
         return _lookup(token)().will_materialise(operator)
 
-    def init(self, operator):
+    def init(self, operator, options):
         token = self._auto_select_solver(operator)
-        return token, _lookup(token)().init(operator)
+        return token, _lookup(token)().init(operator, options)
 
     def compute(self, state, vector, options):
-        del options
         token, state = state
         solver = _lookup(token)()
-        solution, result, _ = solver.compute(state, vector)
+        solution, result, _ = solver.compute(state, vector, options)
         return solution, result, {}
 
     def transpose(self, state, options):
@@ -293,6 +307,7 @@ class AutoLinearSolver(AbstractLinearSolver):
 
 
 # TODO(kidger): gmres, bicgstab
+# TODO(kidger): support auxiliary outputs
 @eqx.filter_jit
 def linear_solve(
     operator: Union[PyTree[Array], AbstractLinearOperator],
@@ -305,7 +320,7 @@ def linear_solve(
 ) -> Solution:
     if options is None:
         options = {}
-    if state is sentinel:
+    if state == sentinel:
         vector_structure = jax.eval_shape(lambda: vector)
         if isinstance(operator, AbstractLinearOperator):
             if vector_structure != operator.out_structure():
@@ -330,7 +345,7 @@ def linear_solve(
     result = jnp.where(
         (result == RESULTS.successful) & has_nans, RESULTS.linear_singular, result
     )
-    sol = Solution(value=solution, result=result, state=state, stats=stats)
+    sol = Solution(value=solution, result=result, state=state, stats=stats, aux=None)
 
     error_index = eqxi.unvmap_max(result)
     sol = eqxi.branched_error_if(

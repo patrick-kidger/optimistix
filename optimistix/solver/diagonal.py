@@ -3,9 +3,9 @@ from typing import Optional
 import jax.flatten_util as jfu
 import jax.numpy as jnp
 
-from ..linear_solver import AbstractLinearSolver
+from ..linear_solve import AbstractLinearSolver
 from ..misc import resolve_rcond
-from ..results import RESULTS
+from ..solution import RESULTS
 
 
 class Diagonal(AbstractLinearSolver):
@@ -24,7 +24,7 @@ class Diagonal(AbstractLinearSolver):
             raise ValueError(
                 "`Diagonal` may only be used for linear solves with square matrices"
             )
-        if "diagonal" not in operator.pattern:
+        if not operator.pattern.diagonal:
             raise ValueError(
                 "`Diagonal` may only be used for linear solves with diagonal matrices"
             )
@@ -33,7 +33,7 @@ class Diagonal(AbstractLinearSolver):
     def compute(self, state, vector, options):
         operator = state
         del state, options
-        if "unit_diagonal" in operator.pattern:
+        if operator.pattern.unit_diagonal:
             solution = vector
         else:
             # TODO(kidger): do diagonal solves more efficiently than this.

@@ -7,9 +7,9 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, Float
 
-from ..linear_solver import AbstractLinearSolver
+from ..linear_solve import AbstractLinearSolver
 from ..misc import resolve_rcond
-from ..results import RESULTS
+from ..solution import RESULTS
 
 
 class Triangular(AbstractLinearSolver):

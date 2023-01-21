@@ -26,12 +26,12 @@ def _tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Scalar:
 # - Normal CG evaluates `operator.mv` six times.
 # Possibly this can be cheapend a bit somehow?
 class CG(AbstractLinearSolver):
-    maybe_singular: bool = True
     rtol: float
     atol: float
-    normal: bool = False
     norm: Callable = rms_norm
     materialise: bool = False
+    normal: bool = False
+    maybe_singular: bool = True
     max_steps: Optional[int] = None
 
     def is_maybe_singular(self):

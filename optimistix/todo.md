@@ -2,7 +2,10 @@
   - all the complexity of {PyTree,TransposeJacobian,Tangent}LinearOperator
   - transposing all linear solvers
   - unit_diagonal for triangular solvers
+  - Test JAX #13452
   - passing AD closures in to `linear_solve_p.impl`
+- Think about adding nontraceable to the end of all rules for linear_solve_p. Or a wrapper to do this for all rules?
+- Think about passing Refs into custom primitives. Do the abstract eval rules?
 - LM
   - Geodesic acceleration for LM
 - Adam/LBFGS/etc.
@@ -13,7 +16,10 @@
  - Frank Wolfe
  - Armijo backatracking
  - Fista
+- Let @felix_m_koehler (Twitter) and @botev (DeepMind) know once this is ready, they may have opinions.
 - Handling Optax-like things
+- Handle low-rank + diagonal solving using Woodbury
+- Handle checkpointing in while loops in the same way as diffrax, i.e. using adjoints
 
 Done?
 - QR for rectangular

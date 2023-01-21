@@ -116,14 +116,15 @@ class AbstractLinearOperator(eqx.Module):
         ...
 
     def in_size(self) -> int:
-        leaves = jax.tree_leaves(self.in_structure())
-        return sum(np.prod(leaf.shape) for leaf in leaves)
+        leaves = jtu.tree_leaves(self.in_structure())
+        return sum(np.prod(leaf.shape).item() for leaf in leaves)
 
     def out_size(self) -> int:
-        leaves = jax.tree_leaves(self.out_structure())
-        return sum(np.prod(leaf.shape) for leaf in leaves)
+        leaves = jtu.tree_leaves(self.out_structure())
+        return sum(np.prod(leaf.shape).item() for leaf in leaves)
 
     @property
+    @abc.abstractmethod
     def pattern(self):
         ...
 
@@ -162,7 +163,7 @@ def _matmul(matrix: Array, vector: Array) -> Array:
     # matrix has structure [leaf(out), leaf(in)]
     # vector has structure [leaf(in)]
     # return has structure [leaf(out)]
-    return jnp.tensordot(matrix, vector, axes=len(vector.shape))
+    return jnp.tensordot(matrix, vector, axes=jnp.ndim(vector))
 
 
 def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
@@ -202,7 +203,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         input_structure = jtu.tree_map(
             get_structure, self.output_structure, self.pytree
         )
-        object.__setattr__(self, "input_structure", input_structure)
+        self.input_structure = input_structure
 
     def mv(self, vector):
         # vector has structure [tree(in), leaf(in)]
@@ -225,6 +226,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
             return jnp.concatenate(leaves, axis=1)
 
         matrix = jtu.tree_map(concat_in, self.out_structure(), self.pytree)
+        matrix = jtu.tree_leaves(matrix)
         return jnp.concatenate(matrix, axis=0)
 
     def materialise(self):
@@ -281,9 +283,9 @@ class JacobianLinearOperator(AbstractLinearOperator):
         x: PyTree[Array],
         args: Optional[PyTree[Array]] = None,
         pattern: Pattern = Pattern(),
-        has_aux: bool = False,
+        _has_aux: bool = False,
     ):
-        if not has_aux:
+        if not _has_aux:
             fn = NoneAux(fn)
         # Flush out any closed-over values, so that we can safely pass `self`
         # across API boundaries. (In particular, across `linear_solve_p`.)
@@ -414,11 +416,6 @@ class IdentityLinearOperator(eqx.Module):
     @property
     def pattern(self):
         return Pattern(symmetric=True, unit_diagonal=True, diagonal=True)
-
-
-#
-# Below this line are the linear operators private to Optimistix
-#
 
 
 class TangentLinearOperator(AbstractLinearOperator):

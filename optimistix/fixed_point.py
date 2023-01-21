@@ -3,10 +3,10 @@ from typing import Any, Callable, Dict, Optional, TypeVar, Union
 import equinox as eqx
 import jax
 from jaxtyping import Array, PyTree
-from linear_operator import Pattern
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
+from .linear_operator import Pattern
 from .root_find import AbstractRootFinder, root_find, RootFindProblem
 from .solution import Solution
 
@@ -36,14 +36,14 @@ class _ToRootFn(eqx.Module):
 
 
 @eqx.filter_jit
-def fixed_point_solve(
+def fixed_point(
     fixed_point_fn: Union[Callable, FixedPointProblem],
     solver: Union[AbstractFixedPointSolver, AbstractRootFinder],
     y0: PyTree[Array],
     args: PyTree = None,
     options: Optional[Dict[str, Any]] = None,
     *,
-    max_steps: Optional[int] = 16,
+    max_steps: Optional[int] = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:

@@ -4,7 +4,6 @@ from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
-import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, PyTree
@@ -65,7 +64,7 @@ def _zero(x):
         return x
 
 
-def _iterate(inputs, closure):
+def _iterate(inputs, closure, while_loop):
     prob, args = inputs
     solver, y0, options, max_steps = closure
     del inputs, closure
@@ -101,7 +100,7 @@ def _iterate(inputs, closure):
         new_y, new_state, aux = solver.step(prob, y, args, options, state)
         return new_y, num_steps + 1, new_state, aux
 
-    final_val = lax.while_loop(cond_fun, body_fun, init_val, max_steps)
+    final_val = while_loop(cond_fun, body_fun, init_val, max_steps)
 
     final_y, num_steps, final_state, aux = final_val
     terminate, result = solver.terminate(prob, final_y, args, final_state, options)
@@ -113,7 +112,7 @@ def _iterate(inputs, closure):
     return final_y, (num_steps, result, final_state, aux)
 
 
-def iterate_solve(
+def iterative_solve(
     prob: AbstractIterativeProblem,
     solver: AbstractIterativeSolver,
     y0: PyTree[Array],
@@ -129,15 +128,14 @@ def iterate_solve(
     inputs = prob, args
     closure = solver, y0, options, max_steps
     out, (num_steps, result, final_state, aux) = adjoint.apply(
-        _iterate, rewrite_fn, inputs, closure, pattern
+        _iterate, rewrite_fn, inputs, closure, pattern, max_steps
     )
     stats = {"num_steps": num_steps, "max_steps": max_steps}
     sol = Solution(value=out, result=result, state=final_state, aux=aux, stats=stats)
-    error_index = eqxi.unvmap_max(result)
     sol = eqxi.branched_error_if(
         sol,
         throw & (result != RESULTS.successful),
-        error_index,
+        result,
         RESULTS.reverse_lookup,
     )
     return sol

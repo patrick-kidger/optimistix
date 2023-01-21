@@ -5,8 +5,8 @@ import jax.numpy as jnp
 from jaxtyping import Array, Bool
 
 from ..custom_types import Scalar
-from ..results import RESULTS
-from ..root_finding import AbstractRootFindSolver
+from ..root_find import AbstractRootFinder
+from ..solution import RESULTS
 
 
 class _BisectionState(eqx.Module):
@@ -16,7 +16,7 @@ class _BisectionState(eqx.Module):
     flip: Bool[Array, ""]
 
 
-class Bisection(AbstractRootFindSolver):
+class Bisection(AbstractRootFinder):
     rtol: float
     atol: float
 

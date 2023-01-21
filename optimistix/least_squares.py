@@ -59,14 +59,16 @@ def least_squares(
     args: PyTree = None,
     options: Optional[Dict[str, Any]] = None,
     *,
-    max_steps: Optional[int] = 16,
+    max_steps: Optional[int] = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
     if isinstance(residual_fn, LeastSquaresProblem):
         residual_prob = residual_fn
     else:
-        residual_prob = LeastSquaresProblem(residual_fn, pattern=Pattern())
+        residual_prob = LeastSquaresProblem(
+            residual_fn, has_aux=False, pattern=Pattern()
+        )
     del residual_fn
 
     if isinstance(solver, AbstractRootFinder):

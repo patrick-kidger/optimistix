@@ -1,15 +1,9 @@
 from . import internal
-from .fixed_point import (
-    AbstractFixedPointSolver,
-    fixed_point_solve,
-    FixedPointProblem,
-    FixedPointSolution,
-)
+from .fixed_point import AbstractFixedPointSolver, fixed_point, FixedPointProblem
 from .least_squares import (
     AbstractLeastSquaresSolver,
-    FixedPointSolution,
-    least_squares_solve,
-    LeastSquaresSolution,
+    least_squares,
+    LeastSquaresProblem,
 )
 from .linear_operator import (
     AbstractLinearOperator,
@@ -19,25 +13,10 @@ from .linear_operator import (
     Pattern,
     PyTreeLinearOperator,
 )
-from .linear_solve import (
-    AbstractLinearSolver,
-    AutoLinearSolver,
-    linear_solve,
-    LinearSolution,
-)
-from .minimise import (
-    AbstractMinimiseSolver,
-    minimise,
-    MinimiseProblem,
-    MinimiseSolution,
-)
-from .results import RESULTS
-from .root_find import (
-    AbstractRootFindSolver,
-    root_find_solve,
-    RootFindProblem,
-    RootFindSolution,
-)
+from .linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
+from .minimise import AbstractMinimiser, minimise, MinimiseProblem
+from .root_find import AbstractRootFinder, root_find, RootFindProblem
+from .solution import RESULTS, Solution
 from .solver import (
     Bisection,
     CG,
@@ -53,3 +32,6 @@ from .solver import (
     SVD,
     Triangular,
 )
+
+
+__version__ = "0.0.1"

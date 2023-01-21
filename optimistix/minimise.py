@@ -43,14 +43,14 @@ def minimise(
     args: PyTree = None,
     options: Optional[Dict[str, Any]] = None,
     *,
-    max_steps: Optional[int] = 16,
+    max_steps: Optional[int] = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
     if isinstance(minimise_fn, MinimiseProblem):
         minimise_prob = minimise_fn
     else:
-        minimise_prob = MinimiseProblem(minimise_fn)
+        minimise_prob = MinimiseProblem(minimise_fn, has_aux=False)
     del minimise_fn
 
     if isinstance(solver, AbstractRootFinder):

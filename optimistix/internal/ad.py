@@ -49,10 +49,10 @@ def implicit_jvp(
     root, residual = _implicit_impl(
         fn_primal, fn_rewrite, inputs, closure, pattern, linear_solver
     )
-    return root, jtu.tree_map(eqxi.nondifferentible_bwd, residual)
+    return root, jtu.tree_map(eqxi.nondifferentible_backward, residual)
 
 
-@eqxi.filter_custom_jvp
+@eqx.filter_custom_jvp
 def _implicit_impl(fn_primal, fn_rewrite, inputs, closure, pattern, linear_solver):
     del fn_rewrite, pattern, linear_solver
     return fn_primal(inputs, closure)
@@ -78,15 +78,11 @@ def _implicit_impl_jvp(primals, tangents):
         t_pattern,
         t_linear_solver,
     ) = tangents
-    assert (
-        len(
-            jtu.tree_leaves(
-                (t_fn_primal, t_fn_rewrite, t_closure, t_pattern, t_linear_solver)
-            )
-        )
-        == 0
+    t_unused = jtu.tree_leaves(
+        t_fn_primal, t_fn_rewrite, t_closure, t_pattern, t_linear_solver
     )
-    del t_fn_primal, t_fn_rewrite, t_closure, t_pattern, t_linear_solver
+    assert len(t_unused) == 0
+    del t_fn_primal, t_fn_rewrite, t_closure, t_pattern, t_linear_solver, t_unused
     no_tangent = jtu.tree_map(_is_none, t_inputs, is_leaf=_is_none)
     nondiff, diff = eqx.partition(inputs, no_tangent, is_leaf=_is_none)
 

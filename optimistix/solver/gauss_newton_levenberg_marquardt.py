@@ -11,7 +11,7 @@ from ..least_squares import AbstractLeastSquaresSolver
 from ..linear_operator import JacobianLinearOperator
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import rms_norm
-from ..results import RESULTS
+from ..solution import RESULTS
 
 
 def _small(diffsize: Scalar) -> bool:
@@ -73,7 +73,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
         residuals = residual_prob.fn(y, args)
         if self._is_gauss_newton:
             jac = JacobianLinearOperator(
-                residual_prob.fn, y, args, pattern=residual_prob.pattern, has_aux=True
+                residual_prob.fn, y, args, pattern=residual_prob.pattern, _has_aux=True
             )
         else:
             damping = ...  # TODO(kidger)
@@ -81,7 +81,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
                 _Damped(residual_prob.fn, damping, pattern=residual_prob.pattern),
                 y,
                 args,
-                has_aux=True,
+                _has_aux=True,
             )
             residuals = (residuals, jtu.tree_map(jnp.zeros_like, y))
         if self.linear_solver.will_materialise(jac):

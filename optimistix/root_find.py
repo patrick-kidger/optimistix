@@ -34,14 +34,14 @@ def root_find(
     args: PyTree = None,
     options: Optional[Dict[str, Any]] = None,
     *,
-    max_steps: Optional[int] = 16,
+    max_steps: Optional[int] = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
     if isinstance(root_fn, RootFindProblem):
         root_prob = root_fn
     else:
-        root_prob = RootFindProblem(root_prob, pattern=Pattern())
+        root_prob = RootFindProblem(root_prob, has_aux=False, pattern=Pattern())
     del root_fn
 
     return iterative_solve(

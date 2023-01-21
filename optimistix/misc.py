@@ -6,7 +6,9 @@ import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import PyTree, Scalar
+from jaxtyping import PyTree
+
+from .custom_types import Scalar
 
 
 def rms_norm(x: PyTree) -> Scalar:

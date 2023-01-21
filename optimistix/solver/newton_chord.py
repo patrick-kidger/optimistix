@@ -10,8 +10,8 @@ from ..custom_types import Scalar
 from ..linear_operator import JacobianLinearOperator
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import rms_norm
-from ..results import RESULTS
-from ..root_finding import AbstractRootFindSolver
+from ..root_find import AbstractRootFinder
+from ..solution import RESULTS
 
 
 def _small(diffsize: Scalar) -> bool:
@@ -37,7 +37,7 @@ class _NewtonChordState(eqx.Module):
     result: RESULTS
 
 
-class _NewtonChord(AbstractRootFindSolver):
+class _NewtonChord(AbstractRootFinder):
     rtol: float
     atol: float
     kappa: float = 1e-2
@@ -55,7 +55,7 @@ class _NewtonChord(AbstractRootFindSolver):
             linear_state = None
         else:
             jac = JacobianLinearOperator(
-                root_prob.fn, y, args, pattern=root_prob.pattern, has_aux=True
+                root_prob.fn, y, args, pattern=root_prob.pattern, _has_aux=True
             )
             if self.linear_solver.will_materialise(jac):
                 jac = jac.materialise()
@@ -75,7 +75,7 @@ class _NewtonChord(AbstractRootFindSolver):
         fx = root_prob.fn(y, args)
         if self._is_newton:
             jac = JacobianLinearOperator(
-                root_prob.fn, y, args, pattern=root_prob.pattern
+                root_prob.fn, y, args, pattern=root_prob.pattern, _has_aux=True
             )
             if self.linear_solver.will_materialise(jac):
                 jac = jac.materialise()

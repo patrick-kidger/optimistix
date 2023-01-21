@@ -6,7 +6,7 @@ from equinox.internal import ω
 from ..custom_types import Scalar
 from ..fixed_point import AbstractFixedPointSolver
 from ..misc import rms_norm
-from ..results import RESULTS
+from ..solution import RESULTS
 
 
 class FixedPointIteration(AbstractFixedPointSolver):
