@@ -1,4 +1,5 @@
 import abc
+import functools as ft
 from typing import Any, Dict, Optional, Tuple, Type, TypeVar, Union
 
 import equinox as eqx
@@ -36,6 +37,11 @@ def _to_shapedarray(x):
 def _to_struct(x):
     if isinstance(x, jax.core.ShapedArray):
         return jax.ShapeDtypeStruct(x.shape, x.dtype)
+    elif isinstance(x, jax.core.AbstractValue):
+        raise NotImplementedError(
+            "`optimistic.linear_solve` only supports working with JAX arrays; not "
+            "other abstract values. Got {type(x)}."
+        )
     else:
         return x
 
@@ -82,7 +88,7 @@ def _linear_solve_jvp(primals, tangents):
     del t_state, t_options, t_solver
 
     solution, result, stats = eqxi.filter_primitive_bind(
-        _linear_solve_p, operator, state, vector, options, solver
+        linear_solve_p, operator, state, vector, options, solver
     )
 
     #
@@ -123,7 +129,7 @@ def _linear_solve_jvp(primals, tangents):
             operator_transpose = operator.transpose()
             state_transpose, options_transpose = solver.transpose(state, options)
             tmp1, _, _ = eqxi.filter_primitive_bind(
-                _linear_solve_p,
+                linear_solve_p,
                 operator_transpose,
                 state_transpose,
                 solution,
@@ -137,7 +143,7 @@ def _linear_solve_jvp(primals, tangents):
             sols.append(tmp2)
     vecs = jtu.tree_map(_sum, *vecs)
     sol, _, _ = eqxi.filter_primitive_bind(
-        _linear_solve_p, operator, state, vecs, options, solver
+        linear_solve_p, operator, state, vecs, options, solver
     )
     sols.append(sol)
     t_solution = jtu.tree_map(_sum, *sols)
@@ -172,7 +178,7 @@ def _linear_solve_transpose(inputs, cts_out):
     operator_transpose = operator.transpose()
     state_transpose, options_transpose = solver.transpose(state, options)
     cts_vector, _, _ = eqxi.filter_primitive_bind(
-        _linear_solve_p,
+        linear_solve_p,
         operator_transpose,
         state_transpose,
         cts_solution,
@@ -189,13 +195,14 @@ def _linear_solve_transpose(inputs, cts_out):
     return operator_none, state_none, cts_vector, options_none, solver_none
 
 
-_linear_solve_p = eqxi.create_vprim(
+linear_solve_p = eqxi.create_vprim(
     "linear_solve",
     _linear_solve_impl,
     _linear_solve_abstract_eval,
     _linear_solve_jvp,
     _linear_solve_transpose,
 )
+eqxi.register_impl_finalisation(linear_solve_p)
 
 
 #
@@ -252,7 +259,7 @@ def _lookup(token) -> Type[AbstractLinearSolver]:
         _qr_token: solver.QR,
         _diagonal_token: solver.Diagonal,
         _triangular_token: solver.Triangular,
-        _cg_token: solver.CG,
+        _cg_token: ft.partial(solver.CG, rtol=1e-6, atol=1e-6),
         _cholesky_token: solver.Cholesky,
         _lu_token: solver.LU,
     }
@@ -272,13 +279,10 @@ class AutoLinearSolver(AbstractLinearSolver):
             token = _qr_token
         elif operator.pattern.diagonal:
             token = _diagonal_token
-        elif operator.pattern.triangular:
+        elif operator.pattern.lower_triangular or operator.pattern.upper_triangular:
             token = _triangular_token
         elif operator.pattern.symmetric:
-            if self.maybe_singular:
-                token = _cg_token
-            else:
-                token = _cholesky_token
+            token = _cg_token
         else:
             if self.maybe_singular:
                 token = _qr_token
@@ -308,7 +312,7 @@ class AutoLinearSolver(AbstractLinearSolver):
 
 # TODO(kidger): gmres, bicgstab
 # TODO(kidger): support auxiliary outputs
-@eqx.filter_jit
+@eqx.filter_jit(donate="none")
 def linear_solve(
     operator: Union[PyTree[Array], AbstractLinearOperator],
     vector: PyTree[Array],
@@ -320,21 +324,25 @@ def linear_solve(
 ) -> Solution:
     if options is None:
         options = {}
+    vector_structure = jax.eval_shape(lambda: vector)
+    if isinstance(operator, AbstractLinearOperator):
+        if vector_structure != operator.out_structure():
+            raise ValueError("Vector and operator structures do not match")
+        if isinstance(operator, IdentityLinearOperator):
+            return Solution(
+                value=vector, result=RESULTS.successful, state=state, stats={}, aux=None
+            )
+    else:
+        operator = PyTreeLinearOperator(operator, vector_structure)
     if state == sentinel:
-        vector_structure = jax.eval_shape(lambda: vector)
-        if isinstance(operator, AbstractLinearOperator):
-            if vector_structure != operator.out_structure():
-                raise ValueError("Vector and operator structures do not match")
-            if isinstance(operator, IdentityLinearOperator):
-                return vector
-        else:
-            operator = PyTreeLinearOperator(operator, vector_structure)
         state = solver.init(operator, options)
-        state = lax.stop_gradient(state)
+        dynamic_state, static_state = eqx.partition(state, eqx.is_array)
+        dynamic_state = lax.stop_gradient(dynamic_state)
+        state = eqx.combine(dynamic_state, static_state)
 
     state, options, solver = eqxi.nondifferentiable((state, options, solver))
     solution, result, stats = eqxi.filter_primitive_bind(
-        _linear_solve_p, operator, state, vector, options, solver
+        linear_solve_p, operator, state, vector, options, solver
     )
     # TODO: prevent forward-mode autodiff through stats
     stats = eqxi.nondifferentiable_backward(stats)

@@ -15,8 +15,8 @@ from ..solution import RESULTS
 
 
 def _tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Scalar:
-    a = jax.tree_leaves(a)
-    b = jax.tree_leaves(b)
+    a = jtu.tree_leaves(a)
+    b = jtu.tree_leaves(b)
     assert len(a) == len(b)
     return sum([jnp.sum(ai * bi) for ai, bi in zip(a, b)])
 
@@ -33,6 +33,10 @@ class CG(AbstractLinearSolver):
     normal: bool = False
     maybe_singular: bool = True
     max_steps: Optional[int] = None
+
+    def __post_init__(self):
+        if self.rtol < 0 or self.atol < 0:
+            raise ValueError("Tolerances must be non-negative.")
 
     def is_maybe_singular(self):
         return self.maybe_singular
@@ -67,8 +71,13 @@ class CG(AbstractLinearSolver):
     def compute(self, state, vector, options):
         if self.normal:
             _transpose_mv = jax.linear_transpose(state.mv, state.in_structure())
-            mv = lambda v, *, _state=state: _transpose_mv(_state.mv(v))
-            vector = _transpose_mv(vector)
+            _state = state
+
+            def mv(v):
+                (out,) = _transpose_mv(_state.mv(v))
+                return out
+
+            (vector,) = _transpose_mv(vector)
         else:
             mv = state.mv
         structure = state.in_structure()
@@ -101,17 +110,31 @@ class CG(AbstractLinearSolver):
                     "`y0` must have the same structure, shape, and dtype as `vector`"
                 )
 
+        vector_size = sum(jnp.size(x) for x in jtu.tree_leaves(vector))
+        if self.max_steps is None:
+            max_steps = vector_size
+        else:
+            max_steps = self.max_steps
+
         r0 = (vector**ω - mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
         gamma0 = _tree_dot(r0, p0)
-        scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
+        if (
+            isinstance(self.atol, float)
+            and isinstance(self.rtol, float)
+            and self.atol == 0
+            and self.rtol == 0
+        ):
+            scale = None
+        else:
+            scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
         initial_value = (y0, r0, p0, gamma0, 0)
 
         def cond_fun(value):
             _, r, _, _, step = value
-            out = self.norm((r**ω / scale**ω).ω) > 1
-            if self.max_steps is not None:
-                out = out & (step < self.max_steps)
+            out = step < max_steps
+            if scale is not None:
+                out = out & (self.norm((r**ω / scale**ω).ω) > 1)
             return out
 
         def body_fun(value):
@@ -128,15 +151,16 @@ class CG(AbstractLinearSolver):
             return y, r, p, gamma, step + 1
 
         solution, _, _, _, num_steps = lax.while_loop(cond_fun, body_fun, initial_value)
-        if self.max_steps is None:
-            result = RESULTS.successful
-        else:
-            result = jnp.where(
-                num_steps == self.max_steps,
-                RESULTS.max_steps_reached,
-                RESULTS.successful,
-            )
-        return solution, result, {"num_steps": num_steps, "max_steps": self.max_steps}
+        result = jnp.where(
+            (num_steps == max_steps) & (num_steps != vector_size),
+            RESULTS.max_steps_reached,
+            RESULTS.successful,
+        )
+        return (
+            solution,
+            result,
+            {"num_steps": num_steps, "max_steps": jnp.asarray(max_steps)},
+        )
 
     def transpose(self, state, options):
         transpose_state = state.transpose()

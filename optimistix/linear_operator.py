@@ -8,8 +8,10 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
+from equinox.internal import ω
 from jaxtyping import Array, PyTree, Shaped
 
+from .custom_types import Scalar
 from .misc import cached_eval_shape, jacobian, NoneAux
 
 
@@ -18,7 +20,6 @@ class Pattern(eqx.Module):
     unit_diagonal: bool
     lower_triangular: bool
     upper_triangular: bool
-    triangular: bool
     diagonal: bool
 
     def __init__(
@@ -28,28 +29,18 @@ class Pattern(eqx.Module):
         unit_diagonal: bool = False,
         lower_triangular: Optional[bool] = None,
         upper_triangular: Optional[bool] = None,
-        triangular: Optional[bool] = None,
         diagonal: Optional[bool] = None
     ):
         if lower_triangular is None:
             lower_triangular = diagonal is True
         if upper_triangular is None:
             upper_triangular = diagonal is True
-        if triangular is None:
-            triangular = lower_triangular or upper_triangular
         if diagonal is None:
             diagonal = lower_triangular and upper_triangular
         if symmetric and lower_triangular != upper_triangular:
             raise ValueError(
                 "A symmetric operator cannot be only lower or upper triangular"
             )
-        if triangular and not (lower_triangular or upper_triangular):
-            raise ValueError(
-                "A triangular operator must be either lower trianglar or upper "
-                "triangular"
-            )
-        if lower_triangular or upper_triangular and not triangular:
-            raise ValueError("A lower/upper triangular operator must be triangular")
         if diagonal and not (lower_triangular and upper_triangular):
             raise ValueError(
                 "A diagonal operator must be both lower and upper triangular"
@@ -58,7 +49,6 @@ class Pattern(eqx.Module):
         self.unit_diagonal = unit_diagonal
         self.lower_triangular = lower_triangular
         self.upper_triangular = upper_triangular
-        self.triangular = triangular
         self.diagonal = diagonal
 
     def transpose(self):
@@ -70,12 +60,13 @@ class Pattern(eqx.Module):
                 unit_diagonal=self.unit_diagonal,
                 lower_triangular=self.upper_triangular,
                 upper_triangular=self.lower_triangular,
-                triangular=self.triangular,
                 diagonal=self.diagonal,
             )
 
 
 class AbstractLinearOperator(eqx.Module):
+    pattern = eqxi.abstractattribute(Pattern)
+
     def __post_init__(self):
         if self.in_size() != self.out_size():
             if self.pattern.symmetric:
@@ -124,9 +115,38 @@ class AbstractLinearOperator(eqx.Module):
         return sum(np.prod(leaf.shape).item() for leaf in leaves)
 
     @property
-    @abc.abstractmethod
-    def pattern(self):
-        ...
+    def T(self):
+        return self.transpose()
+
+    def __add__(self, other):
+        if not isinstance(other, AbstractLinearOperator):
+            raise ValueError("Can only add AbstractLinearOperators together.")
+        return _AddLinearOperator(self, other)
+
+    def __mul__(self, other):
+        other = jnp.asarray(other)
+        if other.shape != ():
+            raise ValueError("Can only multiply AbstractLinearOperators by scalars.")
+        return _MulLinearOperator(self, other)
+
+    def __matmul__(self, other):
+        if not isinstance(other, AbstractLinearOperator):
+            raise ValueError("Can only compose AbstractLinearOperators together.")
+        return _ComposedLinearOperator(self, other)
+
+
+def symmetrise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+    if operator.pattern.symmetric:
+        return operator
+    else:
+        new_pattern = Pattern(
+            symmetric=True,
+            unit_diagonal=operator.pattern.unit_diagonal,
+            lower_triangular=operator.pattern.diagonal,
+            upper_triangular=operator.pattern.diagonal,
+            diagonal=operator.pattern.diagonal,
+        )
+        return (operator + operator.T).with_pattern(new_pattern)
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
@@ -170,19 +190,21 @@ def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
     # matrix has structure [tree(in), leaf(out), leaf(in)]
     # vector has structure [tree(in), leaf(in)]
     # return has structure [leaf(out)]
-    matrix = jax.tree_leaves(matrix)
-    vector = jax.tree_leaves(vector)
+    matrix = jtu.tree_leaves(matrix)
+    vector = jtu.tree_leaves(vector)
     assert len(matrix) == len(vector)
     return sum([_matmul(m, v) for m, v in zip(matrix, vector)])
 
 
 # This is basically a generalisation of `MatrixLinearOperator` from taking
 # just a single array to taking a PyTree-of-arrays.
+# The `{input,output}_structure`s have to be static because otherwise abstract
+# evaluation rules will promote them to ShapedArrays.
 class PyTreeLinearOperator(AbstractLinearOperator):
     pytree: PyTree[Array]
-    output_structure: PyTree[jax.ShapeDtypeStruct]
+    output_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
     pattern: Pattern = Pattern()
-    input_structure: PyTree[jax.ShapeDtypeStruct] = field(init=False)
+    input_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field(init=False)
 
     def __post_init__(self):
         # self.out_structure() has structure [tree(out)]
@@ -239,9 +261,9 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         if self.pattern.symmetric:
             return self
         pytree_transpose = jtu.tree_transpose(
+            jtu.tree_structure(self.out_structure()),
+            jtu.tree_structure(self.in_structure()),
             self.pytree,
-            jax.tree_structure(self.out_structure()),
-            jax.tree_structure(self.in_structure()),
         )
         pytree_transpose = jtu.tree_map(jnp.transpose, pytree_transpose)
         return PyTreeLinearOperator(
@@ -271,11 +293,19 @@ class _NoAuxOut(eqx.Module):
         return f
 
 
+class _Unwrap(eqx.Module):
+    fn: Callable
+
+    def __call__(self, x):
+        (f,) = self.fn(x)
+        return f
+
+
 class JacobianLinearOperator(AbstractLinearOperator):
     fn: Callable
     x: PyTree[Array]
     args: Optional[PyTree[Any]]
-    pattern: Pattern
+    pattern: Pattern = field()  # overwrite abstract field
 
     def __init__(
         self,
@@ -295,7 +325,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         # to respect that, and keep any non-floating-point constants as part of the
         # PyTree structure.
         x = jtu.tree_map(jnp.asarray, x)
-        fn = eqxi.filter_closure_convert(fn, x, args)
+        fn = eqx.filter_closure_convert(fn, x, args)
         self.fn = fn
         self.x = x
         self.args = args
@@ -328,6 +358,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
         # Works because vjpfn is a PyTree
         _, vjpfn = jax.vjp(fn, self.x)
+        vjpfn = _Unwrap(vjpfn)
         return FunctionLinearOperator(
             vjpfn, self.out_structure(), self.pattern.transpose()
         )
@@ -336,13 +367,15 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return jax.eval_shape(lambda: self.x)
 
     def out_structure(self):
-        return cached_eval_shape(self.fn, self.x, self.args)
+        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
+        return cached_eval_shape(fn, self.x)
 
 
+# `input_structure` must be static as with `JacobianLinearOperator`
 class FunctionLinearOperator(AbstractLinearOperator):
     fn: Callable[[PyTree[Array]], PyTree[Array]]
-    input_structure: PyTree[jax.ShapeDtypeStruct]
-    pattern: Pattern
+    input_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+    pattern: Pattern = field()  # overwrite abstract field
 
     def __init__(
         self,
@@ -351,7 +384,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
         pattern: Pattern = Pattern(),
     ):
         # See matching comment in JacobianLinearOperator.
-        fn = eqxi.filter_closure_convert(fn, input_structure)
+        fn = eqx.filter_closure_convert(fn, input_structure)
         self.fn = fn
         self.input_structure = input_structure
         self.pattern = pattern
@@ -387,8 +420,9 @@ class FunctionLinearOperator(AbstractLinearOperator):
         return cached_eval_shape(self.fn, self.in_structure())
 
 
-class IdentityLinearOperator(eqx.Module):
-    structure: PyTree[jax.ShapeDtypeStruct]
+# `structure` must be static as with `JacobianLinearOperator`
+class IdentityLinearOperator(AbstractLinearOperator):
+    structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
 
     def mv(self, vector):
         if jax.eval_shape(lambda: vector) != self.in_structure():
@@ -416,6 +450,11 @@ class IdentityLinearOperator(eqx.Module):
     @property
     def pattern(self):
         return Pattern(symmetric=True, unit_diagonal=True, diagonal=True)
+
+
+#
+# Everything below here is private to Optimistix
+#
 
 
 class TangentLinearOperator(AbstractLinearOperator):
@@ -461,6 +500,137 @@ class TangentLinearOperator(AbstractLinearOperator):
     @property
     def pattern(self):
         return self.primal.pattern
+
+
+class _AddLinearOperator(AbstractLinearOperator):
+    operator1: AbstractLinearOperator
+    operator2: AbstractLinearOperator
+
+    def __post_init__(self):
+        if self.operator1.in_structure() != self.operator2.in_structure():
+            raise ValueError("Incompatible linear operator structures")
+        if self.operator1.out_structure() != self.operator2.out_structure():
+            raise ValueError("Incompatible linear operator structures")
+
+    def mv(self, vector):
+        mv1 = self.operator1.mv(vector)
+        mv2 = self.operator2.mv(vector)
+        return (mv1**ω + mv2**ω).ω
+
+    def as_matrix(self):
+        return self.operator1.as_matrix() + self.operator2.as_matrix()
+
+    def materialise(self):
+        return self.operator1.materialise() + self.operator2.materialise()
+
+    def linearise(self):
+        return self.operator1.linearise() + self.operator2.linearise()
+
+    def transpose(self):
+        return self.operator1.transpose() + self.operator2.transpose()
+
+    def in_structure(self):
+        return self.operator1.in_structure()
+
+    def out_structure(self):
+        return self.operator1.out_structure()
+
+    @property
+    def pattern(self):
+        pattern1 = self.operator1.pattern
+        pattern2 = self.operator2.pattern
+        symmetric = pattern1.symmetric and pattern2.symmetric
+        unit_diagonal = False
+        lower_triangular = pattern1.lower_triangular and pattern2.lower_triangular
+        upper_triangular = pattern1.upper_triangular and pattern2.upper_triangular
+        diagonal = pattern1.diagonal and pattern2.diagonal
+        return Pattern(
+            symmetric=symmetric,
+            unit_diagonal=unit_diagonal,
+            lower_triangular=lower_triangular,
+            upper_triangular=upper_triangular,
+            diagonal=diagonal,
+        )
+
+
+class _MulLinearOperator(AbstractLinearOperator):
+    operator: AbstractLinearOperator
+    scalar: Scalar
+
+    def mv(self, vector):
+        return (self.scalar * self.operator.mv(vector) ** ω).ω
+
+    def as_matrix(self):
+        return self.scalar * self.operator.as_matrix()
+
+    def materialise(self):
+        return self.scalar * self.operator.materialise()
+
+    def linearise(self):
+        return self.scalar * self.operator.linearise()
+
+    def transpose(self):
+        return self.scalar * self.operator.transpose()
+
+    def in_structure(self):
+        return self.operator.in_structure()
+
+    def out_structure(self):
+        return self.operator.out_structure()
+
+    @property
+    def pattern(self):
+        return self.operator.pattern
+
+
+class _ComposedLinearOperator(AbstractLinearOperator):
+    operator1: AbstractLinearOperator
+    operator2: AbstractLinearOperator
+
+    def __post_init__(self):
+        if self.operator2.in_structure() != self.operator1.out_structure():
+            raise ValueError("Incompatible linear operator structures")
+
+    def mv(self, vector):
+        return self.operator2.mv(self.operator1.mv(vector))
+
+    def as_matrix(self):
+        return self.operator2.as_matrix() @ self.operator1.as_matrix()
+
+    def materialise(self):
+        return self.operator2.materialise() @ self.operator1.materialise()
+
+    def linearise(self):
+        return self.operator2.linearise() @ self.operator1.linearise()
+
+    def transpose(self):
+        return self.operator1.transpose() @ self.operator2.transpose()
+
+    def in_structure(self):
+        return self.operator1.in_structure()
+
+    def out_structure(self):
+        return self.operator2.out_structure()
+
+    @property
+    def pattern(self):
+        pattern1 = self.operator1.pattern
+        pattern2 = self.operator2.pattern
+        symmetric = pattern1.symmetric and pattern2.symmetric
+        lower_triangular = pattern1.lower_triangular and pattern2.lower_triangular
+        upper_triangular = pattern1.upper_triangular and pattern2.upper_triangular
+        diagonal = pattern1.diagonal and pattern2.diagonal
+        if lower_triangular or upper_triangular or diagonal:
+            unit_diagonal = pattern1.unit_diagonal and pattern2.unit_diagonal
+        else:
+            unit_diagonal = False
+        return Pattern(
+            symmetric=symmetric,
+            unit_diagonal=unit_diagonal,
+            lower_triangular=lower_triangular,
+            upper_triangular=upper_triangular,
+            diagonal=diagonal,
+        )
 
 
 class _AuxLinearOperator(AbstractLinearOperator):

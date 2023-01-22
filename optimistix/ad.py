@@ -7,8 +7,8 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
-from ..linear_operator import JacobianLinearOperator, Pattern
-from ..linear_solve import AbstractLinearSolver, linear_solve
+from .linear_operator import JacobianLinearOperator, Pattern
+from .linear_solve import AbstractLinearSolver, linear_solve
 
 
 def implicit_jvp(

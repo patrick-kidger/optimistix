@@ -1,6 +1,5 @@
 from typing import Optional
 
-import equinox.internal as eqxi
 import jax.flatten_util as jfu
 import jax.numpy as jnp
 
@@ -27,13 +26,13 @@ class QR(AbstractLinearSolver):
         if transpose:
             matrix = matrix.T
         qr = jnp.linalg.qr(matrix, mode="reduced")
-        return qr, eqxi.Static(transpose)
+        return qr, transpose
 
     def compute(self, state, vector, options):
         (q, r), transpose = state
         del state, options
         vector, unflatten = jfu.ravel_pytree(vector)
-        if transpose.value:
+        if transpose:
             # Minimal norm solution if ill-posed
             solution = q @ solve_triangular(
                 r.T, vector, lower=False, unit_diagonal=False, rcond=self.rcond
@@ -48,6 +47,6 @@ class QR(AbstractLinearSolver):
 
     def transpose(self, state, options):
         (q, r), transpose = state
-        transpose_state = (q, r), eqxi.Static(not transpose.value)
+        transpose_state = (q, r), not transpose
         transpose_options = {}
         return transpose_state, transpose_options

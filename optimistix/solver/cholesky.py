@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 
 from ..linear_solve import AbstractLinearSolver
+from ..solution import RESULTS
 
 
 class Cholesky(AbstractLinearSolver):
@@ -47,7 +48,7 @@ class Cholesky(AbstractLinearSolver):
         assert lower is False
         return state
 
-    def solve(self, state, vector, options):
+    def compute(self, state, vector, options):
         del options
         vector, unflatten = jfu.ravel_pytree(vector)
         if self.normal:
@@ -55,7 +56,8 @@ class Cholesky(AbstractLinearSolver):
             vector = matrix.T @ vector
         else:
             factor = state
-        return unflatten(jsp.linalg.cho_solve((factor, False), vector))
+        result = unflatten(jsp.linalg.cho_solve((factor, False), vector))
+        return result, RESULTS.successful, {}
 
     def transpose(self, state, options):
         if self.normal:

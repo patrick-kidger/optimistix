@@ -73,6 +73,9 @@ def _iterate(inputs, closure, while_loop):
         options = {}
 
     init_state = solver.init(prob, y0, args, options)
+    # We need to filter non-JAX-arrays, as our linear solvers use Python bools in their
+    # state.
+    dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
 
     if prob.has_aux:
 
@@ -88,15 +91,17 @@ def _iterate(inputs, closure, while_loop):
         prob = eqx.tree_at(lambda p: p.fn, prob, NoneAux(prob.fn))
         init_aux = None
 
-    init_val = (y0, 0, init_state, init_aux)
+    init_val = (y0, 0, dynamic_init_state, init_aux)
 
     def cond_fun(carry):
-        y, _, state, _ = carry
+        y, _, dynamic_state, _ = carry
+        state = eqx.combine(dynamic_state, static_state)
         terminate, _ = solver.terminate(prob, y, args, options, state)
         return jnp.invert(terminate)
 
     def body_fun(carry, _):
-        y, num_steps, state, _ = carry
+        y, num_steps, dynamic_state, _ = carry
+        state = eqx.combine(dynamic_state, static_state)
         new_y, new_state, aux = solver.step(prob, y, args, options, state)
         return new_y, num_steps + 1, new_state, aux
 

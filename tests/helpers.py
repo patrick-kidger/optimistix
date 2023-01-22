@@ -1,9 +1,16 @@
 import functools as ft
 import operator
+import random
 
 import jax.numpy as jnp
+import jax.random as jr
 import jax.tree_util as jtu
 import numpy as np
+
+
+def getkey():
+    # Not sure what the maximum actually is but this will do
+    return jr.PRNGKey(random.randint(0, 2**31 - 1))
 
 
 def _shaped_allclose(x, y, **kwargs):

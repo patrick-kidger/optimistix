@@ -7,7 +7,7 @@ import equinox.internal as eqxi
 import jax.lax as lax
 from jaxtyping import Array, PyTree
 
-from .internal import implicit_jvp
+from .ad import implicit_jvp
 from .linear_operator import Pattern
 from .linear_solve import AbstractLinearSolver, AutoLinearSolver
 

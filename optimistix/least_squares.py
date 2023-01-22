@@ -51,7 +51,7 @@ class _ToMinimiseFn(eqx.Module):
         return jnp.sum(self.residual_fn(y, args) ** 2)
 
 
-@eqx.filter_jit
+@eqx.filter_jit(donate="none")
 def least_squares(
     residual_fn: Union[Callable, LeastSquaresProblem],
     solver: Union[AbstractLeastSquaresSolver, AbstractMinimiser, AbstractRootFinder],

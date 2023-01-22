@@ -67,14 +67,10 @@ def _to_struct(x):
         return x
 
 
-def _call(fn, args, kwargs):
-    return fn(*args, **kwargs)
-
-
 @ft.lru_cache(maxsize=128)
 def _cached_eval_shape(leaves, treedef):
-    fn, args, kwargs = jtu.tree_unflatten(leaves, treedef)
-    return jax.eval_shape(_call, fn, args, kwargs)
+    fn, args, kwargs = jtu.tree_unflatten(treedef, leaves)
+    return eqx.filter_eval_shape(fn, *args, **kwargs)
 
 
 def cached_eval_shape(fn, *args, **kwargs):

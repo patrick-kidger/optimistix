@@ -4,11 +4,15 @@
   - unit_diagonal for triangular solvers
   - Test JAX #13452
   - passing AD closures in to `linear_solve_p.impl`
-- Think about adding nontraceable to the end of all rules for linear_solve_p. Or a wrapper to do this for all rules?
+- Make singularity be detected by solvers and/or annotated on the operator?
+- Make cholesky a possible autosolver
 - Think about passing Refs into custom primitives. Do the abstract eval rules?
+- LBFGs etc.
+- Handle low-rank + diagonal solving using Woodbury
 - LM
   - Geodesic acceleration for LM
-- Adam/LBFGS/etc.
+- Let @felix_m_koehler (Twitter) and @botev (DeepMind) know once this is ready, they may have opinions.
+
 - Falsi
 - Line search / learning rates for GN, Newton, etc.
  - Hager-Zhang [https://github.com/JuliaNLSolvers/Optim.jl/issues/153 claims 2005 paper is worse than 2012 paper]
@@ -16,10 +20,7 @@
  - Frank Wolfe
  - Armijo backatracking
  - Fista
-- Let @felix_m_koehler (Twitter) and @botev (DeepMind) know once this is ready, they may have opinions.
 - Handling Optax-like things
-- Handle low-rank + diagonal solving using Woodbury
-- Handle checkpointing in while loops in the same way as diffrax, i.e. using adjoints
 
 Done?
 - QR for rectangular
