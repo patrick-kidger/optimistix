@@ -37,6 +37,10 @@ def _rms_norm_jvp(x, tx):
     return out, t_out
 
 
+def max_norm(x: PyTree) -> Scalar:
+    return max([jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)])
+
+
 def resolve_rcond(rcond, n, m, dtype):
     if rcond is None:
         return jnp.finfo(dtype).eps * max(n, m)

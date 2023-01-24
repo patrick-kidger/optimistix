@@ -20,14 +20,14 @@ _Aux = TypeVar("_Aux")
 
 class AbstractIterativeProblem(eqx.Module):
     fn: Callable
-    has_aux: bool
+    has_aux: bool = False
 
 
 class AbstractIterativeSolver(eqx.Module):
     @abc.abstractmethod
     def init(
         self,
-        prob: AbstractIterativeProblem,
+        problem: AbstractIterativeProblem,
         y: PyTree[Array],
         args: PyTree,
         options: Dict[str, Any],
@@ -37,7 +37,7 @@ class AbstractIterativeSolver(eqx.Module):
     @abc.abstractmethod
     def step(
         self,
-        prob: AbstractIterativeProblem,
+        problem: AbstractIterativeProblem,
         y: PyTree[Array],
         args: PyTree,
         options: Dict[str, Any],
@@ -48,7 +48,7 @@ class AbstractIterativeSolver(eqx.Module):
     @abc.abstractmethod
     def terminate(
         self,
-        prob: AbstractIterativeProblem,
+        problem: AbstractIterativeProblem,
         y: PyTree[Array],
         args: PyTree,
         options: Dict[str, Any],
@@ -65,30 +65,30 @@ def _zero(x):
 
 
 def _iterate(inputs, closure, while_loop):
-    prob, args = inputs
+    problem, args = inputs
     solver, y0, options, max_steps = closure
     del inputs, closure
 
     if options is None:
         options = {}
 
-    init_state = solver.init(prob, y0, args, options)
+    init_state = solver.init(problem, y0, args, options)
     # We need to filter non-JAX-arrays, as our linear solvers use Python bools in their
     # state.
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
 
-    if prob.has_aux:
+    if problem.has_aux:
 
-        def _aux(_solver, _prob, _y, _args, _options, _state):
-            _, _, _aux = _solver.step(_prob, _y, _args, _options, _state)
+        def _aux(_solver, _problem, _y, _args, _options, _state):
+            _, _, _aux = _solver.step(_problem, _y, _args, _options, _state)
             return _aux
 
         init_aux = eqx.filter_eval_shape(
-            _aux, solver, prob, y0, args, options, init_state
+            _aux, solver, problem, y0, args, options, init_state
         )
         init_aux = jtu.tree_map(_zero, init_aux)
     else:
-        prob = eqx.tree_at(lambda p: p.fn, prob, NoneAux(prob.fn))
+        problem = eqx.tree_at(lambda p: p.fn, problem, NoneAux(problem.fn))
         init_aux = None
 
     init_val = (y0, 0, dynamic_init_state, init_aux)
@@ -96,19 +96,19 @@ def _iterate(inputs, closure, while_loop):
     def cond_fun(carry):
         y, _, dynamic_state, _ = carry
         state = eqx.combine(dynamic_state, static_state)
-        terminate, _ = solver.terminate(prob, y, args, options, state)
+        terminate, _ = solver.terminate(problem, y, args, options, state)
         return jnp.invert(terminate)
 
     def body_fun(carry, _):
         y, num_steps, dynamic_state, _ = carry
         state = eqx.combine(dynamic_state, static_state)
-        new_y, new_state, aux = solver.step(prob, y, args, options, state)
+        new_y, new_state, aux = solver.step(problem, y, args, options, state)
         return new_y, num_steps + 1, new_state, aux
 
     final_val = while_loop(cond_fun, body_fun, init_val, max_steps)
 
     final_y, num_steps, final_state, aux = final_val
-    terminate, result = solver.terminate(prob, final_y, args, final_state, options)
+    terminate, result = solver.terminate(problem, final_y, args, final_state, options)
     result = jnp.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
         RESULTS.max_steps_reached,
@@ -118,7 +118,7 @@ def _iterate(inputs, closure, while_loop):
 
 
 def iterative_solve(
-    prob: AbstractIterativeProblem,
+    problem: AbstractIterativeProblem,
     solver: AbstractIterativeSolver,
     y0: PyTree[Array],
     args: PyTree = None,
@@ -130,7 +130,7 @@ def iterative_solve(
     throw: bool,
     pattern: Pattern,
 ) -> Solution:
-    inputs = prob, args
+    inputs = problem, args
     closure = solver, y0, options, max_steps
     out, (num_steps, result, final_state, aux) = adjoint.apply(
         _iterate, rewrite_fn, inputs, closure, pattern, max_steps

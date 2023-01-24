@@ -30,14 +30,20 @@ def _fixed_point(root, _, inputs, __):
 
 class _ToRootFn(eqx.Module):
     fixed_point_fn: Callable
+    has_aux: bool
 
     def __call__(self, y, args):
-        return self.fixed_point_fn(y, args) - y
+        out = self.fixed_point_fn(y, args)
+        if self.has_aux:
+            out, aux = out
+            return out - y, aux
+        else:
+            return out - y
 
 
-@eqx.filter_jit(donate="none")
+@eqx.filter_jit
 def fixed_point(
-    fixed_point_fn: Union[Callable, FixedPointProblem],
+    problem: FixedPointProblem,
     solver: Union[AbstractFixedPointSolver, AbstractRootFinder],
     y0: PyTree[Array],
     args: PyTree = None,
@@ -47,24 +53,18 @@ def fixed_point(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
-    if isinstance(fixed_point_fn, FixedPointProblem):
-        fixed_point_prob = fixed_point_fn
-    else:
-        fixed_point_prob = FixedPointProblem(fn=fixed_point_fn, has_aux=False)
-    del fixed_point_fn
-
-    if jax.eval_shape(lambda: y0) != jax.eval_shape(fixed_point_prob.fn, y0, args):
+    if jax.eval_shape(lambda: y0) != jax.eval_shape(problem.fn, y0, args):
         raise ValueError(
             "The input and output of `fixed_point_fn` must have the same structure"
         )
 
     if isinstance(solver, AbstractRootFinder):
-        root_fn = _ToRootFn(fixed_point_prob.fn)
-        root_prob = RootFindProblem(
-            fn=root_fn, has_aux=fixed_point_prob.has_aux, pattern=Pattern()
+        root_fn = _ToRootFn(problem.fn, problem.has_aux)
+        root_problem = RootFindProblem(
+            fn=root_fn, has_aux=problem.has_aux, pattern=Pattern()
         )
         return root_find(
-            root_prob,
+            root_problem,
             solver,
             y0,
             args,
@@ -75,7 +75,7 @@ def fixed_point(
         )
     else:
         return iterative_solve(
-            fixed_point_prob,
+            problem,
             solver,
             y0,
             args,

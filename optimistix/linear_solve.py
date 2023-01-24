@@ -1,6 +1,6 @@
 import abc
 import functools as ft
-from typing import Any, Dict, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -16,7 +16,6 @@ from .custom_types import sentinel
 from .linear_operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,
-    PyTreeLinearOperator,
     TangentLinearOperator,
 )
 from .solution import RESULTS, Solution
@@ -252,14 +251,23 @@ _lu_token = eqxi.str2jax("LU")
 # Ugly delayed import because we have the dependency chain
 # linear_solve -> AutoLinearSolver -> {Cholesky,...} -> AbstractLinearSolver
 # but we want linear_solver and AbstractLinearSolver in the same file.
-def _lookup(token) -> Type[AbstractLinearSolver]:
+def _lookup(token) -> Callable[[], AbstractLinearSolver]:
     from . import solver
 
+    if jax.config.jax_enable_x64:
+        tol = 1e-12
+    else:
+        tol = 1e-6
+
+    # We set CG(materialise=True) because CG evalutes `operator.mv` twice. By
+    # materialising the matrix we ensure that we don't silently double compile time.
+    # (In contrast the out-of-memory issue that materialisation might get induce is a
+    # loud error.)
     _lookup_dict = {
         _qr_token: solver.QR,
         _diagonal_token: solver.Diagonal,
         _triangular_token: solver.Triangular,
-        _cg_token: ft.partial(solver.CG, rtol=1e-6, atol=1e-6),
+        _cg_token: ft.partial(solver.CG, rtol=tol, atol=tol, materialise=True),
         _cholesky_token: solver.Cholesky,
         _lu_token: solver.LU,
     }
@@ -312,9 +320,9 @@ class AutoLinearSolver(AbstractLinearSolver):
 
 # TODO(kidger): gmres, bicgstab
 # TODO(kidger): support auxiliary outputs
-@eqx.filter_jit(donate="none")
+@eqx.filter_jit
 def linear_solve(
-    operator: Union[PyTree[Array], AbstractLinearOperator],
+    operator: AbstractLinearOperator,
     vector: PyTree[Array],
     solver: AbstractLinearSolver = AutoLinearSolver(),
     options: Optional[Dict[str, Any]] = None,
@@ -324,16 +332,12 @@ def linear_solve(
 ) -> Solution:
     if options is None:
         options = {}
-    vector_structure = jax.eval_shape(lambda: vector)
-    if isinstance(operator, AbstractLinearOperator):
-        if vector_structure != operator.out_structure():
-            raise ValueError("Vector and operator structures do not match")
-        if isinstance(operator, IdentityLinearOperator):
-            return Solution(
-                value=vector, result=RESULTS.successful, state=state, stats={}, aux=None
-            )
-    else:
-        operator = PyTreeLinearOperator(operator, vector_structure)
+    if jax.eval_shape(lambda: vector) != operator.out_structure():
+        raise ValueError("Vector and operator structures do not match")
+    if isinstance(operator, IdentityLinearOperator):
+        return Solution(
+            value=vector, result=RESULTS.successful, state=state, stats={}, aux=None
+        )
     if state == sentinel:
         state = solver.init(operator, options)
         dynamic_state, static_state = eqx.partition(state, eqx.is_array)

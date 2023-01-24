@@ -4,6 +4,8 @@
   - unit_diagonal for triangular solvers
   - Test JAX #13452
   - passing AD closures in to `linear_solve_p.impl`
+- Convert the solver, not the problem.
+- Remove CG.materialise and AbstractLinearSolver.will_materialise. Add Newton.modify_lin_operator
 - Make singularity be detected by solvers and/or annotated on the operator?
 - Make cholesky a possible autosolver
 - Think about passing Refs into custom primitives. Do the abstract eval rules?

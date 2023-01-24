@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Dict, Optional, TypeVar
 
 import equinox as eqx
 from jaxtyping import Array, PyTree
@@ -13,7 +13,7 @@ _SolverState = TypeVar("_SolverState")
 
 
 class RootFindProblem(AbstractIterativeProblem):
-    pattern: Pattern
+    pattern: Pattern = Pattern()
 
 
 class AbstractRootFinder(AbstractIterativeSolver):
@@ -26,9 +26,9 @@ def _root(root, _, inputs, __):
     return root_fn(root, args)
 
 
-@eqx.filter_jit(donate="none")
+@eqx.filter_jit
 def root_find(
-    root_fn: Union[Callable, RootFindProblem],
+    problem: RootFindProblem,
     solver: AbstractRootFinder,
     y0: PyTree[Array],
     args: PyTree = None,
@@ -38,14 +38,8 @@ def root_find(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
-    if isinstance(root_fn, RootFindProblem):
-        root_prob = root_fn
-    else:
-        root_prob = RootFindProblem(root_prob, has_aux=False, pattern=Pattern())
-    del root_fn
-
     return iterative_solve(
-        root_prob,
+        problem,
         solver,
         y0,
         args,
@@ -54,5 +48,5 @@ def root_find(
         max_steps=max_steps,
         adjoint=adjoint,
         throw=throw,
-        pattern=root_prob.pattern,
+        pattern=problem.pattern,
     )

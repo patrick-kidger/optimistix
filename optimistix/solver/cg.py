@@ -1,5 +1,6 @@
 from typing import Callable, Optional
 
+import equinox.internal as eqxi
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
@@ -10,7 +11,7 @@ from jaxtyping import Array, PyTree
 from ..custom_types import Scalar
 from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator
 from ..linear_solve import AbstractLinearSolver
-from ..misc import rms_norm
+from ..misc import max_norm
 from ..solution import RESULTS
 
 
@@ -18,25 +19,33 @@ def _tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Scalar:
     a = jtu.tree_leaves(a)
     b = jtu.tree_leaves(b)
     assert len(a) == len(b)
-    return sum([jnp.sum(ai * bi) for ai, bi in zip(a, b)])
+    return sum(
+        [jnp.vdot(ai, bi, precision=lax.Precision.HIGHEST) for ai, bi in zip(a, b)]
+    )
 
 
 # TODO(kidger): this is pretty slow to compile.
-# - CG evaluates `operator.mv` twice.
-# - Normal CG evaluates `operator.mv` six times.
+# - CG evaluates `operator.mv` three times.
+# - Normal CG evaluates `operator.mv` seven (!) times.
 # Possibly this can be cheapend a bit somehow?
 class CG(AbstractLinearSolver):
     rtol: float
     atol: float
-    norm: Callable = rms_norm
-    materialise: bool = False
     normal: bool = False
-    maybe_singular: bool = True
+    norm: Callable = max_norm
+    stabilise_every: Optional[int] = 10
     max_steps: Optional[int] = None
+    materialise: bool = False
+    maybe_singular: bool = True
 
     def __post_init__(self):
         if self.rtol < 0 or self.atol < 0:
             raise ValueError("Tolerances must be non-negative.")
+        if self.atol == 0 and self.rtol == 0 and self.max_steps is None:
+            raise ValueError(
+                "Must specify `rtol`, `atol`, or `max_steps` (or some combination of "
+                "all three)."
+            )
 
     def is_maybe_singular(self):
         return self.maybe_singular
@@ -62,14 +71,20 @@ class CG(AbstractLinearSolver):
         return operator
 
     # This differs from jax.scipy.sparse.linalg.cg in:
-    # 1. We use a slightly different termination condition -- rtol and atol are used in
-    #    a conventional way, and `scale` is vector-valued (instead of scalar-valued).
-    # 2. We return the number of steps, and whether or not the solve succeeded, as
+    # 1. Every few steps we calculate the residual directly, rather than by cheaply
+    #    using the existing quantities. This improves numerical stability.
+    # 2. We use a more sophisticated termination condition. To begin with we have an
+    #    rtol and atol in the conventional way, inducing a vector-valued scale. This is
+    #    then checked in both the `y` and `b` domains (for `Ay = b`).
+    # 3. We return the number of steps, and whether or not the solve succeeded, as
     #    additional information.
-    # 3. We don't try to support complex numbers. (Yet.)
-    # 4. We support PyTree-valued state.
+    # 4. We don't try to support complex numbers. (Yet.)
     def compute(self, state, vector, options):
         if self.normal:
+            # Linearise if JacobianLinearOperator, to avoid computing the forward
+            # pass separately for mv and transpose_mv.
+            state = state.linearise()
+
             _transpose_mv = jax.linear_transpose(state.mv, state.in_structure())
             _state = state
 
@@ -110,56 +125,82 @@ class CG(AbstractLinearSolver):
                     "`y0` must have the same structure, shape, and dtype as `vector`"
                 )
 
-        vector_size = sum(jnp.size(x) for x in jtu.tree_leaves(vector))
-        if self.max_steps is None:
-            max_steps = vector_size
-        else:
-            max_steps = self.max_steps
-
         r0 = (vector**ω - mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
         gamma0 = _tree_dot(r0, p0)
-        if (
-            isinstance(self.atol, float)
-            and isinstance(self.rtol, float)
+        initial_value = (jnp.zeros_like(y0), y0, r0, p0, gamma0, 0)
+        has_scale = not (
+            isinstance(self.atol, (int, float))
+            and isinstance(self.rtol, (int, float))
             and self.atol == 0
             and self.rtol == 0
-        ):
-            scale = None
-        else:
-            scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
-        initial_value = (y0, r0, p0, gamma0, 0)
+        )
+        if has_scale:
+            b_scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
 
         def cond_fun(value):
-            _, r, _, _, step = value
-            out = step < max_steps
-            if scale is not None:
-                out = out & (self.norm((r**ω / scale**ω).ω) > 1)
+            diff, y, r, _, gamma, step = value
+            out = gamma > 0
+            if self.max_steps is not None:
+                out = out & (step < self.max_steps)
+            if has_scale:
+                # i.e. given Ay=b, then we have to be doing better than `scale` in both
+                # the `y` and the `b` spaces.
+                y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
+                norm1 = self.norm((r**ω / b_scale**ω).ω)
+                norm2 = self.norm((diff**ω / y_scale**ω).ω)
+                out = out & ((norm1 > 1) | (norm2 > 1))
             return out
 
         def body_fun(value):
-            y, r, p, gamma, step = value
+            _, y, r, p, gamma, step = value
             mat_p = mv(p)
             alpha = gamma / _tree_dot(p, mat_p)
-            y = (y**ω + alpha * p**ω).ω
-            r = (r**ω - alpha * mat_p**ω).ω
+            diff = (alpha * p**ω).ω
+            y = (y**ω + diff**ω).ω
+            step = eqxi.nonbatchable(step)
+            step = step + 1
+
+            # E.g. see B.2 of
+            # https://www.cs.cmu.edu/~quake-papers/painless-conjugate-gradient.pdf
+            # We compute the residual the "expensive" way every now and again, so as to
+            # correct numerical rounding errors.
+            def stable_r():
+                return (vector**ω - mv(y) ** ω).ω
+
+            def cheap_r():
+                return (r**ω - alpha * mat_p**ω).ω
+
+            if self.stabilise_every == 1:
+                r = stable_r()
+            elif self.stabilise_every is None:
+                r = cheap_r()
+            else:
+                stable_step = (step % self.stabilise_every) == 0
+                r = lax.cond(stable_step, stable_r, cheap_r)
+
             z = preconditioner.mv(r)
             gamma_prev = gamma
             gamma = _tree_dot(r, z)
             beta = gamma / gamma_prev
             p = (z**ω + beta * p**ω).ω
-            return y, r, p, gamma, step + 1
+            return diff, y, r, p, gamma, step
 
-        solution, _, _, _, num_steps = lax.while_loop(cond_fun, body_fun, initial_value)
-        result = jnp.where(
-            (num_steps == max_steps) & (num_steps != vector_size),
-            RESULTS.max_steps_reached,
-            RESULTS.successful,
+        _, solution, _, _, _, num_steps = lax.while_loop(
+            cond_fun, body_fun, initial_value
         )
+        if self.max_steps is None:
+            result = RESULTS.successful
+        else:
+            result = jnp.where(
+                (num_steps == self.max_steps),
+                RESULTS.max_steps_reached,
+                RESULTS.successful,
+            )
         return (
             solution,
             result,
-            {"num_steps": num_steps, "max_steps": jnp.asarray(max_steps)},
+            {"num_steps": num_steps, "max_steps": self.max_steps},
         )
 
     def transpose(self, state, options):

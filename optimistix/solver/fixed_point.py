@@ -5,14 +5,14 @@ from equinox.internal import ω
 
 from ..custom_types import Scalar
 from ..fixed_point import AbstractFixedPointSolver
-from ..misc import rms_norm
+from ..misc import max_norm
 from ..solution import RESULTS
 
 
 class FixedPointIteration(AbstractFixedPointSolver):
     rtol: float
     atol: float
-    norm: Callable = rms_norm
+    norm: Callable = max_norm
 
     def init(self, fixed_point_prob, y, args, options) -> Scalar:
         del fixed_point_prob, y, args, options

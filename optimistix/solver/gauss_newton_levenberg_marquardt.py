@@ -10,7 +10,7 @@ from ..custom_types import Scalar
 from ..least_squares import AbstractLeastSquaresSolver
 from ..linear_operator import JacobianLinearOperator
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
-from ..misc import rms_norm
+from ..misc import max_norm
 from ..solution import RESULTS
 
 
@@ -51,7 +51,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
     rtol: float
     atol: float
     kappa: float = 1e-2
-    norm: Callable = rms_norm
+    norm: Callable = max_norm
     linear_solver: AbstractLinearSolver = AutoLinearSolver()
 
     @property
@@ -59,8 +59,8 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
     def _is_gauss_newton(self) -> bool:
         ...
 
-    def init(self, residual_prob, y, args, options):
-        del residual_prob, y, args, options
+    def init(self, problem, y, args, options):
+        del problem, y, args, options
         return _GaussNewtonLevenbergMarquardtState(
             step=jnp.array(0),
             diffsize=jnp.array(0.0),
@@ -68,17 +68,18 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
             result=jnp.array(RESULTS.successful),
         )
 
-    def step(self, residual_prob, y, args, options, state):
+    def step(self, problem, y, args, options, state):
         del options
-        residuals = residual_prob.fn(y, args)
+        residuals = problem.fn(y, args)
         if self._is_gauss_newton:
             jac = JacobianLinearOperator(
-                residual_prob.fn, y, args, pattern=residual_prob.pattern, _has_aux=True
+                problem.fn, y, args, pattern=problem.pattern, _has_aux=True
             )
         else:
             damping = ...  # TODO(kidger)
+            # TODO: figure out patterns here
             jac = JacobianLinearOperator(
-                _Damped(residual_prob.fn, damping, pattern=residual_prob.pattern),
+                _Damped(problem.fn, damping, pattern=problem.pattern),
                 y,
                 args,
                 _has_aux=True,
@@ -126,8 +127,8 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
         )
         return new_y, new_state, jac.aux
 
-    def terminate(self, residual_prob, y, args, options, state):
-        del residual_prob, y, args, options
+    def terminate(self, problem, y, args, options, state):
+        del problem, y, args, options
         at_least_two = state.step >= 2
         rate = state.diffsize / state.diffsize_prev
         factor = state.diffsize * rate / (1 - rate)

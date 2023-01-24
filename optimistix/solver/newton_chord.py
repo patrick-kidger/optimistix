@@ -9,7 +9,7 @@ from jaxtyping import PyTree
 from ..custom_types import Scalar
 from ..linear_operator import JacobianLinearOperator
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
-from ..misc import rms_norm
+from ..misc import max_norm
 from ..root_find import AbstractRootFinder
 from ..solution import RESULTS
 
@@ -41,7 +41,7 @@ class _NewtonChord(AbstractRootFinder):
     rtol: float
     atol: float
     kappa: float = 1e-2
-    norm: Callable = rms_norm
+    norm: Callable = max_norm
     linear_solver: AbstractLinearSolver = AutoLinearSolver()
 
     @property
@@ -49,13 +49,13 @@ class _NewtonChord(AbstractRootFinder):
     def _is_newton(self) -> bool:
         ...
 
-    def init(self, root_prob, y, args, options):
+    def init(self, problem, y, args, options):
         del options
         if self._is_newton:
             linear_state = None
         else:
             jac = JacobianLinearOperator(
-                root_prob.fn, y, args, pattern=root_prob.pattern, _has_aux=True
+                problem.fn, y, args, pattern=problem.pattern, _has_aux=True
             )
             if self.linear_solver.will_materialise(jac):
                 jac = jac.materialise()
@@ -70,12 +70,12 @@ class _NewtonChord(AbstractRootFinder):
             result=jnp.array(RESULTS.successful),
         )
 
-    def step(self, root_prob, y, args, options, state):
+    def step(self, problem, y, args, options, state):
         del options
-        fx = root_prob.fn(y, args)
+        fx = problem.fn(y, args)
         if self._is_newton:
             jac = JacobianLinearOperator(
-                root_prob.fn, y, args, pattern=root_prob.pattern, _has_aux=True
+                problem.fn, y, args, pattern=problem.pattern, _has_aux=True
             )
             if self.linear_solver.will_materialise(jac):
                 jac = jac.materialise()
@@ -98,8 +98,8 @@ class _NewtonChord(AbstractRootFinder):
         )
         return new_y, new_state, jac.aux
 
-    def terminate(self, root_prob, y, args, options, state):
-        del root_prob, y, args, options
+    def terminate(self, problem, y, args, options, state):
+        del problem, y, args, options
         at_least_two = state.step >= 2
         rate = state.diffsize / state.diffsize_prev
         factor = state.diffsize * rate / (1 - rate)

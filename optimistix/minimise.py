@@ -30,14 +30,15 @@ def _minimum(optimum, _, inputs, __):
 
 class _ToRootFn(eqx.Module):
     minimise_fn: Callable
+    hax_aux: bool
 
     def __call__(self, y, args):
-        return jax.grad(self.minimise_fn)(y, args)
+        return jax.grad(self.minimise_fn, has_aux=self.has_aux)(y, args)
 
 
-@eqx.filter_jit(donate="none")
+@eqx.filter_jit
 def minimise(
-    minimise_fn: Union[Callable, MinimiseProblem],
+    problem: MinimiseProblem,
     solver: Union[AbstractMinimiser, AbstractRootFinder],
     y0: PyTree[Array],
     args: PyTree = None,
@@ -47,19 +48,13 @@ def minimise(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
-    if isinstance(minimise_fn, MinimiseProblem):
-        minimise_prob = minimise_fn
-    else:
-        minimise_prob = MinimiseProblem(minimise_fn, has_aux=False)
-    del minimise_fn
-
     if isinstance(solver, AbstractRootFinder):
-        root_fn = _ToRootFn(minimise_prob.fn)
-        root_prob = RootFindProblem(
-            root_fn, has_aux=minimise_prob.has_aux, pattern=Pattern(symmetric=True)
+        root_fn = _ToRootFn(problem.fn, problem.has_aux)
+        root_problem = RootFindProblem(
+            root_fn, has_aux=problem.has_aux, pattern=Pattern(symmetric=True)
         )
         return root_find(
-            root_prob,
+            root_problem,
             solver,
             y0,
             args,
@@ -70,7 +65,7 @@ def minimise(
         )
     else:
         return iterative_solve(
-            minimise_prob,
+            problem,
             solver,
             y0,
             args,

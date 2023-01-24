@@ -78,7 +78,7 @@ def solve_triangular(
 
     def scan_fn(_solution, _input):
         _i, _row = _input
-        _val = jnp.dot(_solution, _row)
+        _val = jnp.dot(_solution, _row, precision=lax.Precision.HIGHEST)
         _row_i = _row[_i]
         _row_i = jnp.where(jnp.abs(_row_i) >= cutoff, _row_i, jnp.inf)
         _solution = _solution.at[_i].set((vector[_i] - _val) / _row_i)

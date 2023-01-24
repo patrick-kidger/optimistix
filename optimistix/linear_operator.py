@@ -5,6 +5,7 @@ from typing import Any, Callable, Optional
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
+import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
@@ -154,7 +155,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
     pattern: Pattern = Pattern()
 
     def mv(self, vector):
-        return self.matrix @ vector
+        return jnp.matmul(self.matrix, vector, precision=lax.Precision.HIGHEST)
 
     def as_matrix(self):
         return self.matrix
@@ -183,7 +184,9 @@ def _matmul(matrix: Array, vector: Array) -> Array:
     # matrix has structure [leaf(out), leaf(in)]
     # vector has structure [leaf(in)]
     # return has structure [leaf(out)]
-    return jnp.tensordot(matrix, vector, axes=jnp.ndim(vector))
+    return jnp.tensordot(
+        matrix, vector, axes=jnp.ndim(vector), precision=lax.Precision.HIGHEST
+    )
 
 
 def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
@@ -595,7 +598,11 @@ class _ComposedLinearOperator(AbstractLinearOperator):
         return self.operator2.mv(self.operator1.mv(vector))
 
     def as_matrix(self):
-        return self.operator2.as_matrix() @ self.operator1.as_matrix()
+        return jnp.matmul(
+            self.operator2.as_matrix(),
+            self.operator1.as_matrix(),
+            precision=lax.Precision.HIGHEST,
+        )
 
     def materialise(self):
         return self.operator2.materialise() @ self.operator1.materialise()
