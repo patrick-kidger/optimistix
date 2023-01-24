@@ -8,7 +8,7 @@ from equinox.internal import ω
 
 from ..custom_types import Scalar
 from ..least_squares import AbstractLeastSquaresSolver
-from ..linear_operator import JacobianLinearOperator
+from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import max_norm
 from ..solution import RESULTS
@@ -53,6 +53,9 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
     kappa: float = 1e-2
     norm: Callable = max_norm
     linear_solver: AbstractLinearSolver = AutoLinearSolver()
+    modify_jac: Callable[
+        [AbstractLinearOperator], AbstractLinearOperator
+    ] = lambda x: x.linearise()
 
     @property
     @abc.abstractmethod
@@ -85,10 +88,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
                 _has_aux=True,
             )
             residuals = (residuals, jtu.tree_map(jnp.zeros_like, y))
-        if self.linear_solver.will_materialise(jac):
-            jac = jac.materialise()
-        else:
-            jac = jac.linearise()
+        jac = self.modify_jac(jac)
         sol = linear_solve(jac, residuals, self.linear_solver, throw=False)
         # Yep, no `J^T J` here.
         #

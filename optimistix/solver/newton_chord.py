@@ -7,7 +7,7 @@ from equinox.internal import ω
 from jaxtyping import PyTree
 
 from ..custom_types import Scalar
-from ..linear_operator import JacobianLinearOperator
+from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import max_norm
 from ..root_find import AbstractRootFinder
@@ -43,6 +43,9 @@ class _NewtonChord(AbstractRootFinder):
     kappa: float = 1e-2
     norm: Callable = max_norm
     linear_solver: AbstractLinearSolver = AutoLinearSolver()
+    modify_jac: Callable[
+        [AbstractLinearOperator], AbstractLinearOperator
+    ] = lambda x: x.linearise()
 
     @property
     @abc.abstractmethod
@@ -57,10 +60,7 @@ class _NewtonChord(AbstractRootFinder):
             jac = JacobianLinearOperator(
                 problem.fn, y, args, pattern=problem.pattern, _has_aux=True
             )
-            if self.linear_solver.will_materialise(jac):
-                jac = jac.materialise()
-            else:
-                jac = jac.linearise()
+            jac = self.modify_jac(jac)
             linear_state = (jac, self.linear_solver.init(jac))
         return _NewtonChordState(
             linear_state=linear_state,
@@ -77,10 +77,7 @@ class _NewtonChord(AbstractRootFinder):
             jac = JacobianLinearOperator(
                 problem.fn, y, args, pattern=problem.pattern, _has_aux=True
             )
-            if self.linear_solver.will_materialise(jac):
-                jac = jac.materialise()
-            else:
-                jac = jac.linearise()
+            jac = self.modify_jac(jac)
             sol = linear_solve(jac, fx, self.linear_solver, throw=False)
         else:
             jac, state = state.linear_state

@@ -9,9 +9,6 @@ class LU(AbstractLinearSolver):
     def is_maybe_singular(self):
         return False
 
-    def will_materialise(self, operator):
-        return True
-
     def init(self, operator, options):
         del options
         if operator.in_size() != operator.out_size():

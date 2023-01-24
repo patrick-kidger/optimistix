@@ -218,10 +218,6 @@ class AbstractLinearSolver(eqx.Module):
         ...
 
     @abc.abstractmethod
-    def will_materialise(self, operator: AbstractLinearOperator) -> bool:
-        ...
-
-    @abc.abstractmethod
     def init(
         self, operator: AbstractLinearOperator, options: Dict[str, Any]
     ) -> _SolverState:
@@ -297,10 +293,6 @@ class AutoLinearSolver(AbstractLinearSolver):
             else:
                 token = _lu_token
         return token
-
-    def will_materialise(self, operator):
-        token = self._auto_select_solver(operator)
-        return _lookup(token)().will_materialise(operator)
 
     def init(self, operator, options):
         token = self._auto_select_solver(operator)

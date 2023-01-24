@@ -17,9 +17,6 @@ class SVD(AbstractLinearSolver):
     def is_maybe_singular(self):
         return self.maybe_singular
 
-    def will_materialise(self, operator):
-        return True
-
     def init(self, operator, options):
         del options
         return jsp.linalg.svd(operator.as_matrix(), full_matrices=False)

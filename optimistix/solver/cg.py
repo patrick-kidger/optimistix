@@ -35,7 +35,6 @@ class CG(AbstractLinearSolver):
     norm: Callable = max_norm
     stabilise_every: Optional[int] = 10
     max_steps: Optional[int] = None
-    materialise: bool = False
     maybe_singular: bool = True
 
     def __post_init__(self):
@@ -50,9 +49,6 @@ class CG(AbstractLinearSolver):
     def is_maybe_singular(self):
         return self.maybe_singular
 
-    def will_materialise(self, operator):
-        return self.materialise
-
     def init(self, operator, options):
         del options
         if not self.normal:
@@ -66,8 +62,6 @@ class CG(AbstractLinearSolver):
                     "`CG(..., normal=False)` may only be used for symmetric linear "
                     "operators"
                 )
-        if self.materialise:
-            operator = operator.materialise()
         return operator
 
     # This differs from jax.scipy.sparse.linalg.cg in:
@@ -83,6 +77,10 @@ class CG(AbstractLinearSolver):
         if self.normal:
             # Linearise if JacobianLinearOperator, to avoid computing the forward
             # pass separately for mv and transpose_mv.
+            # This choice is "fast by default", even at the expense of memory.
+            # If a downstream userc wants to avoid this then they can call
+            # `linear_solve(operator.T @ operator, operator.mv(b), solver=CG(..., normal=False)`  # noqa: E501
+            # directly.
             state = state.linearise()
 
             _transpose_mv = jax.linear_transpose(state.mv, state.in_structure())
