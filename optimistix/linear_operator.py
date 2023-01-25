@@ -16,53 +16,29 @@ from .custom_types import Scalar
 from .misc import cached_eval_shape, jacobian, NoneAux
 
 
+# `False` indicates "unknown" (that we can't rely on exploiting this property), not that
+# the property definitively doesn't hold.
 class Pattern(eqx.Module):
-    symmetric: bool
-    unit_diagonal: bool
-    lower_triangular: bool
-    upper_triangular: bool
-    diagonal: bool
-
-    def __init__(
-        self,
-        *,
-        symmetric: bool = False,
-        unit_diagonal: bool = False,
-        lower_triangular: Optional[bool] = None,
-        upper_triangular: Optional[bool] = None,
-        diagonal: Optional[bool] = None
-    ):
-        if lower_triangular is None:
-            lower_triangular = diagonal is True
-        if upper_triangular is None:
-            upper_triangular = diagonal is True
-        if diagonal is None:
-            diagonal = lower_triangular and upper_triangular
-        if symmetric and lower_triangular != upper_triangular:
-            raise ValueError(
-                "A symmetric operator cannot be only lower or upper triangular"
-            )
-        if diagonal and not (lower_triangular and upper_triangular):
-            raise ValueError(
-                "A diagonal operator must be both lower and upper triangular"
-            )
-        self.symmetric = symmetric
-        self.unit_diagonal = unit_diagonal
-        self.lower_triangular = lower_triangular
-        self.upper_triangular = upper_triangular
-        self.diagonal = diagonal
+    symmetric: bool = False
+    unit_diagonal: bool = False
+    lower_triangular: bool = False
+    upper_triangular: bool = False
+    diagonal: bool = False
+    positive_semidefinite: bool = False
+    negative_semidefinite: bool = False
+    nonsingular: bool = False
 
     def transpose(self):
-        if self.symmetric:
-            return self
-        else:
-            return Pattern(
-                symmetric=self.symmetric,
-                unit_diagonal=self.unit_diagonal,
-                lower_triangular=self.upper_triangular,
-                upper_triangular=self.lower_triangular,
-                diagonal=self.diagonal,
-            )
+        return Pattern(
+            symmetric=self.symmetric,
+            unit_diagonal=self.unit_diagonal,
+            lower_triangular=self.upper_triangular,
+            upper_triangular=self.lower_triangular,
+            diagonal=self.diagonal,
+            positive_semidefinite=self.positive_semidefinite,
+            negative_semidefinite=self.negative_semidefinite,
+            nonsingular=self.nonsingular,
+        )
 
 
 class AbstractLinearOperator(eqx.Module):
@@ -70,14 +46,10 @@ class AbstractLinearOperator(eqx.Module):
 
     def __post_init__(self):
         if self.in_size() != self.out_size():
-            if self.pattern.symmetric:
-                raise ValueError("Cannot have symmetric non-square operator")
-            if self.pattern.diagonal:
-                raise ValueError("Cannot have diagonal non-square operator")
-            if self.pattern.unit_diagonal:
-                raise ValueError("Cannot have non-square operator with unit diagonal")
-            if self.pattern.triangular:
-                raise ValueError("Cannot have triangular non-square operator")
+            if self.pattern not in (Pattern(), Pattern(nonsingular=True)):
+                raise ValueError(
+                    f"Cannot have a non-square operator with pattern {self.pattern}"
+                )
 
     @abc.abstractmethod
     def mv(self, vector: PyTree[Shaped[Array, " _b"]]) -> PyTree[Shaped[Array, " _a"]]:
@@ -134,20 +106,6 @@ class AbstractLinearOperator(eqx.Module):
         if not isinstance(other, AbstractLinearOperator):
             raise ValueError("Can only compose AbstractLinearOperators together.")
         return _ComposedLinearOperator(self, other)
-
-
-def symmetrise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
-    if operator.pattern.symmetric:
-        return operator
-    else:
-        new_pattern = Pattern(
-            symmetric=True,
-            unit_diagonal=operator.pattern.unit_diagonal,
-            lower_triangular=operator.pattern.diagonal,
-            upper_triangular=operator.pattern.diagonal,
-            diagonal=operator.pattern.diagonal,
-        )
-        return (operator + operator.T).with_pattern(new_pattern)
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
@@ -452,7 +410,12 @@ class IdentityLinearOperator(AbstractLinearOperator):
 
     @property
     def pattern(self):
-        return Pattern(symmetric=True, unit_diagonal=True, diagonal=True)
+        return Pattern(
+            symmetric=True,
+            unit_diagonal=True,
+            diagonal=True,
+            positive_semidefinite=True,
+        )
 
 
 #
@@ -547,12 +510,22 @@ class _AddLinearOperator(AbstractLinearOperator):
         lower_triangular = pattern1.lower_triangular and pattern2.lower_triangular
         upper_triangular = pattern1.upper_triangular and pattern2.upper_triangular
         diagonal = pattern1.diagonal and pattern2.diagonal
+        positive_semidefinite = (
+            pattern1.positive_semidefinite and pattern2.positive_semidefinite
+        )
+        negative_semidefinite = (
+            pattern1.negative_semidefinite and pattern2.negative_semidefinite
+        )
+        nonsingular = False  # default
         return Pattern(
             symmetric=symmetric,
             unit_diagonal=unit_diagonal,
             lower_triangular=lower_triangular,
             upper_triangular=upper_triangular,
             diagonal=diagonal,
+            positive_semidefinite=positive_semidefinite,
+            negative_semidefinite=negative_semidefinite,
+            nonsingular=nonsingular,
         )
 
 
@@ -631,12 +604,22 @@ class _ComposedLinearOperator(AbstractLinearOperator):
             unit_diagonal = pattern1.unit_diagonal and pattern2.unit_diagonal
         else:
             unit_diagonal = False
+        positive_semidefinite = (
+            pattern1.positive_semidefinite and pattern2.positive_semidefinite
+        )
+        negative_semidefinite = (
+            pattern1.negative_semidefinite and pattern2.negative_semidefinite
+        )
+        nonsingular = pattern1.nonsingular and pattern2.nonsingular
         return Pattern(
             symmetric=symmetric,
             unit_diagonal=unit_diagonal,
             lower_triangular=lower_triangular,
             upper_triangular=upper_triangular,
             diagonal=diagonal,
+            positive_semidefinite=positive_semidefinite,
+            negative_semidefinite=negative_semidefinite,
+            nonsingular=nonsingular,
         )
 
 

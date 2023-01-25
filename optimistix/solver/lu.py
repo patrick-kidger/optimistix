@@ -6,9 +6,6 @@ from ..solution import RESULTS
 
 
 class LU(AbstractLinearSolver):
-    def is_maybe_singular(self):
-        return False
-
     def init(self, operator, options):
         del options
         if operator.in_size() != operator.out_size():
@@ -24,6 +21,9 @@ class LU(AbstractLinearSolver):
         vector, unflatten = jfu.ravel_pytree(vector)
         solution = unflatten(jsp.linalg.lu_solve(lu_and_piv, vector, trans=trans))
         return solution, RESULTS.successful, {}
+
+    def pseudoinverse(self, operator):
+        return False
 
     def transpose(self, state, options):
         lu_and_piv, transpose = state

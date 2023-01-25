@@ -57,18 +57,13 @@ _solvers = [
     (optx.LU(), optx.Pattern()),
     (optx.QR(), optx.Pattern()),
     (optx.SVD(), optx.Pattern()),
-    (optx.CG(normal=True, materialise=True, rtol=tol, atol=tol), optx.Pattern()),
-    (optx.CG(normal=True, materialise=False, rtol=tol, atol=tol), optx.Pattern()),
+    (optx.CG(normal=True, rtol=tol, atol=tol), optx.Pattern()),
     (
-        optx.CG(normal=False, materialise=True, rtol=tol, atol=tol),
-        optx.Pattern(symmetric=True),
+        optx.CG(normal=False, rtol=tol, atol=tol),
+        optx.Pattern(positive_semidefinite=True),
     ),
-    (
-        optx.CG(normal=False, materialise=False, rtol=tol, atol=tol),
-        optx.Pattern(symmetric=True),
-    ),
-    (optx.Cholesky(), optx.Pattern(symmetric=True)),
     (optx.Cholesky(normal=True), optx.Pattern()),
+    (optx.Cholesky(), optx.Pattern(positive_semidefinite=True)),
 ]
 
 

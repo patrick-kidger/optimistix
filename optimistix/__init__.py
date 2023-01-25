@@ -13,7 +13,6 @@ from .linear_operator import (
     MatrixLinearOperator,
     Pattern,
     PyTreeLinearOperator,
-    symmetrise,
 )
 from .linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from .minimise import AbstractMinimiser, minimise, MinimiseProblem

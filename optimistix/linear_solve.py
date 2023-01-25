@@ -124,7 +124,7 @@ def _linear_solve_jvp(primals, tangents):
         t_operator = t_operator.linearise()  # optimise for matvecs
         vec = (-t_operator.mv(solution) ** ω).ω
         vecs.append(vec)
-        if solver.is_maybe_singular():
+        if solver.pseudoinverse and not operator.pattern.nonsingular:
             operator_transpose = operator.transpose()
             state_transpose, options_transpose = solver.transpose(state, options)
             tmp1, _, _ = eqxi.filter_primitive_bind(
@@ -214,10 +214,6 @@ _SolverState = TypeVar("_SolverState")
 
 class AbstractLinearSolver(eqx.Module):
     @abc.abstractmethod
-    def is_maybe_singular(self):
-        ...
-
-    @abc.abstractmethod
     def init(
         self, operator: AbstractLinearOperator, options: Dict[str, Any]
     ) -> _SolverState:
@@ -228,6 +224,25 @@ class AbstractLinearSolver(eqx.Module):
         self, state: _SolverState, vector: Shaped[Array, " b"], options: Dict[str, Any]
     ) -> Tuple[Shaped[Array, " a"], RESULTS, Dict[str, Any]]:
         ...
+
+    @abc.abstractmethod
+    def pseudoinverse(self, operator: AbstractLinearOperator) -> bool:
+        """Does this method ever produce the pseudoinverse solution. That is, does it
+        ever (even if only sometimes) handle singular operators?"
+
+        If `True` a more expensive backward pass is needed, to account for the extra
+        generality. (If you're certain that your operator is nonsingular, then you can
+        disable this extra cost with `operator.pattern.nonsingular=True`. This may
+        produce incorrect gradients if your operator is actually singular, though.)
+
+        If you do not need to autodifferentiate through a custom linear solver then you
+        simply leave this method as
+        ```python
+        class MyLinearSolver(AbstractLinearsolver):
+            def pseudoinverse(self, operator):
+                assert False
+        ```
+        """
 
     @abc.abstractmethod
     def transpose(
@@ -271,27 +286,17 @@ def _lookup(token) -> Callable[[], AbstractLinearSolver]:
 
 
 class AutoLinearSolver(AbstractLinearSolver):
-    maybe_singular: bool = False
-
-    def is_maybe_singular(self):
-        return self.maybe_singular
-
     def _auto_select_solver(self, operator: AbstractLinearOperator):
-        # Of these solvers: QR, Diagonal, Triangular, CG can handle ill-posed
-        # problems, i.e. they converge to the pseudoinverse solution.
         if operator.in_size() != operator.out_size():
             token = _qr_token
         elif operator.pattern.diagonal:
             token = _diagonal_token
         elif operator.pattern.lower_triangular or operator.pattern.upper_triangular:
             token = _triangular_token
-        elif operator.pattern.symmetric:
-            token = _cg_token
+        elif operator.pattern.positive_semidefinite:
+            token = _cholesky_token
         else:
-            if self.maybe_singular:
-                token = _qr_token
-            else:
-                token = _lu_token
+            token = _lu_token
         return token
 
     def init(self, operator, options):
@@ -303,6 +308,10 @@ class AutoLinearSolver(AbstractLinearSolver):
         solver = _lookup(token)()
         solution, result, _ = solver.compute(state, vector, options)
         return solution, result, {}
+
+    def pseudoinverse(self, operator: AbstractLinearOperator) -> bool:
+        token = self._auto_select_solver(operator)
+        return _lookup(token)().pseudoinverse(operator)
 
     def transpose(self, state, options):
         token, state = state

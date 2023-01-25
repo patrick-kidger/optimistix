@@ -9,11 +9,7 @@ from .triangular import solve_triangular
 
 
 class QR(AbstractLinearSolver):
-    maybe_singular: bool = True
     rcond: Optional[float] = None
-
-    def is_maybe_singular(self):
-        return self.maybe_singular
 
     def init(self, operator, options):
         del options
@@ -41,6 +37,9 @@ class QR(AbstractLinearSolver):
             )
         solution = unflatten(solution)
         return solution, RESULTS.successful, {}
+
+    def pseudoinverse(self, operator):
+        return True
 
     def transpose(self, state, options):
         (q, r), transpose = state

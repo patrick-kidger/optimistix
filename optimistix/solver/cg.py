@@ -32,10 +32,9 @@ class CG(AbstractLinearSolver):
     rtol: float
     atol: float
     normal: bool = False
-    norm: Callable = max_norm
+    norm: Callable[[PyTree], Scalar] = max_norm
     stabilise_every: Optional[int] = 10
     max_steps: Optional[int] = None
-    maybe_singular: bool = True
 
     def __post_init__(self):
         if self.rtol < 0 or self.atol < 0:
@@ -46,21 +45,18 @@ class CG(AbstractLinearSolver):
                 "all three)."
             )
 
-    def is_maybe_singular(self):
-        return self.maybe_singular
-
     def init(self, operator, options):
         del options
         if not self.normal:
             if operator.in_structure() != operator.out_structure():
                 raise ValueError(
                     "`CG(..., normal=False)` may only be used for linear solves with "
-                    "square matrices"
+                    "square matrices."
                 )
-            if not operator.pattern.symmetric:
+            if not operator.pattern.positive_semidefinite:
                 raise ValueError(
-                    "`CG(..., normal=False)` may only be used for symmetric linear "
-                    "operators"
+                    "`CG(..., normal=False)` may only be used for positive definite "
+                    "linear operators."
                 )
         return operator
 
@@ -200,6 +196,9 @@ class CG(AbstractLinearSolver):
             result,
             {"num_steps": num_steps, "max_steps": self.max_steps},
         )
+
+    def pseudoinverse(self, operator):
+        return True
 
     def transpose(self, state, options):
         transpose_state = state.transpose()

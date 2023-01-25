@@ -11,11 +11,7 @@ from ..solution import RESULTS
 
 
 class SVD(AbstractLinearSolver):
-    maybe_singular: bool = True
     rcond: Optional[float] = None
-
-    def is_maybe_singular(self):
-        return self.maybe_singular
 
     def init(self, operator, options):
         del options
@@ -37,6 +33,9 @@ class SVD(AbstractLinearSolver):
             jnp.matmul(vt.conj().T, s_inv * uTb, precision=lax.Precision.HIGHEST)
         )
         return solution, RESULTS.successful, {"rank": rank}
+
+    def pseudoinverse(self, operator):
+        return True
 
     def transpose(self, state, options):
         del options

@@ -9,11 +9,7 @@ from ..solution import RESULTS
 
 
 class Diagonal(AbstractLinearSolver):
-    maybe_singular: bool = True
     rcond: Optional[float] = None
-
-    def is_maybe_singular(self):
-        return self.maybe_singular
 
     def init(self, operator, options):
         del options
@@ -40,6 +36,9 @@ class Diagonal(AbstractLinearSolver):
             diag = jnp.where(jnp.abs(diag) >= rcond * jnp.max(diag), diag, jnp.inf)
             solution = unflatten(vector / diag)
         return solution, RESULTS.successful, {}
+
+    def pseudoinverse(self, operator):
+        return True
 
     def transpose(self, state, options):
         # Matrix is symmetric
