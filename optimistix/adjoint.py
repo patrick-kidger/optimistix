@@ -31,7 +31,7 @@ class RecursiveCheckpointAdjoint(AbstractAdjoint):
     def apply(self, primal_fn, rewrite_fn, inputs, closure, pattern):
         del rewrite_fn, pattern
         while_loop = ft.partial(
-            eqxi.checkpointed_while_loop, checkpoints=self.checkpoints
+            eqxi.while_loop, kind="checkpointed", checkpoints=self.checkpoints
         )
         return primal_fn(inputs, closure, while_loop)
 

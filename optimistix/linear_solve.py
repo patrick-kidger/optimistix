@@ -38,8 +38,8 @@ def _to_struct(x):
         return jax.ShapeDtypeStruct(x.shape, x.dtype)
     elif isinstance(x, jax.core.AbstractValue):
         raise NotImplementedError(
-            "`optimistic.linear_solve` only supports working with JAX arrays; not "
-            "other abstract values. Got {type(x)}."
+            "`optimistix.linear_solve` only supports working with JAX arrays; not "
+            f"other abstract values. Got abstract value {x}."
         )
     else:
         return x
@@ -236,11 +236,11 @@ class AbstractLinearSolver(eqx.Module):
         produce incorrect gradients if your operator is actually singular, though.)
 
         If you do not need to autodifferentiate through a custom linear solver then you
-        simply leave this method as
+        simply define this method as
         ```python
         class MyLinearSolver(AbstractLinearsolver):
             def pseudoinverse(self, operator):
-                assert False
+                raise NotImplementedError
         ```
         """
 

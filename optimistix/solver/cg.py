@@ -27,7 +27,7 @@ def _tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Scalar:
 # TODO(kidger): this is pretty slow to compile.
 # - CG evaluates `operator.mv` three times.
 # - Normal CG evaluates `operator.mv` seven (!) times.
-# Possibly this can be cheapend a bit somehow?
+# Possibly this can be cheapened a bit somehow?
 class CG(AbstractLinearSolver):
     rtol: float
     atol: float
@@ -79,11 +79,11 @@ class CG(AbstractLinearSolver):
             # directly.
             state = state.linearise()
 
-            _transpose_mv = jax.linear_transpose(state.mv, state.in_structure())
-            _state = state
+            _mv = state.mv
+            _transpose_mv = state.transpose().mv
 
             def mv(v):
-                (out,) = _transpose_mv(_state.mv(v))
+                (out,) = _transpose_mv(_mv(v))
                 return out
 
             (vector,) = _transpose_mv(vector)

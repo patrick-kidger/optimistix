@@ -1,3 +1,4 @@
+- Tridiagonal, block matrices, etc.: support custom patterns
 - Tests:
   - all the complexity of {PyTree,TransposeJacobian,Tangent}LinearOperator
   - transposing all linear solvers
