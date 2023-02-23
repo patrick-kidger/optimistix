@@ -1,5 +1,4 @@
 import abc
-import functools as ft
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
 import equinox as eqx
@@ -16,6 +15,7 @@ from .custom_types import sentinel
 from .linear_operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,
+    linearise,
     TangentLinearOperator,
 )
 from .solution import RESULTS, Solution
@@ -121,7 +121,7 @@ def _linear_solve_jvp(primals, tangents):
         )
     if any(t is not None for t in jtu.tree_leaves(t_operator, is_leaf=_is_none)):
         t_operator = TangentLinearOperator(operator, t_operator)
-        t_operator = t_operator.linearise()  # optimise for matvecs
+        t_operator = linearise(t_operator)  # optimise for matvecs
         vec = (-t_operator.mv(solution) ** ω).ω
         vecs.append(vec)
         if solver.pseudoinverse and not operator.pattern.nonsingular:
@@ -254,7 +254,6 @@ class AbstractLinearSolver(eqx.Module):
 _qr_token = eqxi.str2jax("QR")
 _diagonal_token = eqxi.str2jax("Diagonal")
 _triangular_token = eqxi.str2jax("Triangular")
-_cg_token = eqxi.str2jax("CG")
 _cholesky_token = eqxi.str2jax("Cholesky")
 _lu_token = eqxi.str2jax("LU")
 
@@ -265,20 +264,10 @@ _lu_token = eqxi.str2jax("LU")
 def _lookup(token) -> Callable[[], AbstractLinearSolver]:
     from . import solver
 
-    if jax.config.jax_enable_x64:
-        tol = 1e-12
-    else:
-        tol = 1e-6
-
-    # We set CG(materialise=True) because CG evalutes `operator.mv` twice. By
-    # materialising the matrix we ensure that we don't silently double compile time.
-    # (In contrast the out-of-memory issue that materialisation might get induce is a
-    # loud error.)
     _lookup_dict = {
         _qr_token: solver.QR,
         _diagonal_token: solver.Diagonal,
         _triangular_token: solver.Triangular,
-        _cg_token: ft.partial(solver.CG, rtol=tol, atol=tol, materialise=True),
         _cholesky_token: solver.Cholesky,
         _lu_token: solver.LU,
     }

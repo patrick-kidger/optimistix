@@ -8,7 +8,7 @@ from equinox.internal import ω
 
 from ..custom_types import Scalar
 from ..least_squares import AbstractLeastSquaresSolver
-from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator
+from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator, linearise
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import max_norm
 from ..solution import RESULTS
@@ -53,9 +53,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
     kappa: float = 1e-2
     norm: Callable = max_norm
     linear_solver: AbstractLinearSolver = AutoLinearSolver()
-    modify_jac: Callable[
-        [AbstractLinearOperator], AbstractLinearOperator
-    ] = lambda x: x.linearise()
+    modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
 
     @property
     @abc.abstractmethod

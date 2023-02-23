@@ -7,7 +7,7 @@ from equinox.internal import ω
 from jaxtyping import PyTree
 
 from ..custom_types import Scalar
-from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator
+from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator, linearise
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import max_norm
 from ..root_find import AbstractRootFinder
@@ -43,9 +43,7 @@ class _NewtonChord(AbstractRootFinder):
     kappa: float = 1e-2
     norm: Callable = max_norm
     linear_solver: AbstractLinearSolver = AutoLinearSolver()
-    modify_jac: Callable[
-        [AbstractLinearOperator], AbstractLinearOperator
-    ] = lambda x: x.linearise()
+    modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
 
     @property
     @abc.abstractmethod

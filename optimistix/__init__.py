@@ -7,9 +7,13 @@ from .least_squares import (
 )
 from .linear_operator import (
     AbstractLinearOperator,
+    diagonal,
+    DiagonalLinearOperator,
     FunctionLinearOperator,
     IdentityLinearOperator,
     JacobianLinearOperator,
+    linearise,
+    materialise,
     MatrixLinearOperator,
     Pattern,
     PyTreeLinearOperator,

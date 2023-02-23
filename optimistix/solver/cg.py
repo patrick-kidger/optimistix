@@ -9,7 +9,7 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
 from ..custom_types import Scalar
-from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator
+from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator, linearise
 from ..linear_solve import AbstractLinearSolver
 from ..misc import max_norm
 from ..solution import RESULTS
@@ -77,7 +77,7 @@ class CG(AbstractLinearSolver):
             # If a downstream userc wants to avoid this then they can call
             # `linear_solve(operator.T @ operator, operator.mv(b), solver=CG(..., normal=False)`  # noqa: E501
             # directly.
-            state = state.linearise()
+            state = linearise(state)
 
             _mv = state.mv
             _transpose_mv = state.transpose().mv

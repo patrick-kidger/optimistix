@@ -1,6 +1,7 @@
 import abc
+import functools as ft
 from dataclasses import field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -60,14 +61,6 @@ class AbstractLinearOperator(eqx.Module):
         ...
 
     @abc.abstractmethod
-    def materialise(self) -> "AbstractLinearOperator":
-        ...
-
-    @abc.abstractmethod
-    def linearise(self) -> "AbstractLinearOperator":
-        ...
-
-    @abc.abstractmethod
     def transpose(self) -> "AbstractLinearOperator":
         ...
 
@@ -117,12 +110,6 @@ class MatrixLinearOperator(AbstractLinearOperator):
 
     def as_matrix(self):
         return self.matrix
-
-    def materialise(self):
-        return self
-
-    def linearise(self):
-        return self
 
     def transpose(self):
         if self.pattern.symmetric:
@@ -212,12 +199,6 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         matrix = jtu.tree_leaves(matrix)
         return jnp.concatenate(matrix, axis=0)
 
-    def materialise(self):
-        return self
-
-    def linearise(self):
-        return self
-
     def transpose(self):
         if self.pattern.symmetric:
             return self
@@ -298,20 +279,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return out
 
     def as_matrix(self):
-        return self.materialise().as_matrix()
-
-    def materialise(self):
-        fn = _NoAuxIn(self.fn, self.args)
-        jac, aux = jacobian(fn, self.in_size(), self.out_size(), has_aux=True)(self.x)
-        out = PyTreeLinearOperator(jac, self.out_structure(), self.pattern)
-        return _AuxLinearOperator(out, aux)
-
-    def linearise(self):
-        fn = _NoAuxIn(self.fn, self.args)
-        (_, aux), lin = jax.linearize(fn, self.x)
-        lin = _NoAuxOut(lin)
-        out = FunctionLinearOperator(lin, self.in_structure(), self.pattern)
-        return _AuxLinearOperator(out, aux)
+        return materialise(self).as_matrix()
 
     def transpose(self):
         if self.pattern.symmetric:
@@ -354,16 +322,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
         return self.fn(vector)
 
     def as_matrix(self):
-        return self.materialise().as_matrix()
-
-    def materialise(self):
-        # TODO(kidger): implement more efficiently, without the relinearisation
-        zeros = jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), self.in_structure())
-        jac = jacobian(self.fn, self.in_size(), self.out_size())(zeros)
-        return PyTreeLinearOperator(jac, self.out_structure(), self.pattern)
-
-    def linearise(self):
-        return self
+        return materialise(self).as_matrix()
 
     def transpose(self):
         if self.pattern.symmetric:
@@ -393,13 +352,7 @@ class IdentityLinearOperator(AbstractLinearOperator):
     def as_matrix(self):
         return jnp.eye(self.in_size())
 
-    def materialise(self):
-        return self
-
     def transpose(self):
-        return self
-
-    def linearise(self):
         return self
 
     def in_structure(self):
@@ -416,6 +369,27 @@ class IdentityLinearOperator(AbstractLinearOperator):
             diagonal=True,
             positive_semidefinite=True,
         )
+
+
+class DiagonalLinearOperator(AbstractLinearOperator):
+    diag: Shaped[Array, " size"]
+
+    def mv(self, vector):
+        return self.diag * vector
+
+    def as_matrix(self):
+        return jnp.diag(self.diag)
+
+    def transpose(self):
+        return self
+
+    def in_structure(self):
+        (size,) = jnp.shape(self.diag)
+        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diag.dtype)
+
+    def out_structure(self):
+        (size,) = jnp.shape(self.diag)
+        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diag.dtype)
 
 
 #
@@ -441,16 +415,6 @@ class TangentLinearOperator(AbstractLinearOperator):
         as_matrix = lambda operator: operator.as_matrix()
         _, out = eqx.filter_jvp(as_matrix, self.primal, self.tangent)
         return out
-
-    def materialise(self):
-        materialise = lambda operator: operator.materialise()
-        primal_out, tangent_out = eqx.filter_jvp(materialise, self.primal, self.tangent)
-        return TangentLinearOperator(primal_out, tangent_out)
-
-    def linearise(self):
-        linearise = lambda operator: operator.linearise()
-        primal_out, tangent_out = eqx.filter_jvp(linearise, self.primal, self.tangent)
-        return TangentLinearOperator(primal_out, tangent_out)
 
     def transpose(self):
         transpose = lambda operator: operator.transpose()
@@ -485,12 +449,6 @@ class _AddLinearOperator(AbstractLinearOperator):
 
     def as_matrix(self):
         return self.operator1.as_matrix() + self.operator2.as_matrix()
-
-    def materialise(self):
-        return self.operator1.materialise() + self.operator2.materialise()
-
-    def linearise(self):
-        return self.operator1.linearise() + self.operator2.linearise()
 
     def transpose(self):
         return self.operator1.transpose() + self.operator2.transpose()
@@ -539,12 +497,6 @@ class _MulLinearOperator(AbstractLinearOperator):
     def as_matrix(self):
         return self.scalar * self.operator.as_matrix()
 
-    def materialise(self):
-        return self.scalar * self.operator.materialise()
-
-    def linearise(self):
-        return self.scalar * self.operator.linearise()
-
     def transpose(self):
         return self.scalar * self.operator.transpose()
 
@@ -576,12 +528,6 @@ class _ComposedLinearOperator(AbstractLinearOperator):
             self.operator1.as_matrix(),
             precision=lax.Precision.HIGHEST,
         )
-
-    def materialise(self):
-        return self.operator2.materialise() @ self.operator1.materialise()
-
-    def linearise(self):
-        return self.operator2.linearise() @ self.operator1.linearise()
 
     def transpose(self):
         return self.operator1.transpose() @ self.operator2.transpose()
@@ -633,12 +579,6 @@ class _AuxLinearOperator(AbstractLinearOperator):
     def as_matrix(self):
         return self.operator.as_matrix()
 
-    def materialise(self):
-        return self.operator.materialise()
-
-    def linearise(self):
-        return self.operator.linearise()
-
     def transpose(self):
         return self.operator.transpose()
 
@@ -651,3 +591,155 @@ class _AuxLinearOperator(AbstractLinearOperator):
     @property
     def pattern(self):
         return self.operator.pattern
+
+
+#
+# Transforms between `AbstractLinearOperator`s.
+# These are done through `singledispatch` rather than as methods.
+#
+# If an end user ever wanted to add something analogous to
+# `diagonal: AbstractLinearOperator -> DiagonalLinearOperator`
+# then of course they don't get to edit our base class and add overloads to all
+# subclasses.
+# They'd have to use `singledispatch` to get the desired behaviour. (Or maybe just
+# hardcode compatibility with only some `AbstractLinearOperator` subclasses, eurgh.)
+# So for consistency we do the same thing here, rather than adding privileged behaviour
+# for just the operations we happen to support.
+#
+# (Something something Julia something something orphan problem etc.)
+#
+
+
+def _default_not_implemented(name: str, operator: AbstractLinearOperator):
+    msg = f"`optimistix.{name}` has not been implemented for {type(operator)}"
+    if type(operator).__module__.startswith("optimistix"):
+        assert False, msg + ". Please file a bug against Optimistix."
+    else:
+        raise NotImplementedError(msg)
+
+
+# linearise
+
+
+@ft.singledispatch
+def linearise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+    _default_not_implemented("linearise", operator)
+
+
+@linearise.register
+def _(
+    operator: Union[
+        MatrixLinearOperator,
+        PyTreeLinearOperator,
+        FunctionLinearOperator,
+        IdentityLinearOperator,
+        DiagonalLinearOperator,
+    ]
+):
+    return operator
+
+
+@linearise.register
+def _(operator: JacobianLinearOperator):
+    fn = _NoAuxIn(operator.fn, operator.args)
+    (_, aux), lin = jax.linearize(fn, operator.x)
+    lin = _NoAuxOut(lin)
+    out = FunctionLinearOperator(lin, operator.in_structure(), operator.pattern)
+    return _AuxLinearOperator(out, aux)
+
+
+# materialise
+
+
+@ft.singledispatch
+def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+    _default_not_implemented("materialise", operator)
+
+
+@materialise.register
+def _(
+    operator: Union[
+        MatrixLinearOperator,
+        PyTreeLinearOperator,
+        IdentityLinearOperator,
+        DiagonalLinearOperator,
+    ]
+):
+    return operator
+
+
+@materialise.register
+def _(operator: JacobianLinearOperator):
+    fn = _NoAuxIn(operator.fn, operator.args)
+    jac, aux = jacobian(fn, operator.in_size(), operator.out_size(), has_aux=True)(
+        operator.x
+    )
+    out = PyTreeLinearOperator(jac, operator.out_structure(), operator.pattern)
+    return _AuxLinearOperator(out, aux)
+
+
+@materialise.register
+def _(operator: FunctionLinearOperator):
+    # TODO(kidger): implement more efficiently, without the relinearisation
+    zeros = jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), operator.in_structure())
+    jac = jacobian(operator.fn, operator.in_size(), operator.out_size())(zeros)
+    return PyTreeLinearOperator(jac, operator.out_structure(), operator.pattern)
+
+
+# diagonal
+
+
+@ft.singledispatch
+def diagonal(operator: AbstractLinearOperator) -> DiagonalLinearOperator:
+    _default_not_implemented("diagonal", operator)
+
+
+@diagonal.register
+def _(
+    operator: Union[
+        MatrixLinearOperator,
+        PyTreeLinearOperator,
+        JacobianLinearOperator,
+        FunctionLinearOperator,
+    ]
+) -> DiagonalLinearOperator:
+    return DiagonalLinearOperator(jnp.diag(operator.as_matrix()))
+
+
+@diagonal.register
+def _(operator: IdentityLinearOperator):
+    return DiagonalLinearOperator(jnp.ones(operator.in_size()))
+
+
+@diagonal.register
+def _(operator: DiagonalLinearOperator):
+    return operator
+
+
+# transforms for wrapper operators
+
+
+for transform in (linearise, materialise, diagonal):
+
+    @transform.register
+    def _(operator: TangentLinearOperator, transform=transform):
+        primal_out, tangent_out = eqx.filter_jvp(
+            transform, operator.primal, operator.tangent
+        )
+        return TangentLinearOperator(primal_out, tangent_out)
+
+    @transform.register
+    def _(operator: _AddLinearOperator, transform=transform):
+        return transform(operator.operator1) + transform(operator.operator2)
+
+    @transform.register
+    def _(operator: _MulLinearOperator, transform=transform):
+        return operator.scalar * transform(operator.operator)
+
+    @transform.register
+    def _(operator: _ComposedLinearOperator, transform=transform):
+        return transform(operator.operator2) @ transform(operator.operator1)
+
+    @transform.register
+    def _(operator: _AuxLinearOperator, transform=transform):
+        return transform(operator.operator)
