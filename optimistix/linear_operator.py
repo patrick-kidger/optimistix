@@ -1,10 +1,8 @@
 import abc
 import functools as ft
-from dataclasses import field
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, FrozenSet, Iterable, Optional, Union
 
 import equinox as eqx
-import equinox.internal as eqxi
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
@@ -14,44 +12,30 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree, Shaped
 
 from .custom_types import Scalar
+from .linear_tags import (
+    diagonal_tag,
+    lower_triangular_tag,
+    negative_semidefinite_tag,
+    nonsingular_tag,
+    positive_semidefinite_tag,
+    symmetric_tag,
+    transpose_tags,
+    unit_diagonal_tag,
+    upper_triangular_tag,
+)
 from .misc import cached_eval_shape, jacobian, NoneAux
 
 
-# `False` indicates "unknown" (that we can't rely on exploiting this property), not that
-# the property definitively doesn't hold.
-class Pattern(eqx.Module):
-    symmetric: bool = False
-    unit_diagonal: bool = False
-    lower_triangular: bool = False
-    upper_triangular: bool = False
-    diagonal: bool = False
-    positive_semidefinite: bool = False
-    negative_semidefinite: bool = False
-    nonsingular: bool = False
-
-    def transpose(self):
-        return Pattern(
-            symmetric=self.symmetric,
-            unit_diagonal=self.unit_diagonal,
-            lower_triangular=self.upper_triangular,
-            upper_triangular=self.lower_triangular,
-            diagonal=self.diagonal,
-            positive_semidefinite=self.positive_semidefinite,
-            negative_semidefinite=self.negative_semidefinite,
-            nonsingular=self.nonsingular,
-        )
+def _frozenset(x: Union[object, Iterable[object]]) -> FrozenSet[object]:
+    try:
+        iter_x = iter(x)
+    except TypeError:
+        return frozenset([x])
+    else:
+        return frozenset(iter_x)
 
 
 class AbstractLinearOperator(eqx.Module):
-    pattern = eqxi.abstractattribute(Pattern)
-
-    def __post_init__(self):
-        if self.in_size() != self.out_size():
-            if self.pattern not in (Pattern(), Pattern(nonsingular=True)):
-                raise ValueError(
-                    f"Cannot have a non-square operator with pattern {self.pattern}"
-                )
-
     @abc.abstractmethod
     def mv(self, vector: PyTree[Shaped[Array, " _b"]]) -> PyTree[Shaped[Array, " _a"]]:
         ...
@@ -87,23 +71,30 @@ class AbstractLinearOperator(eqx.Module):
     def __add__(self, other):
         if not isinstance(other, AbstractLinearOperator):
             raise ValueError("Can only add AbstractLinearOperators together.")
-        return _AddLinearOperator(self, other)
+        return AddLinearOperator(self, other)
 
     def __mul__(self, other):
         other = jnp.asarray(other)
         if other.shape != ():
             raise ValueError("Can only multiply AbstractLinearOperators by scalars.")
-        return _MulLinearOperator(self, other)
+        return MulLinearOperator(self, other)
 
     def __matmul__(self, other):
         if not isinstance(other, AbstractLinearOperator):
             raise ValueError("Can only compose AbstractLinearOperators together.")
-        return _ComposedLinearOperator(self, other)
+        return ComposedLinearOperator(self, other)
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
     matrix: Shaped[Array, "a b"]
-    pattern: Pattern = Pattern()
+    tags: FrozenSet[object]
+
+    def __init__(self, matrix: Shaped[Array, "a b"], tags: Union[object, FrozenSet[object]] = ()):
+        self.matrix = matrix
+        self.tags = _frozenset(tags)
+
+    def __post_init__(self):
+        self.tags = _frozenset(self.tags)
 
     def mv(self, vector):
         return jnp.matmul(self.matrix, vector, precision=lax.Precision.HIGHEST)
@@ -112,9 +103,9 @@ class MatrixLinearOperator(AbstractLinearOperator):
         return self.matrix
 
     def transpose(self):
-        if self.pattern.symmetric:
+        if symmetric_tag in self.tags:
             return self
-        return MatrixLinearOperator(self.matrix.T, self.pattern.transpose())
+        return MatrixLinearOperator(self.matrix.T, transpose_tags(self.tags))
 
     def in_structure(self):
         in_size, _ = jnp.shape(self.matrix)
@@ -151,10 +142,14 @@ def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
 class PyTreeLinearOperator(AbstractLinearOperator):
     pytree: PyTree[Array]
     output_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
-    pattern: Pattern = Pattern()
-    input_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field(init=False)
+    tags: FrozenSet[object]
+    input_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
 
-    def __post_init__(self):
+    def __init__(self, pytree: PyTree[Array], output_structure: PyTree[jax.ShapeDtypeStruct], tags: Union[object, FrozenSet[object]] = ()):
+        self.pytree = pytree
+        self.output_structure = output_structure
+        self.tags = _frozenset(tags)
+
         # self.out_structure() has structure [tree(out)]
         # self.pytree has structure [tree(out), tree(in), leaf(out), leaf(in)]
         def get_structure(struct, subpytree):
@@ -200,7 +195,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         return jnp.concatenate(matrix, axis=0)
 
     def transpose(self):
-        if self.pattern.symmetric:
+        if symmetric_tag in self.tags:
             return self
         pytree_transpose = jtu.tree_transpose(
             jtu.tree_structure(self.out_structure()),
@@ -209,7 +204,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         )
         pytree_transpose = jtu.tree_map(jnp.transpose, pytree_transpose)
         return PyTreeLinearOperator(
-            pytree_transpose, self.in_structure(), self.pattern.transpose()
+            pytree_transpose, self.in_structure(), transpose_tags(self.tags)
         )
 
     def in_structure(self):
@@ -247,14 +242,14 @@ class JacobianLinearOperator(AbstractLinearOperator):
     fn: Callable
     x: PyTree[Array]
     args: Optional[PyTree[Any]]
-    pattern: Pattern = field()  # overwrite abstract field
+    tags: FrozenSet[object]
 
     def __init__(
         self,
         fn: Callable,
         x: PyTree[Array],
         args: Optional[PyTree[Array]] = None,
-        pattern: Pattern = Pattern(),
+        tags: Union[object, Iterable[object]] = (),
         _has_aux: bool = False,
     ):
         if not _has_aux:
@@ -271,7 +266,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         self.fn = fn
         self.x = x
         self.args = args
-        self.pattern = pattern
+        self.tags = _frozenset(tags)
 
     def mv(self, vector):
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
@@ -282,14 +277,14 @@ class JacobianLinearOperator(AbstractLinearOperator):
         return materialise(self).as_matrix()
 
     def transpose(self):
-        if self.pattern.symmetric:
+        if symmetric_tag in self.tags:
             return self
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
         # Works because vjpfn is a PyTree
         _, vjpfn = jax.vjp(fn, self.x)
         vjpfn = _Unwrap(vjpfn)
         return FunctionLinearOperator(
-            vjpfn, self.out_structure(), self.pattern.transpose()
+            vjpfn, self.out_structure(), transpose_tags(self.tags)
         )
 
     def in_structure(self):
@@ -304,19 +299,19 @@ class JacobianLinearOperator(AbstractLinearOperator):
 class FunctionLinearOperator(AbstractLinearOperator):
     fn: Callable[[PyTree[Array]], PyTree[Array]]
     input_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
-    pattern: Pattern = field()  # overwrite abstract field
+    tags: FrozenSet[object]
 
     def __init__(
         self,
         fn: Callable[[PyTree[Array]], PyTree[Array]],
         input_structure: PyTree[jax.ShapeDtypeStruct],
-        pattern: Pattern = Pattern(),
+        tags: Union[object, Iterable[object]] = (),
     ):
         # See matching comment in JacobianLinearOperator.
         fn = eqx.filter_closure_convert(fn, input_structure)
         self.fn = fn
         self.input_structure = input_structure
-        self.pattern = pattern
+        self.tags = _frozenset(tags)
 
     def mv(self, vector):
         return self.fn(vector)
@@ -325,12 +320,17 @@ class FunctionLinearOperator(AbstractLinearOperator):
         return materialise(self).as_matrix()
 
     def transpose(self):
-        if self.pattern.symmetric:
+        if symmetric_tag in self.tags:
             return self
         transpose_fn = jax.linear_transpose(self.fn, self.in_structure())
+
+        def _transpose_fn(vector):
+            (out,) = transpose_fn(vector)
+            return out
+
         # Works because transpose_fn is a PyTree
         return FunctionLinearOperator(
-            transpose_fn, self.out_structure(), self.pattern.transpose()
+            _transpose_fn, self.out_structure(), transpose_tags(self.tags)
         )
 
     def in_structure(self):
@@ -362,38 +362,55 @@ class IdentityLinearOperator(AbstractLinearOperator):
         return self.structure
 
     @property
-    def pattern(self):
-        return Pattern(
-            symmetric=True,
-            unit_diagonal=True,
-            diagonal=True,
-            positive_semidefinite=True,
-        )
+    def tags(self):
+        return frozenset()
 
 
 class DiagonalLinearOperator(AbstractLinearOperator):
-    diag: Shaped[Array, " size"]
+    diagonal: Shaped[Array, " size"]
 
     def mv(self, vector):
-        return self.diag * vector
+        return self.diagonal * vector
 
     def as_matrix(self):
-        return jnp.diag(self.diag)
+        return jnp.diag(self.diagonal)
 
     def transpose(self):
         return self
 
     def in_structure(self):
-        (size,) = jnp.shape(self.diag)
-        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diag.dtype)
+        (size,) = jnp.shape(self.diagonal)
+        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
 
     def out_structure(self):
-        (size,) = jnp.shape(self.diag)
-        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diag.dtype)
+        (size,) = jnp.shape(self.diagonal)
+        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
+
+
+class TaggedLinearOperator(AbstractLinearOperator):
+    operator: AbstractLinearOperator
+    tags: FrozenSet[object]
+
+    def mv(self, vector):
+        return self.operator.mv(vector)
+
+    def as_matrix(self):
+        return self.operator.as_matrix()
+
+    def transpose(self):
+        return TaggedLinearOperator(
+            self.operator.transpose(), transpose_tags(self.tags)
+        )
+
+    def in_structure(self):
+        return self.operator.in_structure()
+
+    def out_structure(self):
+        return self.operator.out_structure()
 
 
 #
-# Everything below here is private to Optimistix
+# All operators below here are private to Optimistix.
 #
 
 
@@ -402,9 +419,9 @@ class TangentLinearOperator(AbstractLinearOperator):
     tangent: AbstractLinearOperator
 
     def __post_init__(self):
+        assert type(self.primal) is type(self.tangent)  # noqa: E721
         assert self.primal.in_structure() == self.tangent.in_structure()
         assert self.primal.out_structure() == self.tangent.out_structure()
-        assert self.primal.pattern == self.tangent.pattern
 
     def mv(self, vector):
         mv = lambda operator: operator.mv(vector)
@@ -427,12 +444,8 @@ class TangentLinearOperator(AbstractLinearOperator):
     def out_structure(self):
         return self.primal.out_structure()
 
-    @property
-    def pattern(self):
-        return self.primal.pattern
 
-
-class _AddLinearOperator(AbstractLinearOperator):
+class AddLinearOperator(AbstractLinearOperator):
     operator1: AbstractLinearOperator
     operator2: AbstractLinearOperator
 
@@ -459,35 +472,8 @@ class _AddLinearOperator(AbstractLinearOperator):
     def out_structure(self):
         return self.operator1.out_structure()
 
-    @property
-    def pattern(self):
-        pattern1 = self.operator1.pattern
-        pattern2 = self.operator2.pattern
-        symmetric = pattern1.symmetric and pattern2.symmetric
-        unit_diagonal = False
-        lower_triangular = pattern1.lower_triangular and pattern2.lower_triangular
-        upper_triangular = pattern1.upper_triangular and pattern2.upper_triangular
-        diagonal = pattern1.diagonal and pattern2.diagonal
-        positive_semidefinite = (
-            pattern1.positive_semidefinite and pattern2.positive_semidefinite
-        )
-        negative_semidefinite = (
-            pattern1.negative_semidefinite and pattern2.negative_semidefinite
-        )
-        nonsingular = False  # default
-        return Pattern(
-            symmetric=symmetric,
-            unit_diagonal=unit_diagonal,
-            lower_triangular=lower_triangular,
-            upper_triangular=upper_triangular,
-            diagonal=diagonal,
-            positive_semidefinite=positive_semidefinite,
-            negative_semidefinite=negative_semidefinite,
-            nonsingular=nonsingular,
-        )
 
-
-class _MulLinearOperator(AbstractLinearOperator):
+class MulLinearOperator(AbstractLinearOperator):
     operator: AbstractLinearOperator
     scalar: Scalar
 
@@ -506,12 +492,8 @@ class _MulLinearOperator(AbstractLinearOperator):
     def out_structure(self):
         return self.operator.out_structure()
 
-    @property
-    def pattern(self):
-        return self.operator.pattern
 
-
-class _ComposedLinearOperator(AbstractLinearOperator):
+class ComposedLinearOperator(AbstractLinearOperator):
     operator1: AbstractLinearOperator
     operator2: AbstractLinearOperator
 
@@ -538,38 +520,8 @@ class _ComposedLinearOperator(AbstractLinearOperator):
     def out_structure(self):
         return self.operator2.out_structure()
 
-    @property
-    def pattern(self):
-        pattern1 = self.operator1.pattern
-        pattern2 = self.operator2.pattern
-        symmetric = pattern1.symmetric and pattern2.symmetric
-        lower_triangular = pattern1.lower_triangular and pattern2.lower_triangular
-        upper_triangular = pattern1.upper_triangular and pattern2.upper_triangular
-        diagonal = pattern1.diagonal and pattern2.diagonal
-        if lower_triangular or upper_triangular or diagonal:
-            unit_diagonal = pattern1.unit_diagonal and pattern2.unit_diagonal
-        else:
-            unit_diagonal = False
-        positive_semidefinite = (
-            pattern1.positive_semidefinite and pattern2.positive_semidefinite
-        )
-        negative_semidefinite = (
-            pattern1.negative_semidefinite and pattern2.negative_semidefinite
-        )
-        nonsingular = pattern1.nonsingular and pattern2.nonsingular
-        return Pattern(
-            symmetric=symmetric,
-            unit_diagonal=unit_diagonal,
-            lower_triangular=lower_triangular,
-            upper_triangular=upper_triangular,
-            diagonal=diagonal,
-            positive_semidefinite=positive_semidefinite,
-            negative_semidefinite=negative_semidefinite,
-            nonsingular=nonsingular,
-        )
 
-
-class _AuxLinearOperator(AbstractLinearOperator):
+class AuxLinearOperator(AbstractLinearOperator):
     operator: AbstractLinearOperator
     aux: PyTree[Array]
 
@@ -588,13 +540,9 @@ class _AuxLinearOperator(AbstractLinearOperator):
     def out_structure(self):
         return self.operator.out_structure()
 
-    @property
-    def pattern(self):
-        return self.operator.pattern
-
 
 #
-# Transforms between `AbstractLinearOperator`s.
+# Operations on `AbstractLinearOperator`s.
 # These are done through `singledispatch` rather than as methods.
 #
 # If an end user ever wanted to add something analogous to
@@ -626,26 +574,22 @@ def linearise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     _default_not_implemented("linearise", operator)
 
 
-@linearise.register
-def _(
-    operator: Union[
-        MatrixLinearOperator,
-        PyTreeLinearOperator,
-        FunctionLinearOperator,
-        IdentityLinearOperator,
-        DiagonalLinearOperator,
-    ]
-):
+@linearise.register(MatrixLinearOperator)
+@linearise.register(PyTreeLinearOperator)
+@linearise.register(FunctionLinearOperator)
+@linearise.register(IdentityLinearOperator)
+@linearise.register(DiagonalLinearOperator)
+def _(operator):
     return operator
 
 
-@linearise.register
-def _(operator: JacobianLinearOperator):
+@linearise.register(JacobianLinearOperator)
+def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
     (_, aux), lin = jax.linearize(fn, operator.x)
     lin = _NoAuxOut(lin)
-    out = FunctionLinearOperator(lin, operator.in_structure(), operator.pattern)
-    return _AuxLinearOperator(out, aux)
+    out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
+    return AuxLinearOperator(out, aux)
 
 
 # materialise
@@ -656,34 +600,30 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     _default_not_implemented("materialise", operator)
 
 
-@materialise.register
-def _(
-    operator: Union[
-        MatrixLinearOperator,
-        PyTreeLinearOperator,
-        IdentityLinearOperator,
-        DiagonalLinearOperator,
-    ]
-):
+@materialise.register(MatrixLinearOperator)
+@materialise.register(PyTreeLinearOperator)
+@materialise.register(IdentityLinearOperator)
+@materialise.register(DiagonalLinearOperator)
+def _(operator):
     return operator
 
 
-@materialise.register
-def _(operator: JacobianLinearOperator):
+@materialise.register(JacobianLinearOperator)
+def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
     jac, aux = jacobian(fn, operator.in_size(), operator.out_size(), has_aux=True)(
         operator.x
     )
-    out = PyTreeLinearOperator(jac, operator.out_structure(), operator.pattern)
-    return _AuxLinearOperator(out, aux)
+    out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
+    return AuxLinearOperator(out, aux)
 
 
-@materialise.register
-def _(operator: FunctionLinearOperator):
+@materialise.register(FunctionLinearOperator)
+def _(operator):
     # TODO(kidger): implement more efficiently, without the relinearisation
     zeros = jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), operator.in_structure())
     jac = jacobian(operator.fn, operator.in_size(), operator.out_size())(zeros)
-    return PyTreeLinearOperator(jac, operator.out_structure(), operator.pattern)
+    return PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
 
 
 # diagonal
@@ -694,52 +634,317 @@ def diagonal(operator: AbstractLinearOperator) -> DiagonalLinearOperator:
     _default_not_implemented("diagonal", operator)
 
 
-@diagonal.register
-def _(
-    operator: Union[
-        MatrixLinearOperator,
-        PyTreeLinearOperator,
-        JacobianLinearOperator,
-        FunctionLinearOperator,
-    ]
-) -> DiagonalLinearOperator:
+@diagonal.register(MatrixLinearOperator)
+@diagonal.register(PyTreeLinearOperator)
+@diagonal.register(JacobianLinearOperator)
+@diagonal.register(FunctionLinearOperator)
+def _(operator):
     return DiagonalLinearOperator(jnp.diag(operator.as_matrix()))
 
 
-@diagonal.register
-def _(operator: IdentityLinearOperator):
+@diagonal.register(IdentityLinearOperator)
+def _(operator):
     return DiagonalLinearOperator(jnp.ones(operator.in_size()))
 
 
-@diagonal.register
-def _(operator: DiagonalLinearOperator):
+@diagonal.register(DiagonalLinearOperator)
+def _(operator):
     return operator
 
 
-# transforms for wrapper operators
+# is_symmetric
+
+
+@ft.singledispatch
+def is_symmetric(operator: AbstractLinearOperator) -> bool:
+    _default_not_implemented("is_symmetric", operator)
+
+
+@is_symmetric.register(MatrixLinearOperator)
+@is_symmetric.register(PyTreeLinearOperator)
+@is_symmetric.register(JacobianLinearOperator)
+@is_symmetric.register(FunctionLinearOperator)
+def _(operator):
+    return symmetric_tag in operator.tags
+
+
+@is_symmetric.register(IdentityLinearOperator)
+@is_symmetric.register(DiagonalLinearOperator)
+def _(operator):
+    return True
+
+
+# is_diagonal
+
+
+@ft.singledispatch
+def is_diagonal(operator: AbstractLinearOperator) -> bool:
+    _default_not_implemented("is_diagonal", operator)
+
+
+@is_diagonal.register(MatrixLinearOperator)
+@is_diagonal.register(PyTreeLinearOperator)
+@is_diagonal.register(JacobianLinearOperator)
+@is_diagonal.register(FunctionLinearOperator)
+def _(operator):
+    return diagonal_tag in operator.tags
+
+
+@is_diagonal.register(IdentityLinearOperator)
+@is_diagonal.register(DiagonalLinearOperator)
+def _(operator):
+    return True
+
+
+# has_unit_diagonal
+
+
+@ft.singledispatch
+def has_unit_diagonal(operator: AbstractLinearOperator) -> bool:
+    _default_not_implemented("has_unit_diagonal", operator)
+
+
+@has_unit_diagonal.register(MatrixLinearOperator)
+@has_unit_diagonal.register(PyTreeLinearOperator)
+@has_unit_diagonal.register(JacobianLinearOperator)
+@has_unit_diagonal.register(FunctionLinearOperator)
+def _(operator):
+    return unit_diagonal_tag in operator.tags
+
+
+@has_unit_diagonal.register(IdentityLinearOperator)
+def _(operator):
+    return True
+
+
+@has_unit_diagonal.register(DiagonalLinearOperator)
+def _(operator):
+    # TODO: refine this
+    return False
+
+
+# is_lower_triangular
+
+
+@ft.singledispatch
+def is_lower_triangular(operator: AbstractLinearOperator) -> bool:
+    _default_not_implemented("is_lower_triangular", operator)
+
+
+@is_lower_triangular.register(MatrixLinearOperator)
+@is_lower_triangular.register(PyTreeLinearOperator)
+@is_lower_triangular.register(JacobianLinearOperator)
+@is_lower_triangular.register(FunctionLinearOperator)
+def _(operator):
+    return lower_triangular_tag in operator.tags
+
+
+@is_lower_triangular.register(IdentityLinearOperator)
+@is_lower_triangular.register(DiagonalLinearOperator)
+def _(operator):
+    return True
+
+
+# is_upper_triangular
+
+
+@ft.singledispatch
+def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
+    _default_not_implemented("is_upper_triangular", operator)
+
+
+@is_upper_triangular.register(MatrixLinearOperator)
+@is_upper_triangular.register(PyTreeLinearOperator)
+@is_upper_triangular.register(JacobianLinearOperator)
+@is_upper_triangular.register(FunctionLinearOperator)
+def _(operator):
+    return upper_triangular_tag in operator.tags
+
+
+@is_upper_triangular.register(IdentityLinearOperator)
+@is_upper_triangular.register(DiagonalLinearOperator)
+def _(operator):
+    return True
+
+
+# is_positive_semidefinite
+
+
+@ft.singledispatch
+def is_positive_semidefinite(operator: AbstractLinearOperator) -> bool:
+    _default_not_implemented("is_positive_semidefinite", operator)
+
+
+@is_positive_semidefinite.register(MatrixLinearOperator)
+@is_positive_semidefinite.register(PyTreeLinearOperator)
+@is_positive_semidefinite.register(JacobianLinearOperator)
+@is_positive_semidefinite.register(FunctionLinearOperator)
+def _(operator):
+    return positive_semidefinite_tag in operator.tags
+
+
+@is_positive_semidefinite.register(IdentityLinearOperator)
+def _(operator):
+    return True
+
+
+@is_positive_semidefinite.register(DiagonalLinearOperator)
+def _(operator):
+    # TODO: refine this
+    return False
+
+
+# is_negative_semidefinite
+
+
+@ft.singledispatch
+def is_negative_semidefinite(operator: AbstractLinearOperator) -> bool:
+    _default_not_implemented("is_negative_semidefinite", operator)
+
+
+@is_negative_semidefinite.register(MatrixLinearOperator)
+@is_negative_semidefinite.register(PyTreeLinearOperator)
+@is_negative_semidefinite.register(JacobianLinearOperator)
+@is_negative_semidefinite.register(FunctionLinearOperator)
+def _(operator):
+    return negative_semidefinite_tag in operator.tags
+
+
+@is_negative_semidefinite.register(IdentityLinearOperator)
+def _(operator):
+    return False
+
+
+@is_negative_semidefinite.register(DiagonalLinearOperator)
+def _(operator):
+    # TODO: refine this
+    return False
+
+
+# is_nonsingular
+
+
+@ft.singledispatch
+def is_nonsingular(operator: AbstractLinearOperator) -> bool:
+    _default_not_implemented("is_nonsingular", operator)
+
+
+@is_nonsingular.register(MatrixLinearOperator)
+@is_nonsingular.register(PyTreeLinearOperator)
+@is_nonsingular.register(JacobianLinearOperator)
+@is_nonsingular.register(FunctionLinearOperator)
+def _(operator):
+    return nonsingular_tag in operator.tags
+
+
+@is_nonsingular.register(IdentityLinearOperator)
+def _(operator):
+    return True
+
+
+@is_nonsingular.register(DiagonalLinearOperator)
+def _(operator):
+    # TODO: refine this
+    return False
+
+
+# ops for wrapper operators
 
 
 for transform in (linearise, materialise, diagonal):
 
-    @transform.register
-    def _(operator: TangentLinearOperator, transform=transform):
+    @transform.register(TangentLinearOperator)
+    def _(operator, transform=transform):
         primal_out, tangent_out = eqx.filter_jvp(
             transform, operator.primal, operator.tangent
         )
         return TangentLinearOperator(primal_out, tangent_out)
 
-    @transform.register
-    def _(operator: _AddLinearOperator, transform=transform):
+    @transform.register(AddLinearOperator)
+    def _(operator, transform=transform):
         return transform(operator.operator1) + transform(operator.operator2)
 
-    @transform.register
-    def _(operator: _MulLinearOperator, transform=transform):
+    @transform.register(MulLinearOperator)
+    def _(operator, transform=transform):
         return operator.scalar * transform(operator.operator)
 
-    @transform.register
-    def _(operator: _ComposedLinearOperator, transform=transform):
+    @transform.register(ComposedLinearOperator)
+    def _(operator, transform=transform):
         return transform(operator.operator2) @ transform(operator.operator1)
 
-    @transform.register
-    def _(operator: _AuxLinearOperator, transform=transform):
+    @transform.register(AuxLinearOperator)
+    def _(operator, transform=transform):
         return transform(operator.operator)
+
+
+for check in (
+    is_symmetric,
+    is_diagonal,
+    has_unit_diagonal,
+    is_lower_triangular,
+    is_upper_triangular,
+    is_positive_semidefinite,
+    is_negative_semidefinite,
+    is_nonsingular,
+):
+
+    @check.register(TangentLinearOperator)
+    def _(operator, check=check):
+        return check(operator.primal)
+
+    @check.register(MulLinearOperator)
+    def _(operator, check=check):
+        return check(operator.operator)
+
+    @check.register(AuxLinearOperator)
+    def _(operator, check=check):
+        return check(operator.operator)
+
+
+for check in (
+    is_symmetric,
+    is_diagonal,
+    is_lower_triangular,
+    is_upper_triangular,
+    is_positive_semidefinite,
+    is_negative_semidefinite,
+):
+
+    @check.register(AddLinearOperator)
+    def _(operator, check=check):
+        return check(operator.operator1) and check(operator.operator2)
+
+
+@has_unit_diagonal.register(AddLinearOperator)
+def _(operator):
+    return False
+
+
+@is_nonsingular.register(AddLinearOperator)
+def _(operator):
+    return False
+
+
+for check in (
+    is_symmetric,
+    is_diagonal,
+    is_lower_triangular,
+    is_upper_triangular,
+    is_positive_semidefinite,
+    is_negative_semidefinite,
+    is_nonsingular,
+):
+
+    @check.register(ComposedLinearOperator)
+    def _(operator, check=check):
+        return check(operator.operator)
+
+
+@has_unit_diagonal.register(ComposedLinearOperator)
+def _(operator):
+    a = is_diagonal(operator)
+    b = is_lower_triangular(operator)
+    c = is_upper_triangular(operator)
+    d = has_unit_diagonal(operator.operator1)
+    e = has_unit_diagonal(operator.operator2)
+    return (a or b or c) and d and e

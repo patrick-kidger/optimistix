@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
+from typing import Any, Callable, Dict, FrozenSet, Optional, Tuple, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -9,7 +9,6 @@ import jax.tree_util as jtu
 from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint
-from .linear_operator import Pattern
 from .misc import NoneAux
 from .solution import RESULTS, Solution
 
@@ -128,12 +127,12 @@ def iterative_solve(
     max_steps: Optional[int],
     adjoint: AbstractAdjoint,
     throw: bool,
-    pattern: Pattern,
+    tags: FrozenSet[object],
 ) -> Solution:
     inputs = problem, args
     closure = solver, y0, options, max_steps
     out, (num_steps, result, final_state, aux) = adjoint.apply(
-        _iterate, rewrite_fn, inputs, closure, pattern, max_steps
+        _iterate, rewrite_fn, inputs, closure, tags, max_steps
     )
     stats = {"num_steps": num_steps, "max_steps": max_steps}
     sol = Solution(value=out, result=result, state=final_state, aux=aux, stats=stats)

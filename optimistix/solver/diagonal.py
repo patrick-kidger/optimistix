@@ -3,7 +3,8 @@ from typing import Optional
 import jax.flatten_util as jfu
 import jax.numpy as jnp
 
-from ..linear_solve import AbstractLinearSolver, diagonal
+from ..linear_solve import AbstractLinearSolver
+from ..linear_operator import is_diagonal, has_unit_diagonal, diagonal
 from ..misc import resolve_rcond
 from ..solution import RESULTS
 
@@ -17,15 +18,15 @@ class Diagonal(AbstractLinearSolver):
             raise ValueError(
                 "`Diagonal` may only be used for linear solves with square matrices"
             )
-        if not operator.pattern.diagonal:
+        if not is_diagonal(operator):
             raise ValueError(
                 "`Diagonal` may only be used for linear solves with diagonal matrices"
             )
-        if operator.pattern.unit_diagonal:
+        if has_unit_diagonal(operator):
             diag = None
         else:
             diag = diagonal(operator).diagonal
-        return diag, operator.pattern.unit_diagonal
+        return diag, has_unit_diagonal(operator)
 
     def compute(self, state, vector, options):
         diag, unit_diagonal = state

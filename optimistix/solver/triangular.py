@@ -7,6 +7,7 @@ import jax.scipy as jsp
 from jaxtyping import Array, Float
 
 from ..linear_solve import AbstractLinearSolver
+from ..linear_operator import is_lower_triangular, is_upper_triangular, has_unit_diagonal
 from ..misc import resolve_rcond
 from ..solution import RESULTS
 
@@ -20,15 +21,15 @@ class Triangular(AbstractLinearSolver):
             raise ValueError(
                 "`Triangular` may only be used for linear solves with square matrices"
             )
-        if not (operator.pattern.lower_triangular or operator.pattern.upper_triangular):
+        if not (is_lower_triangular(operator) or is_upper_triangular(operator)):
             raise ValueError(
                 "`Triangular` may only be used for linear solves with triangular "
                 "matrices"
             )
         return (
             operator.as_matrix(),
-            operator.pattern.lower_triangular,
-            operator.pattern.unit_diagonal,
+            is_lower_triangular(operator),
+            has_unit_diagonal(operator),
         )
 
     def compute(self, state, vector, options):

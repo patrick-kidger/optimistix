@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, FrozenSet, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -7,7 +7,6 @@ from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
-from .linear_operator import Pattern
 from .minimise import AbstractMinimiser, minimise, MinimiseProblem
 from .solution import Solution
 
@@ -16,7 +15,7 @@ _SolverState = TypeVar("_SolverState")
 
 
 class LeastSquaresProblem(AbstractIterativeProblem):
-    pattern: Pattern = Pattern()
+    tags: FrozenSet[object] = frozenset()
 
 
 class AbstractLeastSquaresSolver(AbstractIterativeSolver):

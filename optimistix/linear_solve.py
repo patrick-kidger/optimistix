@@ -15,6 +15,12 @@ from .custom_types import sentinel
 from .linear_operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,
+    is_diagonal,
+    is_lower_triangular,
+    is_negative_semidefinite,
+    is_nonsingular,
+    is_positive_semidefinite,
+    is_upper_triangular,
     linearise,
     TangentLinearOperator,
 )
@@ -124,8 +130,10 @@ def _linear_solve_jvp(primals, tangents):
         t_operator = linearise(t_operator)  # optimise for matvecs
         vec = (-t_operator.mv(solution) ** ω).ω
         vecs.append(vec)
-        if solver.pseudoinverse and not operator.pattern.nonsingular:
-            operator_transpose = operator.transpose()
+        operator_transpose = operator.transpose()
+        if solver.pseudoinverse(operator_transpose) and not is_nonsingular(
+            operator_transpose
+        ):
             state_transpose, options_transpose = solver.transpose(state, options)
             tmp1, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
@@ -231,9 +239,10 @@ class AbstractLinearSolver(eqx.Module):
         ever (even if only sometimes) handle singular operators?"
 
         If `True` a more expensive backward pass is needed, to account for the extra
-        generality. (If you're certain that your operator is nonsingular, then you can
-        disable this extra cost with `operator.pattern.nonsingular=True`. This may
-        produce incorrect gradients if your operator is actually singular, though.)
+        generality. If you're certain that your operator is nonsingular, then you can
+        disable this extra cost by ensuring that `is_nonsingular(operator) == True`.
+        This may produce incorrect gradients if your operator is actually singular,
+        though.
 
         If you do not need to autodifferentiate through a custom linear solver then you
         simply define this method as
@@ -278,11 +287,11 @@ class AutoLinearSolver(AbstractLinearSolver):
     def _auto_select_solver(self, operator: AbstractLinearOperator):
         if operator.in_size() != operator.out_size():
             token = _qr_token
-        elif operator.pattern.diagonal:
+        elif is_diagonal(operator):
             token = _diagonal_token
-        elif operator.pattern.lower_triangular or operator.pattern.upper_triangular:
+        elif is_lower_triangular(operator) or is_upper_triangular(operator):
             token = _triangular_token
-        elif operator.pattern.positive_semidefinite:
+        elif is_positive_semidefinite(operator) or is_negative_semidefinite(operator):
             token = _cholesky_token
         else:
             token = _lu_token

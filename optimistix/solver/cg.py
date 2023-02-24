@@ -9,7 +9,7 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
 from ..custom_types import Scalar
-from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator, linearise
+from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator, linearise, is_positive_semidefinite
 from ..linear_solve import AbstractLinearSolver
 from ..misc import max_norm
 from ..solution import RESULTS
@@ -53,7 +53,7 @@ class CG(AbstractLinearSolver):
                     "`CG(..., normal=False)` may only be used for linear solves with "
                     "square matrices."
                 )
-            if not operator.pattern.positive_semidefinite:
+            if not is_positive_semidefinite(operator):
                 raise ValueError(
                     "`CG(..., normal=False)` may only be used for positive definite "
                     "linear operators."
@@ -83,10 +83,9 @@ class CG(AbstractLinearSolver):
             _transpose_mv = state.transpose().mv
 
             def mv(v):
-                (out,) = _transpose_mv(_mv(v))
-                return out
+                return _transpose_mv(_mv(v))
 
-            (vector,) = _transpose_mv(vector)
+            vector = _transpose_mv(vector)
         else:
             mv = state.mv
         structure = state.in_structure()

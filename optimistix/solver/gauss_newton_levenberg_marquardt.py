@@ -74,13 +74,13 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
         residuals = problem.fn(y, args)
         if self._is_gauss_newton:
             jac = JacobianLinearOperator(
-                problem.fn, y, args, pattern=problem.pattern, _has_aux=True
+                problem.fn, y, args, tags=problem.tags, _has_aux=True
             )
         else:
             damping = ...  # TODO(kidger)
-            # TODO: figure out patterns here
+            # TODO: figure out tags here
             jac = JacobianLinearOperator(
-                _Damped(problem.fn, damping, pattern=problem.pattern),
+                _Damped(problem.fn, damping, tags=problem.tags),
                 y,
                 args,
                 _has_aux=True,

@@ -1,11 +1,10 @@
-from typing import Any, Dict, Optional, TypeVar
+from typing import Any, Dict, FrozenSet, Optional, TypeVar
 
 import equinox as eqx
 from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
-from .linear_operator import Pattern
 from .solution import Solution
 
 
@@ -13,7 +12,7 @@ _SolverState = TypeVar("_SolverState")
 
 
 class RootFindProblem(AbstractIterativeProblem):
-    pattern: Pattern = Pattern()
+    tags: FrozenSet[object] = frozenset()
 
 
 class AbstractRootFinder(AbstractIterativeSolver):
@@ -48,5 +47,5 @@ def root_find(
         max_steps=max_steps,
         adjoint=adjoint,
         throw=throw,
-        pattern=problem.pattern,
+        tags=problem.tags,
     )

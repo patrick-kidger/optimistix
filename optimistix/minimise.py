@@ -6,8 +6,8 @@ from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
-from .linear_operator import Pattern
 from .root_find import AbstractRootFinder, root_find, RootFindProblem
+from .linear_tags import symmetric_tag
 from .solution import Solution
 
 
@@ -51,7 +51,7 @@ def minimise(
     if isinstance(solver, AbstractRootFinder):
         root_fn = _ToRootFn(problem.fn, problem.has_aux)
         root_problem = RootFindProblem(
-            root_fn, has_aux=problem.has_aux, pattern=Pattern(symmetric=True)
+            root_fn, has_aux=problem.has_aux, tags=frozenset([symmetric_tag])
         )
         return root_find(
             root_problem,

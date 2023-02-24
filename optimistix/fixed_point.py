@@ -6,7 +6,6 @@ from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
-from .linear_operator import Pattern
 from .root_find import AbstractRootFinder, root_find, RootFindProblem
 from .solution import Solution
 
@@ -61,7 +60,7 @@ def fixed_point(
     if isinstance(solver, AbstractRootFinder):
         root_fn = _ToRootFn(problem.fn, problem.has_aux)
         root_problem = RootFindProblem(
-            fn=root_fn, has_aux=problem.has_aux, pattern=Pattern()
+            fn=root_fn, has_aux=problem.has_aux, tags=frozenset()
         )
         return root_find(
             root_problem,

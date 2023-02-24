@@ -56,7 +56,7 @@ class _NewtonChord(AbstractRootFinder):
             linear_state = None
         else:
             jac = JacobianLinearOperator(
-                problem.fn, y, args, pattern=problem.pattern, _has_aux=True
+                problem.fn, y, args, tags=problem.tags, _has_aux=True
             )
             jac = self.modify_jac(jac)
             linear_state = (jac, self.linear_solver.init(jac))
@@ -73,7 +73,7 @@ class _NewtonChord(AbstractRootFinder):
         fx = problem.fn(y, args)
         if self._is_newton:
             jac = JacobianLinearOperator(
-                problem.fn, y, args, pattern=problem.pattern, _has_aux=True
+                problem.fn, y, args, tags=problem.tags, _has_aux=True
             )
             jac = self.modify_jac(jac)
             sol = linear_solve(jac, fx, self.linear_solver, throw=False)

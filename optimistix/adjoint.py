@@ -1,6 +1,6 @@
 import abc
 import functools as ft
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, FrozenSet
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -8,7 +8,6 @@ import jax.lax as lax
 from jaxtyping import Array, PyTree
 
 from .ad import implicit_jvp
-from .linear_operator import Pattern
 from .linear_solve import AbstractLinearSolver, AutoLinearSolver
 
 
@@ -20,7 +19,7 @@ class AbstractAdjoint(eqx.Module):
         rewrite_fn: Callable,
         inputs: PyTree[Array],
         closure: Any,
-        pattern: Pattern,
+        tags: FrozenSet[object],
     ):
         ...
 
@@ -28,8 +27,8 @@ class AbstractAdjoint(eqx.Module):
 class RecursiveCheckpointAdjoint(AbstractAdjoint):
     checkpoints: Optional[int] = None
 
-    def apply(self, primal_fn, rewrite_fn, inputs, closure, pattern):
-        del rewrite_fn, pattern
+    def apply(self, primal_fn, rewrite_fn, inputs, closure, tags):
+        del rewrite_fn, tags
         while_loop = ft.partial(
             eqxi.while_loop, kind="checkpointed", checkpoints=self.checkpoints
         )
@@ -56,8 +55,8 @@ def _while_loop(cond_fun, body_fun, init_val, max_steps):
 class ImplicitAdjoint(AbstractAdjoint):
     linear_solver: AbstractLinearSolver = AutoLinearSolver()
 
-    def apply(self, primal_fn, rewrite_fn, inputs, closure, pattern):
+    def apply(self, primal_fn, rewrite_fn, inputs, closure, tags):
         primal_fn = ft.partial(primal_fn, while_loop=_while_loop)
         return implicit_jvp(
-            primal_fn, rewrite_fn, inputs, closure, pattern, self.linear_solver
+            primal_fn, rewrite_fn, inputs, closure, tags, self.linear_solver
         )

@@ -2,6 +2,7 @@ import jax.flatten_util as jfu
 import jax.scipy as jsp
 
 from ..linear_solve import AbstractLinearSolver
+from ..linear_operator import is_positive_semidefinite
 from ..solution import RESULTS
 
 
@@ -21,7 +22,7 @@ class Cholesky(AbstractLinearSolver):
                     "`Cholesky(..., normal=False)` may only be used for linear solves "
                     "with square matrices"
                 )
-            if not operator.pattern.positive_semidefinite:
+            if not is_positive_semidefinite(operator):
                 raise ValueError(
                     "`Cholesky(..., normal=False)` may only be used for positive "
                     "definite linear operators"

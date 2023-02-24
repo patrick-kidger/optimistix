@@ -14,32 +14,32 @@ _make_operators = []
 
 
 @_make_operators.append
-def _make_matrix_operator(matrix, pattern):
-    return optx.MatrixLinearOperator(matrix, pattern)
+def _make_matrix_operator(matrix, tags):
+    return optx.MatrixLinearOperator(matrix, tags)
 
 
 @_make_operators.append
-def _make_trivial_pytree_operator(matrix, pattern):
+def _make_trivial_pytree_operator(matrix, tags):
     struct = jax.ShapeDtypeStruct((3,), matrix.dtype)
-    return optx.PyTreeLinearOperator(matrix, struct, pattern)
+    return optx.PyTreeLinearOperator(matrix, struct, tags)
 
 
 @_make_operators.append
-def _make_function_operator(matrix, pattern):
+def _make_function_operator(matrix, tags):
     fn = lambda x: matrix @ x
     in_struct = jax.ShapeDtypeStruct((3,), matrix.dtype)
-    return optx.FunctionLinearOperator(fn, in_struct, pattern)
+    return optx.FunctionLinearOperator(fn, in_struct, tags)
 
 
 @_make_operators.append
-def _make_jac_operator(matrix, pattern):
+def _make_jac_operator(matrix, tags):
     x = jr.normal(getkey(), (3,))
     b = jr.normal(getkey(), (3, 3))
     fn_tmp = lambda x, _: x + b @ x**2
     jac = jax.jacfwd(fn_tmp)(x, None)
     diff = matrix - jac
     fn = lambda x, _: x + b @ x**2 + diff @ x
-    return optx.JacobianLinearOperator(fn, x, None, pattern)
+    return optx.JacobianLinearOperator(fn, x, None, tags)
 
 
 if jax.config.jax_enable_x64:
@@ -47,29 +47,30 @@ if jax.config.jax_enable_x64:
 else:
     tol = 1e-6
 _solvers = [
-    (optx.AutoLinearSolver(), optx.Pattern()),
-    (optx.Triangular(), optx.Pattern(lower_triangular=True)),
-    (optx.Triangular(), optx.Pattern(upper_triangular=True)),
-    (optx.Triangular(), optx.Pattern(lower_triangular=True, unit_diagonal=True)),
-    (optx.Triangular(), optx.Pattern(upper_triangular=True, unit_diagonal=True)),
-    (optx.Diagonal(), optx.Pattern(diagonal=True)),
-    (optx.Diagonal(), optx.Pattern(diagonal=True, unit_diagonal=True)),
-    (optx.LU(), optx.Pattern()),
-    (optx.QR(), optx.Pattern()),
-    (optx.SVD(), optx.Pattern()),
-    (optx.CG(normal=True, rtol=tol, atol=tol), optx.Pattern()),
-    (
-        optx.CG(normal=False, rtol=tol, atol=tol),
-        optx.Pattern(positive_semidefinite=True),
-    ),
-    (optx.Cholesky(normal=True), optx.Pattern()),
-    (optx.Cholesky(), optx.Pattern(positive_semidefinite=True)),
+    (optx.AutoLinearSolver(), ()),
+    (optx.Triangular(), optx.lower_triangular_tag),
+    (optx.Triangular(), optx.upper_triangular_tag),
+    (optx.Triangular(), (optx.lower_triangular_tag, optx.unit_diagonal_tag)),
+    (optx.Triangular(), (optx.upper_triangular_tag, optx.unit_diagonal_tag)),
+    (optx.Diagonal(), optx.diagonal_tag),
+    (optx.Diagonal(), (optx.diagonal_tag, optx.unit_diagonal_tag)),
+    (optx.LU(), ()),
+    (optx.QR(), ()),
+    (optx.SVD(), ()),
+    (optx.CG(normal=True, rtol=tol, atol=tol), ()),
+    (optx.CG(normal=False, rtol=tol, atol=tol), optx.positive_semidefinite_tag),
+    (optx.Cholesky(normal=True), ()),
+    (optx.Cholesky(), optx.positive_semidefinite_tag),
 ]
 
 
+def _has(tags, tag):
+    return tag is tags or (isinstance(tags, tuple) and tag in tags)
+
+
 @pytest.mark.parametrize("make_operator", _make_operators)
-@pytest.mark.parametrize("solver,pattern", _solvers)
-def test_matrix_small_wellposed(make_operator, solver, pattern, getkey):
+@pytest.mark.parametrize("solver,tags", _solvers)
+def test_matrix_small_wellposed(make_operator, solver, tags, getkey):
     if jax.config.jax_enable_x64:
         tol = 1e-10
     else:
@@ -84,19 +85,19 @@ def test_matrix_small_wellposed(make_operator, solver, pattern, getkey):
                 matrix = matrix @ matrix.T
         else:
             cond_cutoff = 1000
-            if pattern.diagonal:
+            if _has(tags, optx.diagonal_tag):
                 matrix = jnp.diag(jnp.diag(matrix))
-            if pattern.symmetric:
+            if _has(tags, optx.symmetric_tag):
                 matrix = matrix + matrix.T
-            if pattern.lower_triangular:
+            if _has(tags, optx.lower_triangular_tag):
                 matrix = jnp.tril(matrix)
-            if pattern.upper_triangular:
+            if _has(tags, optx.upper_triangular_tag):
                 matrix = jnp.triu(matrix)
-            if pattern.unit_diagonal:
+            if _has(tags, optx.unit_diagonal_tag):
                 matrix = matrix.at[jnp.arange(3), jnp.arange(3)].set(1)
         if jnp.linalg.cond(matrix) < cond_cutoff:
             break
-    operator = make_operator(matrix, pattern)
+    operator = make_operator(matrix, tags)
     assert shaped_allclose(operator.as_matrix(), matrix, rtol=tol, atol=tol)
     true_x = jr.normal(getkey(), (3,))
     b = operator.mv(true_x)
