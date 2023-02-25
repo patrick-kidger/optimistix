@@ -329,6 +329,13 @@ def linear_solve(
     state: PyTree[Array] = sentinel,
     throw: bool = True,
 ) -> Solution:
+    if eqx.is_array(operator):
+        raise ValueError(
+            "`optimistix.linear_solve(operator=...)` should be an "
+            "`AbstractLinearOperator`, not a raw JAX array. If you are trying to pass "
+            "a matrix then this should be passed as "
+            "`operator = optimistix.MatrixLinearOperator(matrix)`."
+        )
     if options is None:
         options = {}
     if jax.eval_shape(lambda: vector) != operator.out_structure():

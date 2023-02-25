@@ -79,22 +79,34 @@ class AbstractLinearOperator(eqx.Module):
             raise ValueError("Can only multiply AbstractLinearOperators by scalars.")
         return MulLinearOperator(self, other)
 
+    def __rmul__(self, other):
+        return self * other
+
     def __matmul__(self, other):
         if not isinstance(other, AbstractLinearOperator):
             raise ValueError("Can only compose AbstractLinearOperators together.")
         return ComposedLinearOperator(self, other)
+
+    def __truediv__(self, other):
+        other = jnp.asarray(other)
+        if other.shape != ():
+            raise ValueError("Can only divide AbstractLinearOperators by scalars.")
+        return DivLinearOperator(self, other)
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
     matrix: Shaped[Array, "a b"]
     tags: FrozenSet[object]
 
-    def __init__(self, matrix: Shaped[Array, "a b"], tags: Union[object, FrozenSet[object]] = ()):
+    def __init__(
+        self, matrix: Shaped[Array, "a b"], tags: Union[object, FrozenSet[object]] = ()
+    ):
+        if jnp.ndim(matrix) != 2:
+            raise ValueError(
+                "`MatrixLinearOperator(matrix=...)` should be 2-dimensional."
+            )
         self.matrix = matrix
         self.tags = _frozenset(tags)
-
-    def __post_init__(self):
-        self.tags = _frozenset(self.tags)
 
     def mv(self, vector):
         return jnp.matmul(self.matrix, vector, precision=lax.Precision.HIGHEST)
@@ -145,7 +157,12 @@ class PyTreeLinearOperator(AbstractLinearOperator):
     tags: FrozenSet[object]
     input_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
 
-    def __init__(self, pytree: PyTree[Array], output_structure: PyTree[jax.ShapeDtypeStruct], tags: Union[object, FrozenSet[object]] = ()):
+    def __init__(
+        self,
+        pytree: PyTree[Array],
+        output_structure: PyTree[jax.ShapeDtypeStruct],
+        tags: Union[object, FrozenSet[object]] = (),
+    ):
         self.pytree = pytree
         self.output_structure = output_structure
         self.tags = _frozenset(tags)
@@ -391,6 +408,12 @@ class TaggedLinearOperator(AbstractLinearOperator):
     operator: AbstractLinearOperator
     tags: FrozenSet[object]
 
+    def __init__(
+        self, operator: AbstractLinearOperator, tags: Union[object, Iterable[object]]
+    ):
+        self.operator = operator
+        self.tags = _frozenset(tags)
+
     def mv(self, vector):
         return self.operator.mv(vector)
 
@@ -478,13 +501,33 @@ class MulLinearOperator(AbstractLinearOperator):
     scalar: Scalar
 
     def mv(self, vector):
-        return (self.scalar * self.operator.mv(vector) ** ω).ω
+        return (self.operator.mv(vector) ** ω * self.scalar).ω
 
     def as_matrix(self):
-        return self.scalar * self.operator.as_matrix()
+        return self.operator.as_matrix() * self.scalar
 
     def transpose(self):
-        return self.scalar * self.operator.transpose()
+        return self.operator.transpose() * self.scalar
+
+    def in_structure(self):
+        return self.operator.in_structure()
+
+    def out_structure(self):
+        return self.operator.out_structure()
+
+
+class DivLinearOperator(AbstractLinearOperator):
+    operator: AbstractLinearOperator
+    scalar: Scalar
+
+    def mv(self, vector):
+        return (self.operator.mv(vector) ** ω / self.scalar).ω
+
+    def as_matrix(self):
+        return self.operator.as_matrix() / self.scalar
+
+    def transpose(self):
+        return self.operator.transpose() / self.scalar
 
     def in_structure(self):
         return self.operator.in_structure()
@@ -498,21 +541,21 @@ class ComposedLinearOperator(AbstractLinearOperator):
     operator2: AbstractLinearOperator
 
     def __post_init__(self):
-        if self.operator2.in_structure() != self.operator1.out_structure():
+        if self.operator1.in_structure() != self.operator2.out_structure():
             raise ValueError("Incompatible linear operator structures")
 
     def mv(self, vector):
-        return self.operator2.mv(self.operator1.mv(vector))
+        return self.operator1.mv(self.operator2.mv(vector))
 
     def as_matrix(self):
         return jnp.matmul(
-            self.operator2.as_matrix(),
             self.operator1.as_matrix(),
+            self.operator2.as_matrix(),
             precision=lax.Precision.HIGHEST,
         )
 
     def transpose(self):
-        return self.operator1.transpose() @ self.operator2.transpose()
+        return self.operator2.transpose() @ self.operator1.transpose()
 
     def in_structure(self):
         return self.operator1.in_structure()
@@ -546,7 +589,7 @@ class AuxLinearOperator(AbstractLinearOperator):
 # These are done through `singledispatch` rather than as methods.
 #
 # If an end user ever wanted to add something analogous to
-# `diagonal: AbstractLinearOperator -> DiagonalLinearOperator`
+# `diagonal: AbstractLinearOperator -> Array`
 # then of course they don't get to edit our base class and add overloads to all
 # subclasses.
 # They'd have to use `singledispatch` to get the desired behaviour. (Or maybe just
@@ -630,7 +673,7 @@ def _(operator):
 
 
 @ft.singledispatch
-def diagonal(operator: AbstractLinearOperator) -> DiagonalLinearOperator:
+def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     _default_not_implemented("diagonal", operator)
 
 
@@ -639,17 +682,17 @@ def diagonal(operator: AbstractLinearOperator) -> DiagonalLinearOperator:
 @diagonal.register(JacobianLinearOperator)
 @diagonal.register(FunctionLinearOperator)
 def _(operator):
-    return DiagonalLinearOperator(jnp.diag(operator.as_matrix()))
+    return jnp.diag(operator.as_matrix())
 
 
 @diagonal.register(IdentityLinearOperator)
 def _(operator):
-    return DiagonalLinearOperator(jnp.ones(operator.in_size()))
+    return jnp.ones(operator.in_size())
 
 
 @diagonal.register(DiagonalLinearOperator)
 def _(operator):
-    return operator
+    return operator.diagonal
 
 
 # is_symmetric
@@ -851,6 +894,22 @@ def _(operator):
 # ops for wrapper operators
 
 
+@linearise.register(TaggedLinearOperator)
+def _(operator):
+    return TaggedLinearOperator(linearise(operator.operator), operator.tags)
+
+
+@materialise.register(TaggedLinearOperator)
+def _(operator):
+    return TaggedLinearOperator(materialise(operator.operator), operator.tags)
+
+
+@diagonal.register(TaggedLinearOperator)
+def _(operator):
+    # Untagged; we might not have any of the properties our tags represent any more.
+    return diagonal(operator.operator)
+
+
 for transform in (linearise, materialise, diagonal):
 
     @transform.register(TangentLinearOperator)
@@ -866,15 +925,30 @@ for transform in (linearise, materialise, diagonal):
 
     @transform.register(MulLinearOperator)
     def _(operator, transform=transform):
-        return operator.scalar * transform(operator.operator)
+        return transform(operator.operator) * operator.scalar
 
-    @transform.register(ComposedLinearOperator)
+    @transform.register(DivLinearOperator)
     def _(operator, transform=transform):
-        return transform(operator.operator2) @ transform(operator.operator1)
+        return transform(operator.operator) / operator.scalar
 
     @transform.register(AuxLinearOperator)
     def _(operator, transform=transform):
         return transform(operator.operator)
+
+
+@linearise.register(ComposedLinearOperator)
+def _(operator):
+    return linearise(operator.operator1) @ linearise(operator.operator2)
+
+
+@materialise.register(ComposedLinearOperator)
+def _(operator):
+    return materialise(operator.operator1) @ materialise(operator.operator2)
+
+
+@diagonal.register(ComposedLinearOperator)
+def _(operator):
+    return jnp.diag(operator.as_matrix())
 
 
 for check in (
@@ -893,12 +967,26 @@ for check in (
         return check(operator.primal)
 
     @check.register(MulLinearOperator)
-    def _(operator, check=check):
-        return check(operator.operator)
-
+    @check.register(DivLinearOperator)
     @check.register(AuxLinearOperator)
     def _(operator, check=check):
         return check(operator.operator)
+
+
+for check, tag in (
+    (is_symmetric, symmetric_tag),
+    (is_diagonal, diagonal_tag),
+    (has_unit_diagonal, unit_diagonal_tag),
+    (is_lower_triangular, lower_triangular_tag),
+    (is_upper_triangular, upper_triangular_tag),
+    (is_positive_semidefinite, positive_semidefinite_tag),
+    (is_negative_semidefinite, negative_semidefinite_tag),
+    (is_nonsingular, nonsingular_tag),
+):
+
+    @check.register(TaggedLinearOperator)
+    def _(operator, check=check, tag=tag):
+        return (tag in operator.tags) or check(operator.operator)
 
 
 for check in (
@@ -937,7 +1025,7 @@ for check in (
 
     @check.register(ComposedLinearOperator)
     def _(operator, check=check):
-        return check(operator.operator)
+        return check(operator.operator1) and check(operator.operator2)
 
 
 @has_unit_diagonal.register(ComposedLinearOperator)

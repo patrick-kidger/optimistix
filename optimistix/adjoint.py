@@ -1,6 +1,6 @@
 import abc
 import functools as ft
-from typing import Any, Callable, Optional, FrozenSet
+from typing import Any, Callable, FrozenSet, Optional
 
 import equinox as eqx
 import equinox.internal as eqxi

@@ -12,6 +12,7 @@ from .linear_operator import (
     ComposedLinearOperator,
     diagonal,
     DiagonalLinearOperator,
+    DivLinearOperator,
     FunctionLinearOperator,
     has_unit_diagonal,
     IdentityLinearOperator,

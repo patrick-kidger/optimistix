@@ -1,8 +1,8 @@
 import jax.flatten_util as jfu
 import jax.scipy as jsp
 
-from ..linear_solve import AbstractLinearSolver
 from ..linear_operator import is_positive_semidefinite
+from ..linear_solve import AbstractLinearSolver
 from ..solution import RESULTS
 
 

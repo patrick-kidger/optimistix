@@ -6,8 +6,8 @@ from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
-from .root_find import AbstractRootFinder, root_find, RootFindProblem
 from .linear_tags import symmetric_tag
+from .root_find import AbstractRootFinder, root_find, RootFindProblem
 from .solution import Solution
 
 

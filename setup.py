@@ -21,7 +21,10 @@ author = "Patrick Kidger"
 
 author_email = "contact@kidger.site"
 
-description = "Linear and nonlinear solvers (minima; least squares; root finding; etc.) in JAX+Equinox"
+description = (
+    "Linear and nonlinear solvers (minima; least squares; root finding; etc.) in "
+    "JAX+Equinox"
+)
 
 with open(_here / "README.md", "r") as f:
     readme = f.read()

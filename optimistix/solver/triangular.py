@@ -6,8 +6,12 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, Float
 
+from ..linear_operator import (
+    has_unit_diagonal,
+    is_lower_triangular,
+    is_upper_triangular,
+)
 from ..linear_solve import AbstractLinearSolver
-from ..linear_operator import is_lower_triangular, is_upper_triangular, has_unit_diagonal
 from ..misc import resolve_rcond
 from ..solution import RESULTS
 

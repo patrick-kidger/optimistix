@@ -9,7 +9,12 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
 from ..custom_types import Scalar
-from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator, linearise, is_positive_semidefinite
+from ..linear_operator import (
+    AbstractLinearOperator,
+    IdentityLinearOperator,
+    is_positive_semidefinite,
+    linearise,
+)
 from ..linear_solve import AbstractLinearSolver
 from ..misc import max_norm
 from ..solution import RESULTS
