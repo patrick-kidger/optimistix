@@ -1,6 +1,6 @@
 - Tests:
-  - all the complexity of {PyTree,TransposeJacobian,Tangent}LinearOperator
-  - transposing all linear solvers
+  - is_symmetric etc.
+  - vmap, jvp, transpose linear solves
   - Test JAX #13452
   - passing AD closures in to `linear_solve_p.impl`
 - Think about passing Refs into custom primitives. Do the abstract eval rules?

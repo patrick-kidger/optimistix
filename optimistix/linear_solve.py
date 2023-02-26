@@ -9,7 +9,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Shaped
+from jaxtyping import Array, ArrayLike, PyTree, Shaped
 
 from .custom_types import sentinel
 from .linear_operator import (
@@ -322,11 +322,11 @@ class AutoLinearSolver(AbstractLinearSolver):
 @eqx.filter_jit
 def linear_solve(
     operator: AbstractLinearOperator,
-    vector: PyTree[Array],
+    vector: PyTree[ArrayLike],
     solver: AbstractLinearSolver = AutoLinearSolver(),
     options: Optional[Dict[str, Any]] = None,
     *,
-    state: PyTree[Array] = sentinel,
+    state: PyTree[Any] = sentinel,
     throw: bool = True,
 ) -> Solution:
     if eqx.is_array(operator):
@@ -338,6 +338,7 @@ def linear_solve(
         )
     if options is None:
         options = {}
+    vector = jtu.tree_map(jnp.asarray, vector)
     if jax.eval_shape(lambda: vector) != operator.out_structure():
         raise ValueError("Vector and operator structures do not match")
     if isinstance(operator, IdentityLinearOperator):

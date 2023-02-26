@@ -1,17 +1,27 @@
 import abc
 import functools as ft
-from typing import Any, Callable, FrozenSet, Iterable, Optional, Union
+import math
+from typing import (
+    Any,
+    Callable,
+    FrozenSet,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 import equinox as eqx
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-import numpy as np
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Shaped
+from jaxtyping import Array, ArrayLike, PyTree, Shaped
 
-from .custom_types import Scalar
+from .custom_types import Scalar, TreeDef
 from .linear_tags import (
     diagonal_tag,
     lower_triangular_tag,
@@ -58,11 +68,11 @@ class AbstractLinearOperator(eqx.Module):
 
     def in_size(self) -> int:
         leaves = jtu.tree_leaves(self.in_structure())
-        return sum(np.prod(leaf.shape).item() for leaf in leaves)
+        return sum(math.prod(leaf.shape) for leaf in leaves)
 
     def out_size(self) -> int:
         leaves = jtu.tree_leaves(self.out_structure())
-        return sum(np.prod(leaf.shape).item() for leaf in leaves)
+        return sum(math.prod(leaf.shape) for leaf in leaves)
 
     @property
     def T(self):
@@ -147,24 +157,30 @@ def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
     return sum([_matmul(m, v) for m, v in zip(matrix, vector)])
 
 
+# Needed as static fields must be hashable and eq-able, and custom pytrees might have
+# e.g. define custom __eq__ methods.
+_T = TypeVar("_T")
+_FlatPyTree = Tuple[List[_T], TreeDef]
+
+
 # This is basically a generalisation of `MatrixLinearOperator` from taking
 # just a single array to taking a PyTree-of-arrays.
 # The `{input,output}_structure`s have to be static because otherwise abstract
 # evaluation rules will promote them to ShapedArrays.
 class PyTreeLinearOperator(AbstractLinearOperator):
     pytree: PyTree[Array]
-    output_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+    output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
     tags: FrozenSet[object]
-    input_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
 
     def __init__(
         self,
-        pytree: PyTree[Array],
+        pytree: PyTree[ArrayLike],
         output_structure: PyTree[jax.ShapeDtypeStruct],
         tags: Union[object, FrozenSet[object]] = (),
     ):
-        self.pytree = pytree
-        self.output_structure = output_structure
+        self.pytree = jtu.tree_map(jnp.asarray, pytree)
+        self.output_structure = jtu.tree_flatten(output_structure)
         self.tags = _frozenset(tags)
 
         # self.out_structure() has structure [tree(out)]
@@ -182,10 +198,8 @@ class PyTreeLinearOperator(AbstractLinearOperator):
 
             return jtu.tree_map(sub_get_structure, subpytree)
 
-        input_structure = jtu.tree_map(
-            get_structure, self.output_structure, self.pytree
-        )
-        self.input_structure = input_structure
+        input_structure = jtu.tree_map(get_structure, output_structure, self.pytree)
+        self.input_structure = jtu.tree_flatten(input_structure)
 
     def mv(self, vector):
         # vector has structure [tree(in), leaf(in)]
@@ -203,7 +217,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
             assert all(
                 jnp.shape(leaf)[: len(struct.shape)] == struct.shape for leaf in leaves
             )
-            size = np.prod(struct.shape)
+            size = math.prod(struct.shape)
             leaves = [jnp.reshape(leaf, (size, -1)) for leaf in leaves]
             return jnp.concatenate(leaves, axis=1)
 
@@ -225,10 +239,12 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         )
 
     def in_structure(self):
-        return self.input_structure
+        leaves, treedef = self.input_structure
+        return jtu.tree_unflatten(treedef, leaves)
 
     def out_structure(self):
-        return self.output_structure
+        leaves, treedef = self.output_structure
+        return jtu.tree_unflatten(treedef, leaves)
 
 
 class _NoAuxIn(eqx.Module):
@@ -315,7 +331,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
 # `input_structure` must be static as with `JacobianLinearOperator`
 class FunctionLinearOperator(AbstractLinearOperator):
     fn: Callable[[PyTree[Array]], PyTree[Array]]
-    input_structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
     tags: FrozenSet[object]
 
     def __init__(
@@ -327,7 +343,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
         # See matching comment in JacobianLinearOperator.
         fn = eqx.filter_closure_convert(fn, input_structure)
         self.fn = fn
-        self.input_structure = input_structure
+        self.input_structure = jtu.tree_flatten(input_structure)
         self.tags = _frozenset(tags)
 
     def mv(self, vector):
@@ -351,7 +367,8 @@ class FunctionLinearOperator(AbstractLinearOperator):
         )
 
     def in_structure(self):
-        return self.input_structure
+        leaves, treedef = self.input_structure
+        return jtu.tree_unflatten(treedef, leaves)
 
     def out_structure(self):
         return cached_eval_shape(self.fn, self.in_structure())
@@ -359,7 +376,10 @@ class FunctionLinearOperator(AbstractLinearOperator):
 
 # `structure` must be static as with `JacobianLinearOperator`
 class IdentityLinearOperator(AbstractLinearOperator):
-    structure: PyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+    structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
+
+    def __init__(self, structure: PyTree[jax.ShapeDtypeStruct]):
+        self.structure = jtu.tree_flatten(structure)
 
     def mv(self, vector):
         if jax.eval_shape(lambda: vector) != self.in_structure():
@@ -373,10 +393,12 @@ class IdentityLinearOperator(AbstractLinearOperator):
         return self
 
     def in_structure(self):
-        return self.structure
+        leaves, treedef = self.structure
+        return jtu.tree_unflatten(treedef, leaves)
 
     def out_structure(self):
-        return self.structure
+        leaves, treedef = self.structure
+        return jtu.tree_unflatten(treedef, leaves)
 
     @property
     def tags(self):

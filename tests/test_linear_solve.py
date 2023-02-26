@@ -188,3 +188,23 @@ def test_cg_stabilisation():
     x = optx.linear_solve(problem, a @ true_x, solver=solver, throw=False).value
     assert jnp.all(jnp.invert(jnp.isnan(x)))
     assert shaped_allclose(x, true_x, rtol=1e-3, atol=1e-3)
+
+
+def test_nontrivial_pytree_operator():
+    x = [[1, 5.0], [jnp.array(-2), jnp.array(-2.0)]]
+    y = [3, 4]
+    struct = jax.eval_shape(lambda: y)
+    operator = optx.PyTreeLinearOperator(x, struct)
+    out = optx.linear_solve(operator, y).value
+    true_out = [jnp.array(-3.25), jnp.array(1.25)]
+    assert shaped_allclose(out, true_out)
+
+
+def test_nonsquare_pytree_operator():
+    x = [[1, 5.0, jnp.array(-1.0)], [jnp.array(-2), jnp.array(-2.0), 3]]
+    y = [3, 4]
+    struct = jax.eval_shape(lambda: y)
+    operator = optx.PyTreeLinearOperator(x, struct)
+    out = optx.linear_solve(operator, y).value
+    true_out = ...  # TODO: fix this test
+    assert shaped_allclose(out, true_out)

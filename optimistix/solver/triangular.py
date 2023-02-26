@@ -4,7 +4,7 @@ import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.scipy as jsp
-from jaxtyping import Array, Float
+from jaxtyping import Array, Shaped
 
 from ..linear_operator import (
     has_unit_diagonal,
@@ -55,12 +55,12 @@ class Triangular(AbstractLinearSolver):
 
 
 def solve_triangular(
-    matrix: Float[Array, "n n"],
-    vector: Float[Array, " n"],
+    matrix: Shaped[Array, "n n"],
+    vector: Shaped[Array, " n"],
     lower: bool,
     unit_diagonal: bool,
     rcond: Optional[float],
-) -> Float[Array, " n"]:
+) -> Shaped[Array, " n"]:
     # This differs from jax.scipy.linalg.solve_triangular in that it will return
     # pseudoinverse solutions if the matrix is singular.
 
