@@ -1,4 +1,5 @@
 - Tests:
+  - solver.transpose
   - is_symmetric etc.
   - vmap, jvp, transpose linear solves
   - Test JAX #13452

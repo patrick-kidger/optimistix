@@ -200,11 +200,27 @@ def test_nontrivial_pytree_operator():
     assert shaped_allclose(out, true_out)
 
 
-def test_nonsquare_pytree_operator():
-    x = [[1, 5.0, jnp.array(-1.0)], [jnp.array(-2), jnp.array(-2.0), 3]]
-    y = [3, 4]
+@pytest.mark.parametrize("solver", (optx.AutoLinearSolver(), optx.QR(), optx.SVD()))
+def test_nonsquare_pytree_operator1(solver):
+    x = [[1, 5.0, jnp.array(-1.0)], [jnp.array(-2), jnp.array(-2.0), 3.0]]
+    y = [3.0, 4]
     struct = jax.eval_shape(lambda: y)
     operator = optx.PyTreeLinearOperator(x, struct)
-    out = optx.linear_solve(operator, y).value
-    true_out = ...  # TODO: fix this test
+    out = optx.linear_solve(operator, y, solver=solver).value
+    matrix = jnp.array([[1.0, 5.0, -1.0], [-2.0, -2.0, 3.0]])
+    true_out, _, _, _ = jnp.linalg.lstsq(matrix, jnp.array(y))
+    true_out = [true_out[0], true_out[1], true_out[2]]
+    assert shaped_allclose(out, true_out)
+
+
+@pytest.mark.parametrize("solver", (optx.AutoLinearSolver(), optx.QR(), optx.SVD()))
+def test_nonsquare_pytree_operator2(solver):
+    x = [[1, jnp.array(-2)], [5.0, jnp.array(-2.0)], [jnp.array(-1.0), 3.0]]
+    y = [3.0, 4, 5.0]
+    struct = jax.eval_shape(lambda: y)
+    operator = optx.PyTreeLinearOperator(x, struct)
+    out = optx.linear_solve(operator, y, solver=solver).value
+    matrix = jnp.array([[1.0, -2.0], [5.0, -2.0], [-1.0, 3.0]])
+    true_out, _, _, _ = jnp.linalg.lstsq(matrix, jnp.array(y))
+    true_out = [true_out[0], true_out[1]]
     assert shaped_allclose(out, true_out)

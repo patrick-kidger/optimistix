@@ -9,7 +9,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, PyTree, Shaped
+from jaxtyping import Array, ArrayLike, PyTree
 
 from .custom_types import sentinel
 from .linear_operator import (
@@ -24,6 +24,7 @@ from .linear_operator import (
     linearise,
     TangentLinearOperator,
 )
+from .misc import inexact_asarray
 from .solution import RESULTS, Solution
 
 
@@ -229,8 +230,8 @@ class AbstractLinearSolver(eqx.Module):
 
     @abc.abstractmethod
     def compute(
-        self, state: _SolverState, vector: Shaped[Array, " b"], options: Dict[str, Any]
-    ) -> Tuple[Shaped[Array, " a"], RESULTS, Dict[str, Any]]:
+        self, state: _SolverState, vector: PyTree[Array], options: Dict[str, Any]
+    ) -> Tuple[PyTree[Array], RESULTS, Dict[str, Any]]:
         ...
 
     @abc.abstractmethod
@@ -338,7 +339,7 @@ def linear_solve(
         )
     if options is None:
         options = {}
-    vector = jtu.tree_map(jnp.asarray, vector)
+    vector = jtu.tree_map(inexact_asarray, vector)
     if jax.eval_shape(lambda: vector) != operator.out_structure():
         raise ValueError("Vector and operator structures do not match")
     if isinstance(operator, IdentityLinearOperator):

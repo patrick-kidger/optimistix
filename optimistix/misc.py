@@ -1,4 +1,5 @@
 import functools as ft
+import math
 from typing import Callable
 
 import equinox as eqx
@@ -6,7 +7,8 @@ import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import PyTree
+import numpy as np
+from jaxtyping import Array, PyTree, Shaped
 
 from .custom_types import Scalar
 
@@ -82,3 +84,31 @@ def cached_eval_shape(fn, *args, **kwargs):
     leaves, treedef = jtu.tree_flatten(tree)
     leaves = tuple(leaves)
     return _cached_eval_shape(leaves, treedef)
+
+
+def ordered_ravel(pytree: PyTree[Array], structure: PyTree[jax.ShapeDtypeStruct]):
+    # `is` in case `tree_equal` returns a Tracer.
+    if eqx.tree_equal(jax.eval_shape(lambda: pytree), structure) is not True:
+        raise ValueError("pytree does not match structure")
+    # not using `ravel_pytree` as that doesn't come with guarantees about order
+    leaves = jtu.tree_leaves(pytree)
+    dtype = jnp.result_type(*leaves)
+    return jnp.concatenate([x.astype(dtype).reshape(-1) for x in leaves])
+
+
+def ordered_unravel(
+    vector: Shaped[Array, " size"], structure: PyTree[jax.ShapeDtypeStruct]
+):
+    leaves, treedef = jtu.tree_flatten(structure)
+    sizes = np.cumsum([math.prod(x.shape) for x in leaves[:-1]])
+    split = jnp.split(vector, sizes)
+    assert len(split) == len(leaves)
+    shaped = [x.reshape(y.shape).astype(y.dtype) for x, y in zip(split, leaves)]
+    return jtu.tree_unflatten(treedef, shaped)
+
+
+def inexact_asarray(x):
+    x = jnp.asarray(x)
+    if not jnp.issubdtype(x, jnp.inexact):
+        x = x.astype(jnp.float32)
+    return x

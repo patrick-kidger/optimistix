@@ -1,17 +1,7 @@
 import abc
 import functools as ft
 import math
-from typing import (
-    Any,
-    Callable,
-    FrozenSet,
-    Iterable,
-    List,
-    Optional,
-    Tuple,
-    TypeVar,
-    Union,
-)
+from typing import Any, Callable, FrozenSet, Iterable, List, Tuple, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -19,7 +9,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, PyTree, Shaped
+from jaxtyping import Array, ArrayLike, Float, PyTree, Shaped
 
 from .custom_types import Scalar, TreeDef
 from .linear_tags import (
@@ -33,7 +23,7 @@ from .linear_tags import (
     unit_diagonal_tag,
     upper_triangular_tag,
 )
-from .misc import cached_eval_shape, jacobian, NoneAux
+from .misc import cached_eval_shape, inexact_asarray, jacobian, NoneAux
 
 
 def _frozenset(x: Union[object, Iterable[object]]) -> FrozenSet[object]:
@@ -47,11 +37,11 @@ def _frozenset(x: Union[object, Iterable[object]]) -> FrozenSet[object]:
 
 class AbstractLinearOperator(eqx.Module):
     @abc.abstractmethod
-    def mv(self, vector: PyTree[Shaped[Array, " _b"]]) -> PyTree[Shaped[Array, " _a"]]:
+    def mv(self, vector: PyTree[Float[Array, " _b"]]) -> PyTree[Float[Array, " _a"]]:
         ...
 
     @abc.abstractmethod
-    def as_matrix(self) -> Shaped[Array, "a b"]:
+    def as_matrix(self) -> Float[Array, "a b"]:
         ...
 
     @abc.abstractmethod
@@ -105,7 +95,7 @@ class AbstractLinearOperator(eqx.Module):
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
-    matrix: Shaped[Array, "a b"]
+    matrix: Float[Array, "a b"]
     tags: FrozenSet[object]
 
     def __init__(
@@ -115,6 +105,8 @@ class MatrixLinearOperator(AbstractLinearOperator):
             raise ValueError(
                 "`MatrixLinearOperator(matrix=...)` should be 2-dimensional."
             )
+        if not jnp.issubdtype(matrix, jnp.inexact):
+            matrix = matrix.astype(jnp.float32)
         self.matrix = matrix
         self.tags = _frozenset(tags)
 
@@ -138,7 +130,7 @@ class MatrixLinearOperator(AbstractLinearOperator):
         return jax.ShapeDtypeStruct(shape=(out_size,), dtype=self.matrix.dtype)
 
 
-def _matmul(matrix: Array, vector: Array) -> Array:
+def _matmul(matrix: ArrayLike, vector: ArrayLike) -> Array:
     # matrix has structure [leaf(out), leaf(in)]
     # vector has structure [leaf(in)]
     # return has structure [leaf(out)]
@@ -147,7 +139,7 @@ def _matmul(matrix: Array, vector: Array) -> Array:
     )
 
 
-def _tree_matmul(matrix: PyTree[Array], vector: PyTree[Array]) -> PyTree[Array]:
+def _tree_matmul(matrix: PyTree[ArrayLike], vector: PyTree[ArrayLike]) -> PyTree[Array]:
     # matrix has structure [tree(in), leaf(out), leaf(in)]
     # vector has structure [tree(in), leaf(in)]
     # return has structure [leaf(out)]
@@ -163,12 +155,32 @@ _T = TypeVar("_T")
 _FlatPyTree = Tuple[List[_T], TreeDef]
 
 
+def _inexact_structure_impl2(x):
+    if jnp.issubdtype(x.dtype, jnp.inexact):
+        return x
+    else:
+        return x.astype(jnp.float32)
+
+
+def _inexact_structure_impl(x):
+    return jtu.tree_map(_inexact_structure_impl2, x)
+
+
+def _inexact_structure(x: PyTree[jax.ShapeDtypeStruct]) -> PyTree[jax.ShapeDtypeStruct]:
+    return jax.eval_shape(_inexact_structure_impl, x)
+
+
+class _Leaf:  # not a pytree
+    def __init__(self, value):
+        self.value = value
+
+
 # This is basically a generalisation of `MatrixLinearOperator` from taking
 # just a single array to taking a PyTree-of-arrays.
 # The `{input,output}_structure`s have to be static because otherwise abstract
 # evaluation rules will promote them to ShapedArrays.
 class PyTreeLinearOperator(AbstractLinearOperator):
-    pytree: PyTree[Array]
+    pytree: PyTree[Float[Array, "..."]]
     output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
     tags: FrozenSet[object]
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
@@ -179,7 +191,8 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         output_structure: PyTree[jax.ShapeDtypeStruct],
         tags: Union[object, FrozenSet[object]] = (),
     ):
-        self.pytree = jtu.tree_map(jnp.asarray, pytree)
+        output_structure = _inexact_structure(output_structure)
+        self.pytree = jtu.tree_map(inexact_asarray, pytree)
         self.output_structure = jtu.tree_flatten(output_structure)
         self.tags = _frozenset(tags)
 
@@ -196,9 +209,19 @@ class PyTreeLinearOperator(AbstractLinearOperator):
                     )
                 return jax.ShapeDtypeStruct(shape=shape[ndim:], dtype=jnp.dtype(leaf))
 
-            return jtu.tree_map(sub_get_structure, subpytree)
+            return _Leaf(jtu.tree_map(sub_get_structure, subpytree))
 
-        input_structure = jtu.tree_map(get_structure, output_structure, self.pytree)
+        if output_structure is None:
+            # Implies that len(input_structures) > 0
+            raise ValueError("Cannot have trivial output_structure")
+        input_structures = jtu.tree_map(get_structure, output_structure, self.pytree)
+        input_structures = jtu.tree_leaves(input_structures)
+        input_structure = input_structures[0].value
+        for val in input_structures[1:]:
+            if eqx.tree_equal(input_structure, val.value) is not True:
+                raise ValueError(
+                    "`pytree` does not have a consistent `input_structure`"
+                )
         self.input_structure = jtu.tree_flatten(input_structure)
 
     def mv(self, vector):
@@ -212,13 +235,15 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         return jtu.tree_map(matmul, self.out_structure(), self.pytree)
 
     def as_matrix(self):
+        dtype = jnp.result_type(*jtu.tree_leaves(self.pytree))
+
         def concat_in(struct, subpytree):
             leaves = jtu.tree_leaves(subpytree)
             assert all(
-                jnp.shape(leaf)[: len(struct.shape)] == struct.shape for leaf in leaves
+                leaf.shape[: len(struct.shape)] == struct.shape for leaf in leaves
             )
             size = math.prod(struct.shape)
-            leaves = [jnp.reshape(leaf, (size, -1)) for leaf in leaves]
+            leaves = [leaf.astype(dtype).reshape(size, -1) for leaf in leaves]
             return jnp.concatenate(leaves, axis=1)
 
         matrix = jtu.tree_map(concat_in, self.out_structure(), self.pytree)
@@ -272,16 +297,18 @@ class _Unwrap(eqx.Module):
 
 
 class JacobianLinearOperator(AbstractLinearOperator):
-    fn: Callable
-    x: PyTree[Array]
-    args: Optional[PyTree[Any]]
+    fn: Callable[
+        [PyTree[Float[Array, "..."]], PyTree[Any]], PyTree[Float[Array, "..."]]
+    ]
+    x: PyTree[Float[Array, "..."]]
+    args: PyTree[Any]
     tags: FrozenSet[object]
 
     def __init__(
         self,
         fn: Callable,
-        x: PyTree[Array],
-        args: Optional[PyTree[Array]] = None,
+        x: PyTree[ArrayLike],
+        args: PyTree[Any] = None,
         tags: Union[object, Iterable[object]] = (),
         _has_aux: bool = False,
     ):
@@ -294,7 +321,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         # PyTree capturing non-floating-point constants, we should probably continue
         # to respect that, and keep any non-floating-point constants as part of the
         # PyTree structure.
-        x = jtu.tree_map(jnp.asarray, x)
+        x = jtu.tree_map(inexact_asarray, x)
         fn = eqx.filter_closure_convert(fn, x, args)
         self.fn = fn
         self.x = x
@@ -330,18 +357,19 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
 # `input_structure` must be static as with `JacobianLinearOperator`
 class FunctionLinearOperator(AbstractLinearOperator):
-    fn: Callable[[PyTree[Array]], PyTree[Array]]
+    fn: Callable[[PyTree[Float[Array, "..."]]], PyTree[Float[Array, "..."]]]
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
     tags: FrozenSet[object]
 
     def __init__(
         self,
-        fn: Callable[[PyTree[Array]], PyTree[Array]],
+        fn: Callable[[PyTree[Float[Array, "..."]]], PyTree[Float[Array, "..."]]],
         input_structure: PyTree[jax.ShapeDtypeStruct],
         tags: Union[object, Iterable[object]] = (),
     ):
         # See matching comment in JacobianLinearOperator.
         fn = eqx.filter_closure_convert(fn, input_structure)
+        input_structure = _inexact_structure(input_structure)
         self.fn = fn
         self.input_structure = jtu.tree_flatten(input_structure)
         self.tags = _frozenset(tags)
@@ -379,6 +407,7 @@ class IdentityLinearOperator(AbstractLinearOperator):
     structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
 
     def __init__(self, structure: PyTree[jax.ShapeDtypeStruct]):
+        structure = _inexact_structure(structure)
         self.structure = jtu.tree_flatten(structure)
 
     def mv(self, vector):
@@ -406,7 +435,10 @@ class IdentityLinearOperator(AbstractLinearOperator):
 
 
 class DiagonalLinearOperator(AbstractLinearOperator):
-    diagonal: Shaped[Array, " size"]
+    diagonal: Float[Array, " size"]
+
+    def __init__(self, diagonal: Shaped[Array, " size"]):
+        self.diagonal = inexact_asarray(diagonal)
 
     def mv(self, vector):
         return self.diagonal * vector
