@@ -26,10 +26,6 @@ pip install optimistix
 
 Requires Python 3.8+ and JAX 0.4.3+.
 
-## Documentation
-
-Available at [https://docs.kidger.site/optimistix](https://docs.kidger.site/optimistix).
-
 ## Quick example
 
 ```python
