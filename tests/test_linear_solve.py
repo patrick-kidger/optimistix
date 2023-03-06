@@ -10,6 +10,8 @@ import optimistix as optx
 from .helpers import has_tag, make_diagonal_operator, make_operators, shaped_allclose
 
 
+jax.config.update("jax_enable_x64", True)
+
 if jax.config.jax_enable_x64:
     tol = 1e-12
 else:
@@ -29,6 +31,8 @@ _solvers = [
     (optx.CG(normal=False, rtol=tol, atol=tol), optx.positive_semidefinite_tag),
     (optx.Cholesky(normal=True), ()),
     (optx.Cholesky(), optx.positive_semidefinite_tag),
+    (optx.Cholesky(normal=True), optx.negative_semidefinite_tag),
+    (optx.Cholesky(), optx.negative_semidefinite_tag),
 ]
 
 
@@ -66,6 +70,11 @@ def test_matrix_small_wellposed(make_operator, solver, tags, ops, getkey):
         if isinstance(solver, (optx.Cholesky, optx.CG)):
             if solver.normal:
                 cond_cutoff = math.sqrt(1000)
+            if isinstance(solver, optx.Cholesky) and has_tag(
+                tags, optx.negative_semidefinite_tag
+            ):
+                cond_cutoff = 1000
+                matrix = -(matrix @ matrix.T)
             else:
                 cond_cutoff = 1000
                 matrix = matrix @ matrix.T

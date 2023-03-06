@@ -1,7 +1,7 @@
 import jax.flatten_util as jfu
 import jax.scipy as jsp
 
-from ..linear_operator import is_positive_semidefinite
+from ..linear_operator import is_negative_semidefinite, is_positive_semidefinite
 from ..linear_solve import AbstractLinearSolver
 from ..solution import RESULTS
 
@@ -12,28 +12,40 @@ class Cholesky(AbstractLinearSolver):
     def init(self, operator, options):
         del options
         matrix = operator.as_matrix()
+        is_nsd = is_negative_semidefinite(operator)
         if self.normal:
             factor, lower = jsp.linalg.cho_factor(matrix.T @ matrix)
-            state = matrix, factor
+            state = (matrix, factor)
         else:
+
+            if is_nsd:
+                matrix = -matrix
+
             m, n = matrix.shape
             if m != n:
                 raise ValueError(
                     "`Cholesky(..., normal=False)` may only be used for linear solves "
                     "with square matrices"
                 )
-            if not is_positive_semidefinite(operator):
+            if not (
+                is_positive_semidefinite(operator) | is_negative_semidefinite(operator)
+            ):
                 raise ValueError(
                     "`Cholesky(..., normal=False)` may only be used for positive "
-                    "definite linear operators"
+                    "or negative definite linear operators"
                 )
+
             state, lower = jsp.linalg.cho_factor(matrix)
+
+        state = [state, is_nsd]
+
         # Fix lower triangular, so that the boolean flag doesn't get needlessly promoted
         # to a tracer anywhere.
         assert lower is False
         return state
 
     def compute(self, state, vector, options):
+        state, is_nsd = state
         del options
         vector, unflatten = jfu.ravel_pytree(vector)
         if self.normal:
@@ -42,6 +54,8 @@ class Cholesky(AbstractLinearSolver):
         else:
             factor = state
         result = unflatten(jsp.linalg.cho_solve((factor, False), vector))
+        if is_nsd and not self.normal:
+            result = -result
         return result, RESULTS.successful, {}
 
     def pseudoinverse(self, operator):
