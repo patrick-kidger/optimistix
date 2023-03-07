@@ -102,17 +102,19 @@ class CG(AbstractLinearSolver):
             preconditioner = IdentityLinearOperator(structure)
         else:
             if not isinstance(preconditioner, AbstractLinearOperator):
-                raise ValueError("preconditioner must be a linear operator")
+                raise ValueError("The preconditioner must be a linear operator.")
             if preconditioner.in_structure() != structure:
                 raise ValueError(
-                    "preconditioner must have `in_structure` that matches the "
-                    "operator's `in_strucure`"
+                    "The preconditioner must have `in_structure` that matches the "
+                    "operator's `in_strucure`."
                 )
             if preconditioner.out_structure() != structure:
                 raise ValueError(
-                    "preconditioner must have `out_structure` that matches the "
-                    "operator's `in_strucure`"
+                    "The preconditioner must have `out_structure` that matches the "
+                    "operator's `in_structure`."
                 )
+            if not is_positive_semidefinite(preconditioner):
+                raise ValueError("The preconditioner must be positive definite.")
         try:
             y0 = options["y0"]
         except KeyError:
@@ -205,11 +207,6 @@ class CG(AbstractLinearSolver):
         return True
 
     def transpose(self, state, options):
-        transpose_state = state.transpose()
-        try:
-            preconditioner = options["preconditioner"]
-        except KeyError:
-            transpose_options = {}
-        else:
-            transpose_options = dict(preconditioner=preconditioner.transpose())
-        return transpose_state, transpose_options
+        # In particular the preconditioner is necessarily already positive definite, so
+        # it doesn't need transposing or anything.
+        return state, options
