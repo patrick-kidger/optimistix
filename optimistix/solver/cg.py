@@ -179,7 +179,6 @@ class CG(AbstractLinearSolver):
             alpha = gamma / _tree_dot(p, mat_p)
             diff = (alpha * p**ω).ω
             y = (y**ω + diff**ω).ω
-            step = eqxi.nonbatchable(step)
             step = step + 1
 
             # E.g. see B.2 of
@@ -197,7 +196,8 @@ class CG(AbstractLinearSolver):
             elif self.stabilise_every is None:
                 r = cheap_r()
             else:
-                stable_step = (step % self.stabilise_every) == 0
+                stable_step = (eqxi.unvmap_max(step) % self.stabilise_every) == 0
+                stable_step = eqxi.nonbatchable(stable_step)
                 r = lax.cond(stable_step, stable_r, cheap_r)
 
             z = preconditioner.mv(r)
