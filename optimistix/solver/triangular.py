@@ -55,7 +55,7 @@ class Triangular(AbstractLinearSolver):
 
     def transpose(self, state, options):
         matrix, lower, unit_diagonal = state
-        transpose_state = matrix.T, not lower.value, unit_diagonal
+        transpose_state = matrix.T, not lower, unit_diagonal
         transpose_options = {}
         return transpose_state, transpose_options
 
@@ -87,7 +87,7 @@ def solve_triangular(
         _i, _row = _input
         _val = jnp.dot(_solution, _row, precision=lax.Precision.HIGHEST)
         _row_i = _row[_i]
-        _row_i = jnp.where(jnp.abs(_row_i) >= cutoff, _row_i, jnp.inf)
+        _row_i = jnp.where(jnp.abs(_row_i) > cutoff, _row_i, jnp.inf)
         _solution = _solution.at[_i].set((vector[_i] - _val) / _row_i)
         return _solution, None
 
