@@ -5,7 +5,7 @@ import equinox.internal as eqxi
 import jax
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, PyTree
+from jaxtyping import PyTree
 
 from .linear_operator import JacobianLinearOperator
 from .linear_solve import AbstractLinearSolver, linear_solve
@@ -14,7 +14,7 @@ from .linear_solve import AbstractLinearSolver, linear_solve
 def implicit_jvp(
     fn_primal: Callable,
     fn_rewrite: Callable,
-    inputs: PyTree[Array],
+    inputs: PyTree,
     closure: Any,
     tags: FrozenSet[object],
     linear_solver: AbstractLinearSolver,
@@ -49,7 +49,7 @@ def implicit_jvp(
     root, residual = _implicit_impl(
         fn_primal, fn_rewrite, inputs, closure, tags, linear_solver
     )
-    return root, jtu.tree_map(eqxi.nondifferentible_backward, residual)
+    return root, jtu.tree_map(eqxi.nondifferentiable_backward, residual)
 
 
 @eqx.filter_custom_jvp

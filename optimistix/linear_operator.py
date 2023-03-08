@@ -757,8 +757,6 @@ class TangentLinearOperator(AbstractLinearOperator):
 
     def __post_init__(self):
         assert type(self.primal) is type(self.tangent)  # noqa: E721
-        assert self.primal.in_structure() == self.tangent.in_structure()
-        assert self.primal.out_structure() == self.tangent.out_structure()
         super().__post_init__()
 
     def mv(self, vector):

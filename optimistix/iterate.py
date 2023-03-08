@@ -98,16 +98,18 @@ def _iterate(inputs, closure, while_loop):
         terminate, _ = solver.terminate(problem, y, args, options, state)
         return jnp.invert(terminate)
 
-    def body_fun(carry, _):
+    def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
         state = eqx.combine(dynamic_state, static_state)
         new_y, new_state, aux = solver.step(problem, y, args, options, state)
-        return new_y, num_steps + 1, new_state, aux
+        new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
+        assert static_state == new_static_state
+        return new_y, num_steps + 1, new_dynamic_state, aux
 
     final_val = while_loop(cond_fun, body_fun, init_val, max_steps)
 
     final_y, num_steps, final_state, aux = final_val
-    terminate, result = solver.terminate(problem, final_y, args, final_state, options)
+    terminate, result = solver.terminate(problem, final_y, args, options, final_state)
     result = jnp.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
         RESULTS.max_steps_reached,
@@ -132,7 +134,7 @@ def iterative_solve(
     inputs = problem, args
     closure = solver, y0, options, max_steps
     out, (num_steps, result, final_state, aux) = adjoint.apply(
-        _iterate, rewrite_fn, inputs, closure, tags, max_steps
+        _iterate, rewrite_fn, inputs, closure, tags
     )
     stats = {"num_steps": num_steps, "max_steps": max_steps}
     sol = Solution(value=out, result=result, state=final_state, aux=aux, stats=stats)

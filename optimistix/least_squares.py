@@ -82,4 +82,5 @@ def least_squares(
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
+            tags=problem.tags,
         )
