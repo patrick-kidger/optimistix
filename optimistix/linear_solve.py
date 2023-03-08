@@ -1,4 +1,5 @@
 import abc
+import functools as ft
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
 import equinox as eqx
@@ -68,12 +69,13 @@ def _call(state, vector, options, solver):
     return solver.compute(state, vector, options)
 
 
-@eqxi.filter_primitive_def
-def _linear_solve_impl(_, state, vector, options, solver):
+def _linear_solve_impl(_, state, vector, options, solver, *, check_closure):
     out = _call(state, vector, options, solver)
-    return eqxi.nontraceable(
-        out, name="optimistix.linear_solve with respect to a closed-over value"
-    )
+    if check_closure:
+        out = eqxi.nontraceable(
+            out, name="optimistix.linear_solve with respect to a closed-over value"
+        )
+    return out
 
 
 @eqxi.filter_primitive_def
@@ -205,10 +207,13 @@ def _linear_solve_transpose(inputs, cts_out):
 
 linear_solve_p = eqxi.create_vprim(
     "linear_solve",
-    _linear_solve_impl,
+    eqxi.filter_primitive_def(ft.partial(_linear_solve_impl, check_closure=False)),
     _linear_solve_abstract_eval,
     _linear_solve_jvp,
     _linear_solve_transpose,
+)
+linear_solve_p.def_impl(
+    eqxi.filter_primitive_def(ft.partial(_linear_solve_impl, check_closure=True))
 )
 eqxi.register_impl_finalisation(linear_solve_p)
 
@@ -556,7 +561,15 @@ def linear_solve(
         dynamic_state = lax.stop_gradient(dynamic_state)
         state = eqx.combine(dynamic_state, static_state)
 
-    state, options, solver = eqxi.nondifferentiable((state, options, solver))
+    state = eqxi.nondifferentiable(
+        state, name="`optimistix.linear_solve(..., state=...)`"
+    )
+    options = eqxi.nondifferentiable(
+        options, name="`optimistix.linear_solve(..., options=...)`"
+    )
+    solver = eqxi.nondifferentiable(
+        solver, name="`optimistix.linear_solve(..., solver=...)`"
+    )
     solution, result, stats = eqxi.filter_primitive_bind(
         linear_solve_p, operator, state, vector, options, solver
     )
