@@ -93,7 +93,7 @@ def solve_triangular(
             matrix, vector, lower=lower, unit_diagonal=unit_diagonal
         )
     rcond = resolve_rcond(rcond, n, m, matrix.dtype)
-    cutoff = rcond * jnp.max(jnp.diag(matrix))
+    cutoff = rcond * jnp.max(jnp.abs(jnp.diag(matrix)))
 
     def scan_fn(_solution, _input):
         _i, _row = _input

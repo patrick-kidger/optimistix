@@ -47,7 +47,8 @@ class Diagonal(AbstractLinearSolver):
             vector, unflatten = jfu.ravel_pytree(vector)
             (size,) = diag.shape
             rcond = resolve_rcond(self.rcond, size, size, diag.dtype)
-            diag = jnp.where(jnp.abs(diag) > rcond * jnp.max(diag), diag, jnp.inf)
+            abs_diag = jnp.abs(diag)
+            diag = jnp.where(abs_diag > rcond * jnp.max(abs_diag), diag, jnp.inf)
             solution = unflatten(vector / diag)
         return solution, RESULTS.successful, {}
 
