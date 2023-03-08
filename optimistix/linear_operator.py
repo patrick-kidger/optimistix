@@ -765,7 +765,15 @@ def is_symmetric(operator: AbstractLinearOperator) -> bool:
 @is_symmetric.register(JacobianLinearOperator)
 @is_symmetric.register(FunctionLinearOperator)
 def _(operator):
-    return symmetric_tag in operator.tags
+    return any(
+        tag in operator.tags
+        for tag in (
+            symmetric_tag,
+            positive_semidefinite_tag,
+            negative_semidefinite_tag,
+            diagonal_tag,
+        )
+    )
 
 
 @is_symmetric.register(IdentityLinearOperator)
