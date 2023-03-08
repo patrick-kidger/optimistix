@@ -41,6 +41,8 @@ class Cholesky(AbstractLinearSolver):
     def compute(self, state, vector, options):
         factor, is_nsd = state
         del options
+        # Cholesky => PSD => symmetric => (in_structure == out_structure) =>
+        # we don't need to use packed structures.
         vector, unflatten = jfu.ravel_pytree(vector)
         solution = jsp.linalg.cho_solve((factor, False), vector)
         if is_nsd:

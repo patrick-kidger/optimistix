@@ -1,6 +1,5 @@
 from typing import Optional
 
-import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.scipy as jsp
@@ -14,6 +13,12 @@ from ..linear_operator import (
 from ..linear_solve import AbstractLinearSolver
 from ..misc import resolve_rcond
 from ..solution import RESULTS
+from .misc import (
+    pack_structures,
+    ravel_vector,
+    transpose_packed_structures,
+    unravel_solution,
+)
 
 
 class Triangular(AbstractLinearSolver):
@@ -40,22 +45,29 @@ class Triangular(AbstractLinearSolver):
             operator.as_matrix(),
             is_lower_triangular(operator),
             has_unit_diagonal(operator),
+            pack_structures(operator),
         )
 
     def compute(self, state, vector, options):
-        matrix, lower, unit_diagonal = state
+        matrix, lower, unit_diagonal, packed_structures = state
         del state, options
-        vector, unflatten = jfu.ravel_pytree(vector)
+        vector = ravel_vector(vector, packed_structures)
         solution = solve_triangular(matrix, vector, lower, unit_diagonal, self.rcond)
-        solution = unflatten(solution)
+        solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
 
     def pseudoinverse(self, operator):
         return True
 
     def transpose(self, state, options):
-        matrix, lower, unit_diagonal = state
-        transpose_state = matrix.T, not lower, unit_diagonal
+        matrix, lower, unit_diagonal, packed_structures = state
+        transposed_packed_structures = transpose_packed_structures(packed_structures)
+        transpose_state = (
+            matrix.T,
+            not lower,
+            unit_diagonal,
+            transposed_packed_structures,
+        )
         transpose_options = {}
         return transpose_state, transpose_options
 

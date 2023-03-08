@@ -39,6 +39,8 @@ class Diagonal(AbstractLinearSolver):
     def compute(self, state, vector, options):
         diag, unit_diagonal = state
         del state, options
+        # Cholesky => PSD => symmetric => (in_structure == out_structure) =>
+        # we don't need to use packed structures.
         if unit_diagonal:
             solution = vector
         else:

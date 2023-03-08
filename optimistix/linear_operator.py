@@ -23,7 +23,13 @@ from .linear_tags import (
     unit_diagonal_tag,
     upper_triangular_tag,
 )
-from .misc import cached_eval_shape, inexact_asarray, jacobian, NoneAux
+from .misc import (
+    cached_eval_shape,
+    default_floating_dtype,
+    inexact_asarray,
+    jacobian,
+    NoneAux,
+)
 
 
 def _frozenset(x: Union[object, Iterable[object]]) -> FrozenSet[object]:
@@ -51,6 +57,19 @@ class AbstractLinearOperator(eqx.Module):
     op1 / 3.2  # division by a scalar
     ```
     """
+
+    def __post_init__(self):
+        if is_symmetric(self):
+            # In particular, we check that dtypes match.
+            in_structure = self.in_structure()
+            out_structure = self.out_structure()
+            # `is` check to handle the possibility of a tracer.
+            if eqx.tree_equal(in_structure, out_structure) is not True:
+                raise ValueError(
+                    "Symmetric matrices must have matching input and output "
+                    f"structures. Got input structure {in_structure} and output "
+                    f"structure {out_structure}."
+                )
 
     @abc.abstractmethod
     def mv(self, vector: PyTree[Float[Array, " _b"]]) -> PyTree[Float[Array, " _a"]]:
@@ -255,7 +274,7 @@ def _inexact_structure_impl2(x):
     if jnp.issubdtype(x.dtype, jnp.inexact):
         return x
     else:
-        return x.astype(jnp.float32)
+        return x.astype(default_floating_dtype())
 
 
 def _inexact_structure_impl(x):
@@ -740,6 +759,7 @@ class TangentLinearOperator(AbstractLinearOperator):
         assert type(self.primal) is type(self.tangent)  # noqa: E721
         assert self.primal.in_structure() == self.tangent.in_structure()
         assert self.primal.out_structure() == self.tangent.out_structure()
+        super().__post_init__()
 
     def mv(self, vector):
         mv = lambda operator: operator.mv(vector)
@@ -785,6 +805,7 @@ class AddLinearOperator(AbstractLinearOperator):
             raise ValueError("Incompatible linear operator structures")
         if self.operator1.out_structure() != self.operator2.out_structure():
             raise ValueError("Incompatible linear operator structures")
+        super().__post_init__()
 
     def mv(self, vector):
         mv1 = self.operator1.mv(vector)
@@ -887,6 +908,7 @@ class ComposedLinearOperator(AbstractLinearOperator):
     def __post_init__(self):
         if self.operator1.in_structure() != self.operator2.out_structure():
             raise ValueError("Incompatible linear operator structures")
+        super().__post_init__()
 
     def mv(self, vector):
         return self.operator1.mv(self.operator2.mv(vector))

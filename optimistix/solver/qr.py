@@ -1,12 +1,15 @@
 from typing import Optional
 
-import equinox.internal as eqxi
 import jax.numpy as jnp
-import jax.tree_util as jtu
 
 from ..linear_solve import AbstractLinearSolver
-from ..misc import ordered_ravel, ordered_unravel
 from ..solution import RESULTS
+from .misc import (
+    pack_structures,
+    ravel_vector,
+    transpose_packed_structures,
+    unravel_solution,
+)
 from .triangular import solve_triangular
 
 
@@ -30,17 +33,13 @@ class QR(AbstractLinearSolver):
         if transpose:
             matrix = matrix.T
         qr = jnp.linalg.qr(matrix, mode="reduced")
-        structures = operator.out_structure(), operator.in_structure()
-        leaves, treedef = jtu.tree_flatten(structures)  # handle nonhashable pytrees
-        structures = eqxi.Static((leaves, treedef))
-        return qr, transpose, structures
+        packed_structures = pack_structures(operator)
+        return qr, transpose, packed_structures
 
     def compute(self, state, vector, options):
-        (q, r), transpose, structures = state
+        (q, r), transpose, packed_structures = state
         del state, options
-        leaves, treedef = structures.value
-        out_structure, in_structure = jtu.tree_unflatten(treedef, leaves)
-        vector = ordered_ravel(vector, out_structure)
+        vector = ravel_vector(vector, packed_structures)
         if transpose:
             # Minimal norm solution if ill-posed
             solution = q @ solve_triangular(
@@ -51,7 +50,7 @@ class QR(AbstractLinearSolver):
             solution = solve_triangular(
                 r, q.T @ vector, lower=False, unit_diagonal=False, rcond=self.rcond
             )
-        solution = ordered_unravel(solution, in_structure)
+        solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
 
     def pseudoinverse(self, operator):
@@ -59,11 +58,8 @@ class QR(AbstractLinearSolver):
 
     def transpose(self, state, options):
         (q, r), transpose, structures = state
-        leaves, treedef = structures.value
-        out_structure, in_structure = jtu.tree_unflatten(treedef, leaves)
-        leaves, treedef = jtu.tree_flatten((in_structure, out_structure))
-        transpose_structures = eqxi.Static((leaves, treedef))
-        transpose_state = (q, r), not transpose, transpose_structures
+        transposed_packed_structures = transpose_packed_structures(structures)
+        transpose_state = (q, r), not transpose, transposed_packed_structures
         transpose_options = {}
         return transpose_state, transpose_options
 

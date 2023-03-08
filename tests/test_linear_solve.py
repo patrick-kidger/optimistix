@@ -109,9 +109,10 @@ def test_cg_stabilisation():
             [0.47580394, 1.7310725, 1.4352472],
             [-0.00429837, 0.43737498, 1.006149],
             [0.00334679, -0.10773867, -0.22798078],
-        ]
+        ],
+        dtype=jnp.float32,
     )
-    true_x = jnp.array([1.4491767, -1.6469518, -0.02669191])
+    true_x = jnp.array([1.4491767, -1.6469518, -0.02669191], dtype=jnp.float32)
 
     problem = optx.MatrixLinearOperator(a)
 
@@ -134,6 +135,31 @@ def test_nontrivial_pytree_operator():
     operator = optx.PyTreeLinearOperator(x, struct)
     out = optx.linear_solve(operator, y).value
     true_out = [jnp.array(-3.25), jnp.array(1.25)]
+    assert shaped_allclose(out, true_out)
+
+
+@pytest.mark.parametrize("solver", (optx.LU(), optx.QR(), optx.SVD()))
+def test_mixed_dtypes(solver):
+    f32 = lambda x: jnp.array(x, dtype=jnp.float32)
+    f64 = lambda x: jnp.array(x, dtype=jnp.float64)
+    x = [[f32(1), f64(5)], [f32(-2), f64(-2)]]
+    y = [f64(3), f64(4)]
+    struct = jax.eval_shape(lambda: y)
+    operator = optx.PyTreeLinearOperator(x, struct)
+    out = optx.linear_solve(operator, y, solver=solver).value
+    true_out = [f32(-3.25), f64(1.25)]
+    assert shaped_allclose(out, true_out)
+
+
+def test_mixed_dtypes_triangular():
+    f32 = lambda x: jnp.array(x, dtype=jnp.float32)
+    f64 = lambda x: jnp.array(x, dtype=jnp.float64)
+    x = [[f32(1), f64(0)], [f32(-2), f64(-2)]]
+    y = [f64(3), f64(4)]
+    struct = jax.eval_shape(lambda: y)
+    operator = optx.PyTreeLinearOperator(x, struct, optx.lower_triangular_tag)
+    out = optx.linear_solve(operator, y, solver=optx.Triangular()).value
+    true_out = [f32(3), f64(-5)]
     assert shaped_allclose(out, true_out)
 
 

@@ -542,7 +542,9 @@ def linear_solve(
     if options is None:
         options = {}
     vector = jtu.tree_map(inexact_asarray, vector)
-    if jax.eval_shape(lambda: vector) != operator.out_structure():
+    vector_struct = jax.eval_shape(lambda: vector)
+    # `is` to handle tracers
+    if eqx.tree_equal(vector_struct, operator.out_structure()) is not True:
         raise ValueError("Vector and operator structures do not match")
     if isinstance(operator, IdentityLinearOperator):
         return Solution(

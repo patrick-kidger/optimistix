@@ -1,14 +1,18 @@
 from typing import Optional
 
-import equinox.internal as eqxi
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.scipy as jsp
-import jax.tree_util as jtu
 
 from ..linear_solve import AbstractLinearSolver
-from ..misc import ordered_ravel, ordered_unravel, resolve_rcond
+from ..misc import resolve_rcond
 from ..solution import RESULTS
+from .misc import (
+    pack_structures,
+    ravel_vector,
+    transpose_packed_structures,
+    unravel_solution,
+)
 
 
 class SVD(AbstractLinearSolver):
@@ -26,18 +30,14 @@ class SVD(AbstractLinearSolver):
 
     def init(self, operator, options):
         del options
-        structures = operator.out_structure(), operator.in_structure()
-        leaves, treedef = jtu.tree_flatten(structures)  # handle nonhashable pytrees
-        structures = eqxi.Static((leaves, treedef))
         svd = jsp.linalg.svd(operator.as_matrix(), full_matrices=False)
-        return svd, structures
+        packed_structures = pack_structures(operator)
+        return svd, packed_structures
 
     def compute(self, state, vector, options):
         del options
-        (u, s, vt), structures = state
-        leaves, treedef = structures.value
-        out_structure, in_structure = jtu.tree_unflatten(treedef, leaves)
-        vector = ordered_ravel(vector, out_structure)
+        (u, s, vt), packed_structures = state
+        vector = ravel_vector(vector, packed_structures)
         m, _ = u.shape
         _, n = vt.shape
         rcond = resolve_rcond(self.rcond, n, m, s.dtype)
@@ -47,7 +47,7 @@ class SVD(AbstractLinearSolver):
         s_inv = jnp.where(mask, 1 / safe_s, 0)
         uTb = jnp.matmul(u.conj().T, vector, precision=lax.Precision.HIGHEST)
         solution = jnp.matmul(vt.conj().T, s_inv * uTb, precision=lax.Precision.HIGHEST)
-        solution = ordered_unravel(solution, in_structure)
+        solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {"rank": rank}
 
     def pseudoinverse(self, operator):
@@ -55,12 +55,9 @@ class SVD(AbstractLinearSolver):
 
     def transpose(self, state, options):
         del options
-        (u, s, vt), structures = state
-        leaves, treedef = structures.value
-        out_structure, in_structure = jtu.tree_unflatten(treedef, leaves)
-        leaves, treedef = jtu.tree_flatten((in_structure, out_structure))
-        transpose_structures = eqxi.Static((leaves, treedef))
-        transpose_state = (vt.T, s, u.T), transpose_structures
+        (u, s, vt), packed_structures = state
+        transposed_packed_structures = transpose_packed_structures(packed_structures)
+        transpose_state = (vt.T, s, u.T), transposed_packed_structures
         transpose_options = {}
         return transpose_state, transpose_options
 
