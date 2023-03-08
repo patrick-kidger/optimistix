@@ -27,9 +27,7 @@ class Cholesky(AbstractLinearSolver):
                     "`Cholesky(..., normal=False)` may only be used for linear solves "
                     "with square matrices"
                 )
-            if not (
-                is_positive_semidefinite(operator) | is_negative_semidefinite(operator)
-            ):
+            if not (is_positive_semidefinite(operator) | is_nsd):
                 raise ValueError(
                     "`Cholesky(..., normal=False)` may only be used for positive "
                     "or negative definite linear operators"
@@ -37,12 +35,10 @@ class Cholesky(AbstractLinearSolver):
 
             state, lower = jsp.linalg.cho_factor(matrix)
 
-        state = [state, is_nsd]
-
         # Fix lower triangular, so that the boolean flag doesn't get needlessly promoted
         # to a tracer anywhere.
         assert lower is False
-        return state
+        return state, is_nsd
 
     def compute(self, state, vector, options):
         state, is_nsd = state
@@ -53,10 +49,11 @@ class Cholesky(AbstractLinearSolver):
             vector = matrix.T @ vector
         else:
             factor = state
-        result = unflatten(jsp.linalg.cho_solve((factor, False), vector))
+        solution = jsp.linalg.cho_solve((factor, False), vector)
         if is_nsd and not self.normal:
-            result = -result
-        return result, RESULTS.successful, {}
+            solution = -solution
+        solution = unflatten(solution)
+        return solution, RESULTS.successful, {}
 
     def pseudoinverse(self, operator):
         return False

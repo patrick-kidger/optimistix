@@ -93,6 +93,9 @@ class AbstractLinearOperator(eqx.Module):
             raise ValueError("Can only divide AbstractLinearOperators by scalars.")
         return DivLinearOperator(self, other)
 
+    def __neg__(self):
+        return -1 * self
+
 
 class MatrixLinearOperator(AbstractLinearOperator):
     matrix: Float[Array, "a b"]

@@ -29,6 +29,8 @@ _solvers = [
     (optx.SVD(), ()),
     (optx.CG(normal=True, rtol=tol, atol=tol), ()),
     (optx.CG(normal=False, rtol=tol, atol=tol), optx.positive_semidefinite_tag),
+    (optx.CG(normal=True, rtol=tol, atol=tol), optx.negative_semidefinite_tag),
+    (optx.CG(normal=False, rtol=tol, atol=tol), optx.negative_semidefinite_tag),
     (optx.Cholesky(normal=True), ()),
     (optx.Cholesky(), optx.positive_semidefinite_tag),
     (optx.Cholesky(normal=True), optx.negative_semidefinite_tag),
