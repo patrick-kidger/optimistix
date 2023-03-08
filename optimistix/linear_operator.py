@@ -502,17 +502,19 @@ class TangentLinearOperator(AbstractLinearOperator):
 
     def mv(self, vector):
         mv = lambda operator: operator.mv(vector)
-        _, out = eqx.filter_jvp(mv, self.primal, self.tangent)
+        _, out = eqx.filter_jvp(mv, (self.primal,), (self.tangent,))
         return out
 
     def as_matrix(self):
         as_matrix = lambda operator: operator.as_matrix()
-        _, out = eqx.filter_jvp(as_matrix, self.primal, self.tangent)
+        _, out = eqx.filter_jvp(as_matrix, (self.primal,), (self.tangent,))
         return out
 
     def transpose(self):
         transpose = lambda operator: operator.transpose()
-        primal_out, tangent_out = eqx.filter_jvp(transpose, self.primal, self.tangent)
+        primal_out, tangent_out = eqx.filter_jvp(
+            transpose, (self.primal,), (self.tangent,)
+        )
         return TangentLinearOperator(primal_out, tangent_out)
 
     def in_structure(self):
@@ -969,7 +971,7 @@ for transform in (linearise, materialise, diagonal):
     @transform.register(TangentLinearOperator)
     def _(operator, transform=transform):
         primal_out, tangent_out = eqx.filter_jvp(
-            transform, operator.primal, operator.tangent
+            transform, (operator.primal,), (operator.tangent,)
         )
         return TangentLinearOperator(primal_out, tangent_out)
 
