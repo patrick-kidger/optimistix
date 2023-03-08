@@ -31,9 +31,7 @@ _solvers = [
     (optx.CG(normal=False, rtol=tol, atol=tol), optx.positive_semidefinite_tag),
     (optx.CG(normal=True, rtol=tol, atol=tol), optx.negative_semidefinite_tag),
     (optx.CG(normal=False, rtol=tol, atol=tol), optx.negative_semidefinite_tag),
-    (optx.Cholesky(normal=True), ()),
     (optx.Cholesky(), optx.positive_semidefinite_tag),
-    (optx.Cholesky(normal=True), optx.negative_semidefinite_tag),
     (optx.Cholesky(), optx.negative_semidefinite_tag),
 ]
 
@@ -69,17 +67,17 @@ def test_matrix_small_wellposed(make_operator, solver, tags, ops, getkey):
         tol = 1e-4
     while True:
         matrix = jr.normal(getkey(), (3, 3))
-        if isinstance(solver, (optx.Cholesky, optx.CG)):
+        if isinstance(solver, optx.CG):
             if solver.normal:
                 cond_cutoff = math.sqrt(1000)
-            if isinstance(solver, optx.Cholesky) and has_tag(
-                tags, optx.negative_semidefinite_tag
-            ):
-                cond_cutoff = 1000
-                matrix = -(matrix @ matrix.T)
             else:
                 cond_cutoff = 1000
                 matrix = matrix @ matrix.T
+        elif isinstance(solver, optx.Cholesky):
+            cond_cutoff = 1000
+            matrix = matrix @ matrix.T
+            if has_tag(tags, optx.negative_semidefinite_tag):
+                matrix = -matrix
         else:
             cond_cutoff = 1000
             if has_tag(tags, optx.diagonal_tag):
