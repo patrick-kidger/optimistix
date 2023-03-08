@@ -12,6 +12,7 @@ from ..custom_types import Scalar
 from ..linear_operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,
+    is_negative_semidefinite,
     is_positive_semidefinite,
     linearise,
 )
@@ -52,18 +53,21 @@ class CG(AbstractLinearSolver):
 
     def init(self, operator, options):
         del options
+        is_nsd = is_negative_semidefinite(operator)
         if not self.normal:
             if operator.in_structure() != operator.out_structure():
                 raise ValueError(
                     "`CG(..., normal=False)` may only be used for linear solves with "
                     "square matrices."
                 )
-            if not is_positive_semidefinite(operator):
+            if not (is_positive_semidefinite(operator) | is_nsd):
                 raise ValueError(
-                    "`CG(..., normal=False)` may only be used for positive definite "
-                    "linear operators."
+                    "`CG(..., normal=False)` may only be used for positive "
+                    "or negative definite linear operators"
                 )
-        return operator
+            if is_nsd:
+                operator = -operator
+        return operator, is_nsd
 
     # This differs from jax.scipy.sparse.linalg.cg in:
     # 1. Every few steps we calculate the residual directly, rather than by cheaply
@@ -75,6 +79,7 @@ class CG(AbstractLinearSolver):
     #    additional information.
     # 4. We don't try to support complex numbers. (Yet.)
     def compute(self, state, vector, options):
+        operator, is_nsd = state
         if self.normal:
             # Linearise if JacobianLinearOperator, to avoid computing the forward
             # pass separately for mv and transpose_mv.
@@ -82,19 +87,19 @@ class CG(AbstractLinearSolver):
             # If a downstream userc wants to avoid this then they can call
             # `linear_solve(operator.T @ operator, operator.mv(b), solver=CG(..., normal=False)`  # noqa: E501
             # directly.
-            state = linearise(state)
+            operator = linearise(operator)
 
-            _mv = state.mv
-            _transpose_mv = state.transpose().mv
+            _mv = operator.mv
+            _transpose_mv = operator.transpose().mv
 
             def mv(v):
                 return _transpose_mv(_mv(v))
 
             vector = _transpose_mv(vector)
         else:
-            mv = state.mv
-        structure = state.in_structure()
-        del state
+            mv = operator.mv
+        structure = operator.in_structure()
+        del operator
 
         try:
             preconditioner = options["preconditioner"]
@@ -195,6 +200,9 @@ class CG(AbstractLinearSolver):
                 RESULTS.max_steps_reached,
                 RESULTS.successful,
             )
+
+        if is_nsd and not self.normal:
+            solution = -(solution**ω).ω
         return (
             solution,
             result,
