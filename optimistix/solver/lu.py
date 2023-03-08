@@ -6,6 +6,11 @@ from ..solution import RESULTS
 
 
 class LU(AbstractLinearSolver):
+    """LU solver for linear systems.
+
+    This solver can only handle nonsingular operators.
+    """
+
     def init(self, operator, options):
         del options
         if operator.in_size() != operator.out_size():

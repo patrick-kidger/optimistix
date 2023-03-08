@@ -11,6 +11,15 @@ from .triangular import solve_triangular
 
 
 class QR(AbstractLinearSolver):
+    """QR solver for linear systems.
+
+    This solver can handle singular operators.
+
+    This is usually the preferred solver when dealing with singular operators.
+
+    Equivalent to `scipy.linalg.lstsq`.
+    """
+
     rcond: Optional[float] = None
 
     def init(self, operator, options):
@@ -57,3 +66,11 @@ class QR(AbstractLinearSolver):
         transpose_state = (q, r), not transpose, transpose_structures
         transpose_options = {}
         return transpose_state, transpose_options
+
+
+QR.__init__.__doc__ = """**Arguments**:
+
+- `rcond`: the cutoff for handling zero entries on the diagonal. Defaults to machine
+    precision times `max(N, M)`, where `(N, M)` is the shape of the operator. (I.e.
+    `N` is the output size and `M` is the input size.)
+"""

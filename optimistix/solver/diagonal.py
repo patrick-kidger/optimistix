@@ -10,6 +10,14 @@ from ..solution import RESULTS
 
 
 class Diagonal(AbstractLinearSolver):
+    """Diagonal solver for linear systems.
+
+    Requires that the operator be diagonal. Then $Ax = b$, with $A = diag[a]$, is
+    solved simply by doing an elementwise division $x = b / a$.
+
+    This solver can handle singular operators (i.e. diagonal entries with value 0).
+    """
+
     rcond: Optional[float] = None
 
     def init(self, operator, options):
@@ -47,3 +55,10 @@ class Diagonal(AbstractLinearSolver):
     def transpose(self, state, options):
         # Matrix is symmetric
         return state, options
+
+
+Diagonal.__init__.__doc__ = """**Arguments**:
+
+- `rcond`: the cutoff for handling zero entries on the diagonal. Defaults to machine
+    precision times `N`, where `N` is the input (or output) size of the operator. 
+"""

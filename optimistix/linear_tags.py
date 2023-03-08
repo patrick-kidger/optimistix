@@ -50,6 +50,21 @@ def _(tags: FrozenSet[object]):
 
 
 def transpose_tags(tags: FrozenSet[object]):
+    """Optimistix uses "tags" to declare that a particular linear operator exhibits some
+    property, e.g. symmetry.
+
+    This function takes in a collection of tags representing a linear operator, and
+    returns a collection of tags that should be associated with the transpose of that
+    linear operator.
+
+    **Arguments:**
+
+    - `tags`: a `frozenset` of tags.
+
+    **Returns:**
+
+    A `frozenset` of tags.
+    """
     if symmetric_tag in tags:
         return tags
     new_tags = []

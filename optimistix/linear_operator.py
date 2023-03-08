@@ -11,7 +11,7 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Float, PyTree, Shaped
 
-from .custom_types import Scalar, TreeDef
+from .custom_types import Scalar
 from .linear_tags import (
     diagonal_tag,
     lower_triangular_tag,
@@ -36,36 +36,112 @@ def _frozenset(x: Union[object, Iterable[object]]) -> FrozenSet[object]:
 
 
 class AbstractLinearOperator(eqx.Module):
+    """Abstract base class for all linear operators.
+
+    Linear operators can act between PyTrees. Each `AbstractLinearOperator` is thought
+    of as a linear function `X -> Y`, where each element of `X` is as PyTree of
+    floating-point JAX arrays, and each element of `Y` is a PyTree of floating-point
+    JAX arrays.
+
+    Abstract linear operators support some operations:
+    ```python
+    op1 + op2  # addition of two operators
+    op1 @ op2  # composition of two operators.
+    op1 * 3.2  # multiplication by a scalar
+    op1 / 3.2  # division by a scalar
+    ```
+    """
+
     @abc.abstractmethod
     def mv(self, vector: PyTree[Float[Array, " _b"]]) -> PyTree[Float[Array, " _a"]]:
-        ...
+        """Computes a matrix-vector product between this operator and a `vector`.
+
+        **Arguments:**
+
+        - `vector`: Should be some PyTree of floating-point arrays, whose structure
+            should match `self.in_structure()`.
+
+        **Returns:**
+
+        A PyTree of floating-point arrays, with structure that matches
+        `self.out_structure()`.
+        """
 
     @abc.abstractmethod
     def as_matrix(self) -> Float[Array, "a b"]:
-        ...
+        """Materialises this linear operator as a matrix.
+
+        Note that this can be a computationally (time and/or memory) expensive
+        operation, as many linear operators are defined implicitly, e.g. in terms of
+        their action on a vector.
+
+        **Arguments:** None.
+
+        **Returns:**
+
+        A 2-dimensional floating-point JAX array.
+        """
 
     @abc.abstractmethod
     def transpose(self) -> "AbstractLinearOperator":
-        ...
+        """Transposes this linear operator.
+
+        **Arguments:** None.
+
+        **Returns:**
+
+        Another [`optimistix.AbstractLinearOperator`][].
+        """
 
     @abc.abstractmethod
     def in_structure(self) -> PyTree[jax.ShapeDtypeStruct]:
-        ...
+        """Returns the expected input structure of this linear operator.
+
+        **Arguments:** None.
+
+        **Returns:**
+
+        A PyTree of `jax.ShapeDtypeStruct`.
+        """
 
     @abc.abstractmethod
     def out_structure(self) -> PyTree[jax.ShapeDtypeStruct]:
-        ...
+        """Returns the expected output structure of this linear operator.
+
+        **Arguments:** None.
+
+        **Returns:**
+
+        A PyTree of `jax.ShapeDtypeStruct`.
+        """
 
     def in_size(self) -> int:
+        """Returns the total number of scalars in the input of this linear operator.
+
+        That is, the dimensionality of its input space.
+
+        **Arguments:** None.
+
+        **Returns:** An integer.
+        """
         leaves = jtu.tree_leaves(self.in_structure())
         return sum(math.prod(leaf.shape) for leaf in leaves)
 
     def out_size(self) -> int:
+        """Returns the total number of scalars in the output of this linear operator.
+
+        That is, the dimensionality of its output space.
+
+        **Arguments:** None.
+
+        **Returns:** An integer.
+        """
         leaves = jtu.tree_leaves(self.out_structure())
         return sum(math.prod(leaf.shape) for leaf in leaves)
 
     @property
     def T(self):
+        """Equivalent to [`optimistix.AbstractLinearOperator.transpose`][]"""
         return self.transpose()
 
     def __add__(self, other):
@@ -98,12 +174,29 @@ class AbstractLinearOperator(eqx.Module):
 
 
 class MatrixLinearOperator(AbstractLinearOperator):
+    """Wraps a 2-dimensional JAX array into a linear operator.
+
+    If the matrix has shape `(a, b)` then matrix-vector multiplication (`self.mv`) is
+    defined in the usual way: as performing a matrix-vector that accepts a vector of
+    shape `(a,)` and returns a vector of shape `(b,)`.
+    """
+
     matrix: Float[Array, "a b"]
     tags: FrozenSet[object]
 
     def __init__(
         self, matrix: Shaped[Array, "a b"], tags: Union[object, FrozenSet[object]] = ()
     ):
+        """**Arguments:**
+
+        - `matrix`: a two-dimensional JAX array. For an array with shape `(a, b)` then
+            this operator can perform matrix-vector products on a vector of shape
+            `(b,)` to return a vector of shape `(a,)`.
+        - `tags`: any tags indicating whether this matrix has any particular properties,
+            like symmetry or positive-definite-ness. Note that these properties are
+            unchecked and you may get incorrect values elsewhere if these tags are
+            wrong.
+        """
         if jnp.ndim(matrix) != 2:
             raise ValueError(
                 "`MatrixLinearOperator(matrix=...)` should be 2-dimensional."
@@ -155,7 +248,7 @@ def _tree_matmul(matrix: PyTree[ArrayLike], vector: PyTree[ArrayLike]) -> PyTree
 # Needed as static fields must be hashable and eq-able, and custom pytrees might have
 # e.g. define custom __eq__ methods.
 _T = TypeVar("_T")
-_FlatPyTree = Tuple[List[_T], TreeDef]
+_FlatPyTree = Tuple[List[_T], jtu.PyTreeDef]
 
 
 def _inexact_structure_impl2(x):
@@ -178,11 +271,39 @@ class _Leaf:  # not a pytree
         self.value = value
 
 
-# This is basically a generalisation of `MatrixLinearOperator` from taking
-# just a single array to taking a PyTree-of-arrays.
 # The `{input,output}_structure`s have to be static because otherwise abstract
 # evaluation rules will promote them to ShapedArrays.
 class PyTreeLinearOperator(AbstractLinearOperator):
+    """Represents a PyTree of floating-point JAX arrays as a linear operator.
+
+    This is basically a generalisation of [`optimistix.MatrixLinearOperator`][], from
+    taking just a single array to take a PyTree-of-arrays. (And likewise from returning
+    a single array to returning a PyTree-of-arrays.)
+
+    Specifically, suppose we want this to be a linear operator `X -> Y`, for which
+    elements of `X` are PyTrees with structure `T` whose `i`th leaf is a floating-point
+    JAX array of shape `x_shape_i`, and elements of `Y` are PyTrees with structure `S`
+    whose `j`th leaf is a floating-point JAX array of has shape `y_shape_j`. Then the
+    input PyTree should have structure `T`-compose-`S`, and its `(i, j)`-th  leaf should
+    be a floating-point JAX array of shape `(*x_shape_i, *y_shape_j)`.
+
+    !!! Example
+
+        ```python
+        # Suppose `x` is a member of our input space, with the following pytree
+        # structure:
+        eqx.tree_pprint(x)  # [f32[5, 9], f32[3]]
+
+        # Suppose `y` is a member of our output space, with the following pytree
+        # structure:
+        eqx.tree_pprint(y)
+        # {"a": f32[1, 2]}
+
+        # then `pytree` should be a pytree with the following structure:
+        eqx.tree_pprint(pytree)  # {"a": [f32[1, 2, 5, 9], f32[1, 2, 3]]}
+        ```
+    """
+
     pytree: PyTree[Float[Array, "..."]]
     output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
     tags: FrozenSet[object]
@@ -194,6 +315,18 @@ class PyTreeLinearOperator(AbstractLinearOperator):
         output_structure: PyTree[jax.ShapeDtypeStruct],
         tags: Union[object, FrozenSet[object]] = (),
     ):
+        """**Arguments:**
+
+        - `pytree`: this should be a PyTree, with structure as specified in
+            [`optimistix.PyTreeLinearOperator`].
+        - `out_structure`: the structure of the output space. This should be a PyTree of
+            `jax.ShapeDtypeStruct`s. (The structure of the input space is then
+            automatically derived from the structure of `pytree`.)
+        - `tags`: any tags indicating whether this operator has any particular
+            properties, like symmetry or positive-definite-ness. Note that these
+            properties are unchecked and you may get incorrect values elsewhere if these
+            tags are wrong.
+        """
         output_structure = _inexact_structure(output_structure)
         self.pytree = jtu.tree_map(inexact_asarray, pytree)
         self.output_structure = jtu.tree_flatten(output_structure)
@@ -300,6 +433,24 @@ class _Unwrap(eqx.Module):
 
 
 class JacobianLinearOperator(AbstractLinearOperator):
+    """Given a function `fn: X -> Y`, and a point `x in X`, then this defines the
+    linear operator (also a function `X -> Y`) given by the Jacobian `(d(fn)/dx)(x)`.
+
+    For example if the inputs and outputs are just arrays, then this is equivalent to
+    `MatrixLinearOperator(jax.jacfwd(fn)(x))`.
+
+    The Jacobian is not materialised; matrix-vector products, which are in fact
+    Jacobian-vector products, are computed using autodifferentiation, specifically
+    `jax.jvp`. Thus `JacobianLinearOperator(fn, x).mv(v)` is equivalent to
+    `jax.jvp(fn, (x,), (v,))`.
+
+    See also [`optimistix.linearise`][], which caches the primal computation, i.e.
+    it returns `_, lin = jax.linearize(fn, x); FunctionLinearOperator(lin, ...)`
+
+    See also [`optimistix.materialise`][], which materialises the whole Jacobian in
+    memory.
+    """
+
     fn: Callable[
         [PyTree[Float[Array, "..."]], PyTree[Any]], PyTree[Float[Array, "..."]]
     ]
@@ -315,6 +466,19 @@ class JacobianLinearOperator(AbstractLinearOperator):
         tags: Union[object, Iterable[object]] = (),
         _has_aux: bool = False,
     ):
+        """**Arguments:**
+
+        - `fn`: A function `(x, args) -> y`. The Jacobian `d(fn)/dx` is used as the
+            linear operator, and `args` are just any other arguments that should not be
+            differentiated.
+        - `x`: The point to evaluate `d(fn)/dx` at: `(d(fn)/dx)(x, args)`.
+        - `args`: As `x`; this is the point to evaluate `d(fn)/dx` at:
+            `(d(fn)/dx)(x, args)`.
+        - `tags`: any tags indicating whether this operator has any particular
+            properties, like symmetry or positive-definite-ness. Note that these
+            properties are unchecked and you may get incorrect values elsewhere if these
+            tags are wrong.
+        """
         if not _has_aux:
             fn = NoneAux(fn)
         # Flush out any closed-over values, so that we can safely pass `self`
@@ -360,6 +524,13 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
 # `input_structure` must be static as with `JacobianLinearOperator`
 class FunctionLinearOperator(AbstractLinearOperator):
+    """Wraps a *linear* function `fn: X -> Y` into a linear operator. (So that
+    `self.mv(x)` is defined by `self.mv(x) == fn(x)`.)
+
+    See also [`optimistix.materialise`][], which materialises the whole linear operator
+    in memory. (Similar to `.as_matrix()`.)
+    """
+
     fn: Callable[[PyTree[Float[Array, "..."]]], PyTree[Float[Array, "..."]]]
     input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
     tags: FrozenSet[object]
@@ -370,6 +541,19 @@ class FunctionLinearOperator(AbstractLinearOperator):
         input_structure: PyTree[jax.ShapeDtypeStruct],
         tags: Union[object, Iterable[object]] = (),
     ):
+        """**Arguments:**
+
+        - `fn`: a linear function. Should accept a PyTree of floating-point JAX arrays,
+            and return a PyTree of floating-point JAX arrays.
+        - `input_structure`: A PyTree of `jax.ShapeDtypeStruct`s specifying the
+            structure of the input to the function. (When later calling `self.mv(x)`
+            then this should match the structure of `x`, i.e.
+            `jax.eval_shape(lambda: x)`.)
+        - `tags`: any tags indicating whether this operator has any particular
+            properties, like symmetry or positive-definite-ness. Note that these
+            properties are unchecked and you may get incorrect values elsewhere if these
+            tags are wrong.
+        """
         # See matching comment in JacobianLinearOperator.
         fn = eqx.filter_closure_convert(fn, input_structure)
         input_structure = _inexact_structure(input_structure)
@@ -407,9 +591,20 @@ class FunctionLinearOperator(AbstractLinearOperator):
 
 # `structure` must be static as with `JacobianLinearOperator`
 class IdentityLinearOperator(AbstractLinearOperator):
+    """Represents the identity transformation `X -> X`, where each `x in X` is some
+    PyTree of floating-point JAX arrays.
+    """
+
     structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.static_field()
 
     def __init__(self, structure: PyTree[jax.ShapeDtypeStruct]):
+        """**Arguments:**
+
+        - `structure`: A PyTree of `jax.ShapeDtypeStruct`s specifying the
+            structure of the the input/output spaces. (When later calling `self.mv(x)`
+            then this should match the structure of `x`, i.e.
+            `jax.eval_shape(lambda: x)`.)
+        """
         structure = _inexact_structure(structure)
         self.structure = jtu.tree_flatten(structure)
 
@@ -438,9 +633,21 @@ class IdentityLinearOperator(AbstractLinearOperator):
 
 
 class DiagonalLinearOperator(AbstractLinearOperator):
+    """As [`optimistix.MatrixLinearOperator`][], but for specifically a diagonal matrix.
+
+    Only the diagonal of the matrix is stored (for memory efficiency). Matrix-vector
+    products are computed by doing a pointwise `diagonal * vector`, rather than a full
+    `matrix @ vector` (for speed).
+    """
+
     diagonal: Float[Array, " size"]
 
     def __init__(self, diagonal: Shaped[Array, " size"]):
+        """**Arguments:**
+
+        - `diagonal`: A rank-one JAX array, i.e. of shape `(a,)` for some `a`. This is
+            the diagonal of the matrix.
+        """
         self.diagonal = inexact_asarray(diagonal)
 
     def mv(self, vector):
@@ -462,12 +669,39 @@ class DiagonalLinearOperator(AbstractLinearOperator):
 
 
 class TaggedLinearOperator(AbstractLinearOperator):
+    """Wraps another linear operator and specifies that it has certain tags, e.g.
+    representing symmetry.
+
+    !!! Example
+
+        ```python
+        # Some other operator.
+        operator = optx.MatrixLinearOperator(some_jax_array)
+
+        # Now symmetric! But the type system doesn't know this.
+        sym_operator = operator + operator.T
+        assert optx.is_symmetric(sym_operator) == False
+
+        # We can declare that our operator has a particular property.
+        sym_operator = optx.TaggedLinearOperator(sym_operator, optx.symmetric_tag)
+        assert optx.is_symmetric(sym_operator) == True
+        ```
+    """
+
     operator: AbstractLinearOperator
     tags: FrozenSet[object]
 
     def __init__(
         self, operator: AbstractLinearOperator, tags: Union[object, Iterable[object]]
     ):
+        """**Arguments:**
+
+        - `operator`: some other linear operator to wrap.
+        - `tags`: any tags indicating whether this operator has any particular
+            properties, like symmetry or positive-definite-ness. Note that these
+            properties are unchecked and you may get incorrect values elsewhere if these
+            tags are wrong.
+        """
         self.operator = operator
         self.tags = _frozenset(tags)
 
@@ -495,6 +729,10 @@ class TaggedLinearOperator(AbstractLinearOperator):
 
 
 class TangentLinearOperator(AbstractLinearOperator):
+    """Internal to Optimistix. Used to represent the tangent (jvp) computation with
+    respect to the linear operator in a linear solve.
+    """
+
     primal: AbstractLinearOperator
     tangent: AbstractLinearOperator
 
@@ -528,6 +766,17 @@ class TangentLinearOperator(AbstractLinearOperator):
 
 
 class AddLinearOperator(AbstractLinearOperator):
+    """A linear operator formed by adding two other linear operators together.
+
+    !!! Example
+
+        ```python
+        x = MatrixLinearOperator(...)
+        y = MatrixLinearOperator(...)
+        assert isinstance(x + y, AddLinearOperator)
+        ```
+    """
+
     operator1: AbstractLinearOperator
     operator2: AbstractLinearOperator
 
@@ -556,6 +805,17 @@ class AddLinearOperator(AbstractLinearOperator):
 
 
 class MulLinearOperator(AbstractLinearOperator):
+    """A linear operator formed by multiplying a linear operator by a scalar.
+
+    !!! Example
+
+        ```python
+        x = MatrixLinearOperator(...)
+        y = 0.5
+        assert isinstance(x * y, MulLinearOperator)
+        ```
+    """
+
     operator: AbstractLinearOperator
     scalar: Scalar
 
@@ -576,6 +836,17 @@ class MulLinearOperator(AbstractLinearOperator):
 
 
 class DivLinearOperator(AbstractLinearOperator):
+    """A linear operator formed by dividing a linear operator by a scalar.
+
+    !!! Example
+
+        ```python
+        x = MatrixLinearOperator(...)
+        y = 0.5
+        assert isinstance(x / y, DivLinearOperator)
+        ```
+    """
+
     operator: AbstractLinearOperator
     scalar: Scalar
 
@@ -596,6 +867,20 @@ class DivLinearOperator(AbstractLinearOperator):
 
 
 class ComposedLinearOperator(AbstractLinearOperator):
+    """A linear operator formed by composing (matrix-multiplying) two other linear
+    operators together.
+
+    !!! Example
+
+        ```python
+        x = MatrixLinearOperator(matrix1)
+        y = MatrixLinearOperator(matrix2)
+        composed = x @ y
+        assert isinstance(composed, ComposedLinearOperator)
+        assert jnp.allclose(composed.as_matrix(), matrix1 @ matrix2)
+        ```
+    """
+
     operator1: AbstractLinearOperator
     operator2: AbstractLinearOperator
 
@@ -624,6 +909,10 @@ class ComposedLinearOperator(AbstractLinearOperator):
 
 
 class AuxLinearOperator(AbstractLinearOperator):
+    """Internal to Optimistix. Used to represent a linear operator with additional
+    metadata attached.
+    """
+
     operator: AbstractLinearOperator
     aux: PyTree[Array]
 
@@ -673,6 +962,25 @@ def _default_not_implemented(name: str, operator: AbstractLinearOperator):
 
 @ft.singledispatch
 def linearise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+    """Linearises a linear operator. This returns another linear operator.
+
+    Mathematically speaking this is just the identity function. And indeed most linear
+    operators will be returned unchanged.
+
+    For specifically [`optimistix.JacobianLinearOperator`][], then this will cache the
+    primal pass, so that it does not need to be recomputed each time. That is, it uses
+    some memory to improve speed. (This is the precisely same distinction as `jax.jvp`
+    versus `jax.linearize`.)
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Another linear operator. Mathematically it performs matrix-vector products
+    (`operator.mv`) that produce the same results as the input `operator`.
+    """
     _default_not_implemented("linearise", operator)
 
 
@@ -699,6 +1007,56 @@ def _(operator):
 
 @ft.singledispatch
 def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+    """Materialises a linear operator. This returns another linear operator.
+
+    Mathematically speaking this is just the identity function. And indeed most linear
+    operators will be returned unchanged.
+
+    For specifically [`optimistix.JacobianLinearOperator`][] and
+    [`optimistix.FunctionLinearOperator`][] then the linear operator is materialised in
+    memory. That is, it becomes defined as a matrix (or pytree of arrays), rather
+    than being defined only through its matrix-vector product
+    ([`optimistix.AbstractLinearOperator.mv`][]).
+
+    Materialisation sometimes improves compile time or run time. It usually increases
+    memory usage.
+
+    For example:
+    ```python
+    large_function = ...
+    operator = optx.FunctionLinearOperator(large_function, ...)
+
+    # Option 1
+    out1 = operator.mv(vector1)  # Traces and compiles `large_function`
+    out2 = operator.mv(vector2)  # Traces and compiles `large_function` again!
+    out3 = operator.mv(vector3)  # Traces and compiles `large_function` a third time!
+    # All that compilation might lead to long compile times.
+    # If `large_function` takes a long time to run, then this might also lead to long
+    # run times.
+
+    # Option 2
+    operator = optx.materialise(operator)  # Traces and compiles `large_function` and
+                                           # stores the result as a matrix.
+    out1 = operator.mv(vector1)  # Each of these just computes a matrix-vector product
+    out2 = operator.mv(vector2)  # against the stored matrix.
+    out3 = operator.mv(vector3)  #
+    # Now, `large_function` is only compiled once, and only ran once.
+    # However, storing the matrix might take a lot of memory, and the initial
+    # computation may-or-may-not take a long time to run.
+    ```
+    Generally speaking it is worth first setting up your problem without
+    `optx.materialise`, and using it as an optional optimisation if you find that it
+    helps your particular problem.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Another linear operator. Mathematically it performs matrix-vector products
+    (`operator.mv`) that produce the same results as the input `operator`.
+    """
     _default_not_implemented("materialise", operator)
 
 
@@ -733,6 +1091,21 @@ def _(operator):
 
 @ft.singledispatch
 def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
+    """Extracts the diagonal from a linear operator, and returns a vector.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    A rank-1 JAX array. (That is, it has shape `(a,)` for some integer `a`.)
+
+    For most operators this is just `jnp.diag(operator.as_matrix())`. Some operators
+    (e.g. [`optimistix.DiagonalLinearOperator`][] can have more efficient
+    implementations.) If you don't know what kind of operator you might have, then this
+    function ensures that you always get the most efficient implementation.
+    """
     _default_not_implemented("diagonal", operator)
 
 
@@ -759,6 +1132,19 @@ def _(operator):
 
 @ft.singledispatch
 def is_symmetric(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as symmetric.
+
+    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
     _default_not_implemented("is_symmetric", operator)
 
 
@@ -789,6 +1175,19 @@ def _(operator):
 
 @ft.singledispatch
 def is_diagonal(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as diagonal.
+
+    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
     _default_not_implemented("is_diagonal", operator)
 
 
@@ -811,6 +1210,19 @@ def _(operator):
 
 @ft.singledispatch
 def has_unit_diagonal(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as having unit diagonal.
+
+    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
     _default_not_implemented("has_unit_diagonal", operator)
 
 
@@ -838,6 +1250,19 @@ def _(operator):
 
 @ft.singledispatch
 def is_lower_triangular(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as lower triangular.
+
+    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
     _default_not_implemented("is_lower_triangular", operator)
 
 
@@ -860,6 +1285,19 @@ def _(operator):
 
 @ft.singledispatch
 def is_upper_triangular(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as upper triangular.
+
+    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
     _default_not_implemented("is_upper_triangular", operator)
 
 
@@ -882,6 +1320,19 @@ def _(operator):
 
 @ft.singledispatch
 def is_positive_semidefinite(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as positive semidefinite.
+
+    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
     _default_not_implemented("is_positive_semidefinite", operator)
 
 
@@ -909,6 +1360,19 @@ def _(operator):
 
 @ft.singledispatch
 def is_negative_semidefinite(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as negative semidefinite.
+
+    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
     _default_not_implemented("is_negative_semidefinite", operator)
 
 
@@ -936,6 +1400,19 @@ def _(operator):
 
 @ft.singledispatch
 def is_nonsingular(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as nonsingular.
+
+    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
     _default_not_implemented("is_nonsingular", operator)
 
 

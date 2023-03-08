@@ -17,6 +17,12 @@ from ..solution import RESULTS
 
 
 class Triangular(AbstractLinearSolver):
+    """Triangular solver for linear systems.
+
+    The operator should either be lower triangular or upper triangular.
+    This solver can handle singular operators (i.e. diagonal entries with value 0).
+    """
+
     rcond: Optional[float] = None
 
     def init(self, operator, options):
@@ -90,3 +96,10 @@ def solve_triangular(
         scan_fn, init_solution, (jnp.arange(n), matrix), reverse=not lower
     )
     return solution
+
+
+Triangular.__init__.__doc__ = """**Arguments**:
+
+- `rcond`: the cutoff for handling zero entries on the diagonal. Defaults to machine
+    precision times `N`, where `N` is the input (or output) size of the operator. 
+"""

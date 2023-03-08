@@ -12,6 +12,16 @@ from ..solution import RESULTS
 
 
 class SVD(AbstractLinearSolver):
+    """SVD solver for linear systems.
+
+    This solver can handle singular operators.
+
+    This solver is slightly more expensive than [`optimistix.QR`][], but is slightly
+    more numerically stable.
+
+    Equivalent to `scipy.linalg.lstsq`.
+    """
+
     rcond: Optional[float] = None
 
     def init(self, operator, options):
@@ -53,3 +63,11 @@ class SVD(AbstractLinearSolver):
         transpose_state = (vt.T, s, u.T), transpose_structures
         transpose_options = {}
         return transpose_state, transpose_options
+
+
+SVD.__init__.__doc__ = """**Arguments**:
+
+- `rcond`: the cutoff for handling zero entries on the diagonal. Defaults to machine
+    precision times `max(N, M)`, where `(N, M)` is the shape of the operator. (I.e.
+    `N` is the output size and `M` is the input size.)
+"""

@@ -7,6 +7,15 @@ from ..solution import RESULTS
 
 
 class Cholesky(AbstractLinearSolver):
+    """Cholesky solver for linear systems. This is generally the preferred solver for
+    positive or negative definite systems.
+
+    Equivalent to `scipy.linalg.solve(..., assume_a="pos")`.
+
+    The operator should be positive or negative definite (unless `normal=True`).
+    The operator must be nonsingular.
+    """
+
     normal: bool = False
 
     def init(self, operator, options):
@@ -72,3 +81,14 @@ class Cholesky(AbstractLinearSolver):
         else:
             # Matrix is symmetric anyway
             return state, options
+
+
+Cholesky.__init__.__doc__ = r"""**Arguments:**
+
+- `normal`: Whether to solve using the normal equations: that is, to solve $Ax=b$ by
+    first multiplying by $A^\intercal$ to obtain $A^\intercal Ax = A^\intercal b$, and
+    then applying the Cholesky solver to the resulting (positive definite)
+    system. Note that this approach squares the condition number, so it is not
+    recommended. (The resulting solution is relatively cheap to compute, but generally
+    not very accurate, especially if using 32-bit floats.)
+"""

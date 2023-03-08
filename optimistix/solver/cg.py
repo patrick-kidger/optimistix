@@ -35,6 +35,22 @@ def _tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Scalar:
 # - Normal CG evaluates `operator.mv` seven (!) times.
 # Possibly this can be cheapened a bit somehow?
 class CG(AbstractLinearSolver):
+    """Conjugate gradient solver for linear systems.
+
+    The operator should be positive or negative definite (unless `normal=True`).
+
+    Equivalent to `scipy.sparse.linalg.cg`.
+
+    This supports the following `options` (as passed to
+    `optx.linear_solve(..., options=...)`).
+
+    - `preconditioner`: A positive definite [`optimistix.AbstractLinearOperator`][]
+        to be used as preconditioner. Defaults to
+        [`optimistix.IdentityLinearOperator`][].
+    - `y0`: The initial estimate of the solution to the linear system. Defaults to all
+        zeros.
+    """
+
     rtol: float
     atol: float
     normal: bool = False
@@ -218,3 +234,27 @@ class CG(AbstractLinearSolver):
         # In particular the preconditioner is necessarily already positive definite, so
         # it doesn't need transposing or anything.
         return state, options
+
+
+CG.__init__.__doc__ = r"""**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `normal`: Whether to solve using the normal equations: that is, to solve $Ax=b$ by
+    first multiplying by $A^\intercal$ to obtain $A^\intercal Ax = A^\intercal b$, and
+    then applying the conjugate gradient method to the resulting (positive definite)
+    system. Note that this approach squares the condition number, so it is not
+    recommended. (The resulting solution is relatively cheap to compute, but generally
+    not very accurate, especially if using 32-bit floats.)
+- `norm`: The norm to use when computing whether the error falls within the tolerance.
+    Defaults to the L-infinity norm.
+- `stabilise_every`: The conjugate gradient is an iterative method that produces
+    candidate solutions $x_1, x_2, \ldots$, and terminates once $r_i = \| Ax_i - b \|$
+    is small enough. For computational efficiency, the values $r_i$ are computed using
+    other internal quantities, and not by directly evaluating the formula above.
+    However, this computation of $r_i$ is susceptible to drift due to limited
+    floating-point precision. Every `stabilise_every` steps, then $r_i$ is computed
+    directly using the formula above, in order to stabilise the computation.
+- `max_steps`: The maximum number of iterations to run the solver for. If more steps
+    than this are required, then the solve is halted with a failure.
+"""
