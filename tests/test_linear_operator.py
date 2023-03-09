@@ -1,16 +1,10 @@
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 
 import optimistix as optx
 
-from .helpers import (
-    make_diagonal_operator,
-    make_function_operator,
-    make_jac_operator,
-    make_matrix_operator,
-    make_trivial_pytree_operator,
-    shaped_allclose,
-)
+from .helpers import make_diagonal_operator, make_operators, shaped_allclose
 
 
 def test_ops(getkey):
@@ -48,23 +42,14 @@ def test_ops(getkey):
     assert shaped_allclose(div_matrix.T, div.T.as_matrix())
 
 
-_create_operator_types = [
-    make_matrix_operator,
-    make_trivial_pytree_operator,
-    make_function_operator,
-    make_jac_operator,
-    make_diagonal_operator,
-]
-
-
 def _setup(matrix, tag=frozenset()):
-    for make_operator in _create_operator_types:
+    for make_operator in make_operators:
         if make_operator is make_diagonal_operator:
             tag2 = optx.diagonal_tag
         else:
             tag2 = tag
         operator = make_operator(matrix, tag2)
-    yield operator
+        yield operator
 
 
 def _assert_except_diag(cond_fun, operators, flip_cond):
@@ -80,100 +65,82 @@ def _assert_except_diag(cond_fun, operators, flip_cond):
 
 def test_linearise(getkey):
     operators = _setup(jr.normal(getkey(), (3, 3)))
-
     for operator in operators:
-        if isinstance(operator, optx.JacobianLinearOperator):
-            optx.linearise(operator)
-        else:
-            assert optx.linearise(operator) == operator
+        optx.linearise(operator)
 
 
 def test_materialise(getkey):
     operators = _setup(jr.normal(getkey(), (3, 3)))
-
     for operator in operators:
-        if isinstance(
-            operator, (optx.FunctionLinearOperator, optx.JacobianLinearOperator)
-        ):
-            optx.materialise(operator)
-        else:
-            assert optx.materialise(operator) == operator
+        optx.materialise(operator)
 
 
 def test_diagonal(getkey):
     matrix = jr.normal(getkey(), (3, 3))
     matrix_diag = jnp.diag(matrix)
     operators = _setup(matrix)
-
     for operator in operators:
         assert jnp.allclose(optx.diagonal(operator), matrix_diag)
 
 
 def test_is_symmetric(getkey):
     matrix = jr.normal(getkey(), (3, 3))
-    not_symmetric_operators = _setup(matrix)
     symmetric_operators = _setup(matrix.T @ matrix, optx.symmetric_tag)
-
-    _assert_except_diag(optx.is_symmetric, not_symmetric_operators, True)
-
     for operator in symmetric_operators:
         assert optx.is_symmetric(operator)
+
+    not_symmetric_operators = _setup(matrix)
+    _assert_except_diag(optx.is_symmetric, not_symmetric_operators, flip_cond=True)
 
 
 def test_is_diagonal(getkey):
     matrix = jr.normal(getkey(), (3, 3))
-    not_diagonal_operators = _setup(matrix)
     diagonal_operators = _setup(jnp.diag(jnp.diag(matrix)), optx.diagonal_tag)
-
-    _assert_except_diag(optx.is_diagonal, not_diagonal_operators, True)
-
     for operator in diagonal_operators:
         assert optx.is_diagonal(operator)
+
+    not_diagonal_operators = _setup(matrix)
+    _assert_except_diag(optx.is_diagonal, not_diagonal_operators, flip_cond=True)
 
 
 def test_has_unit_diagonal(getkey):
     matrix = jr.normal(getkey(), (3, 3))
     not_unit_diagonal = _setup(matrix)
-    unit_diag = _setup(
-        matrix.at[jnp.arange(3), jnp.arange(3)].set(1), optx.unit_diagonal_tag
-    )
-
     for operator in not_unit_diagonal:
         assert not optx.has_unit_diagonal(operator)
 
-    _assert_except_diag(optx.has_unit_diagonal, unit_diag, flip_cond=False)
+    matrix_unit_diag = matrix.at[jnp.arange(3), jnp.arange(3)].set(1)
+    unit_diagonal = _setup(matrix_unit_diag, optx.unit_diagonal_tag)
+    _assert_except_diag(optx.has_unit_diagonal, unit_diagonal, flip_cond=False)
 
 
 def test_is_lower_triangular(getkey):
     matrix = jr.normal(getkey(), (3, 3))
-    not_lower_triangular = _setup(matrix)
     lower_triangular = _setup(jnp.tril(matrix), optx.lower_triangular_tag)
-
-    _assert_except_diag(optx.is_lower_triangular, not_lower_triangular, flip_cond=True)
-
     for operator in lower_triangular:
         assert optx.is_lower_triangular(operator)
+
+    not_lower_triangular = _setup(matrix)
+    _assert_except_diag(optx.is_lower_triangular, not_lower_triangular, flip_cond=True)
 
 
 def test_is_upper_triangular(getkey):
     matrix = jr.normal(getkey(), (3, 3))
-    not_upper_triangular = _setup(matrix)
     upper_triangular = _setup(jnp.triu(matrix), optx.upper_triangular_tag)
-
-    _assert_except_diag(optx.is_upper_triangular, not_upper_triangular, flip_cond=True)
-
     for operator in upper_triangular:
         assert optx.is_upper_triangular(operator)
+
+    not_upper_triangular = _setup(matrix)
+    _assert_except_diag(optx.is_upper_triangular, not_upper_triangular, flip_cond=True)
 
 
 def test_is_positive_semidefinite(getkey):
     matrix = jr.normal(getkey(), (3, 3))
     not_positive_semidefinite = _setup(matrix)
-    positive_semidefinite = _setup(matrix.T @ matrix, optx.positive_semidefinite_tag)
-
     for operator in not_positive_semidefinite:
         assert not optx.is_positive_semidefinite(operator)
 
+    positive_semidefinite = _setup(matrix.T @ matrix, optx.positive_semidefinite_tag)
     _assert_except_diag(
         optx.is_positive_semidefinite, positive_semidefinite, flip_cond=False
     )
@@ -182,11 +149,10 @@ def test_is_positive_semidefinite(getkey):
 def test_is_negative_semidefinite(getkey):
     matrix = jr.normal(getkey(), (3, 3))
     not_negative_semidefinite = _setup(matrix)
-    negative_semidefinite = _setup(-matrix.T @ matrix, optx.negative_semidefinite_tag)
-
     for operator in not_negative_semidefinite:
         assert not optx.is_negative_semidefinite(operator)
 
+    negative_semidefinite = _setup(-matrix.T @ matrix, optx.negative_semidefinite_tag)
     _assert_except_diag(
         optx.is_negative_semidefinite, negative_semidefinite, flip_cond=False
     )
@@ -195,5 +161,21 @@ def test_is_negative_semidefinite(getkey):
 def test_is_nonsingular(getkey):
     matrix = jr.normal(getkey(), (3, 3))
     nonsingular_operators = _setup(matrix, optx.nonsingular_tag)
-
     _assert_except_diag(optx.is_nonsingular, nonsingular_operators, flip_cond=False)
+
+
+def test_tangent_as_matrix(getkey):
+    def _list_setup(matrix):
+        return list(_setup(matrix))
+
+    matrix = jr.normal(getkey(), (3, 3))
+    t_matrix = jr.normal(getkey(), (3, 3))
+    operators, t_operators = eqx.filter_jvp(_list_setup, (matrix,), (t_matrix,))
+    for operator, t_operator in zip(operators, t_operators):
+        t_operator = optx.TangentLinearOperator(operator, t_operator)
+        if isinstance(operator, optx.DiagonalLinearOperator):
+            assert jnp.allclose(operator.as_matrix(), jnp.diag(jnp.diag(matrix)))
+            assert jnp.allclose(t_operator.as_matrix(), jnp.diag(jnp.diag(t_matrix)))
+        else:
+            assert jnp.allclose(operator.as_matrix(), matrix)
+            assert jnp.allclose(t_operator.as_matrix(), t_matrix)

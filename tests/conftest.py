@@ -1,7 +1,11 @@
 import random
 
+import jax
 import jax.random as jr
 import pytest
+
+
+jax.config.update("jax_enable_x64", True)
 
 
 @pytest.fixture
