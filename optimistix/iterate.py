@@ -132,7 +132,7 @@ def iterative_solve(
     inputs = problem, args
     closure = solver, y0, options, max_steps
     out, (num_steps, result, final_state, aux) = adjoint.apply(
-        _iterate, rewrite_fn, inputs, closure, tags, max_steps
+        _iterate, rewrite_fn, inputs, closure, tags
     )
     stats = {"num_steps": num_steps, "max_steps": max_steps}
     sol = Solution(value=out, result=result, state=final_state, aux=aux, stats=stats)

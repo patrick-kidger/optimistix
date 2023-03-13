@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, TypeVar
+from typing import Any, Dict, FrozenSet, Optional, TypeVar
 
 import equinox as eqx
 import jax
@@ -13,7 +13,7 @@ _SolverState = TypeVar("_SolverState")
 
 
 class MinimiseProblem(AbstractIterativeProblem):
-    pass
+    tags: FrozenSet[object] = frozenset()
 
 
 class AbstractMinimiser(AbstractIterativeSolver):
@@ -48,4 +48,5 @@ def minimise(
         max_steps=max_steps,
         adjoint=adjoint,
         throw=throw,
+        tags=problem.tags,
     )
