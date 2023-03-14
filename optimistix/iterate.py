@@ -107,7 +107,7 @@ def _iterate(inputs, closure, while_loop):
     final_val = while_loop(cond_fun, body_fun, init_val, max_steps)
 
     final_y, num_steps, final_state, aux = final_val
-    terminate, result = solver.terminate(problem, final_y, args, final_state, options)
+    terminate, result = solver.terminate(problem, final_y, args, options, final_state)
     result = jnp.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
         RESULTS.max_steps_reached,
