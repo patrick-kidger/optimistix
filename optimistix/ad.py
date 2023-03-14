@@ -5,7 +5,7 @@ import equinox.internal as eqxi
 import jax
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, PyTree
+from jaxtyping import PyTree
 
 from .linear_operator import JacobianLinearOperator
 from .linear_solve import AbstractLinearSolver, linear_solve
@@ -14,7 +14,7 @@ from .linear_solve import AbstractLinearSolver, linear_solve
 def implicit_jvp(
     fn_primal: Callable,
     fn_rewrite: Callable,
-    inputs: PyTree[Array],
+    inputs: PyTree,
     closure: Any,
     tags: FrozenSet[object],
     linear_solver: AbstractLinearSolver,
@@ -25,8 +25,7 @@ def implicit_jvp(
 
     - `fn_primal` is a function `(inputs, closure) -> (root, residual)`.
     - `fn_rewrite` is a function `(root, residual, inputs, closure) -> arbitrary`.
-    - `inputs` is some PyTree of arrays, which are the primal inputs to the
-        computation.
+    - `inputs` is some input PyTree of the primal inputs to the computation.
     - `closure` is an arbitrary Python object, used to pass auxiliary inputs to the
         computation.
     - `tags`: any tags (symmetric, diagonal, ...) for the matrix
