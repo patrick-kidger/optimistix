@@ -98,7 +98,7 @@ def _iterate(inputs, closure, while_loop):
         terminate, _ = solver.terminate(problem, y, args, options, state)
         return jnp.invert(terminate)
 
-    def body_fun(carry, _):
+    def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
         state = eqx.combine(dynamic_state, static_state)
         new_y, new_state, aux = solver.step(problem, y, args, options, state)
