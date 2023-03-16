@@ -54,45 +54,6 @@ def _beale(z, args):
 # See also the Fortran package TEST_NLS:
 # https://people.math.sc.edu/Burkardt/f_src/test_nls/test_nls.html.
 ###
-# def _rosenbrock():
-#     def fn(x, args):
-#         array, _ = jax.flatten_util.ravel_pytree(x)
-#         return 100 * (array[1:] - array[:-1] ** 2), (1 - array[:-1])
-
-#     return fn
-
-
-# def _rosenbrock_array():
-#     def fn(x, args):
-#         return 100 * (x[1:] - x[:-1] ** 2), (1 - x[:-1])
-
-#     return fn
-
-
-# def _brown_almost_linear():
-#     def fn(x, args):
-#         array, _ = jax.flatten_util.ravel_pytree(x)
-#         sum = jnp.sum(array)
-#         product = jnp.prod(array)
-#         dim = len(array)
-#         array = array + sum - (dim + 1)
-#         array = array.at[-1].set(product - 1)
-#         return array
-
-#     return fn
-
-
-# def _brown_almost_linear_array():
-#     def fn(x, args):
-#         sum = jnp.sum(x)
-#         product = jnp.prod(x)
-#         dim = len(x)
-#         x = x + sum - (dim + 1)
-#         x = x.at[-1].set(product - 1)
-#         return x
-
-#     return fn
-
 
 _fn_and_init = (
     (
@@ -112,31 +73,12 @@ _fn_and_init = (
     ),
 )
 
-# TODO(Jason): allow for a case where we can just test that the minimum has been
-# achieved by the function. ie. assert f(x_optax) = minval and not
-# x_optax = argmin f(x). The latter is more reliable as it helps protect against
-# misspecification of the function itself, but the latter allows us to handle more
-# complicated cases where there are infinite minima with strange properties, as
-# with brown's almost linear function
-# (optx.LeastSquaresProblem(
-# _least_squares_and_init = (
-#     (
-#         optx.LeastSquaresProblem(_rosenbrock(), False),
-#         [jnp.zeros(1), jnp.zeros(1)],
-#         [jnp.ones(1), jnp.ones(1)],
-#     ),
-#     (optx.LeastSquaresProblem(_rosenbrock_array(), False), jnp.zeros(2), jnp.ones(2)),
-# _brown_almost_linear), [0.5 * jnp.ones(1), 0.5 * jnp.ones(1)]
-# ),
-# (optx.LeastSquaresProblem(_brown_almost_linear_array), 0.5 * jnp.ones(2))
-# )
+
+###
+# TODO(Jason): add tests for least_square solvers as well.
+###
 
 _minimisers = ((optx.NelderMead, (1e-4, 1e-5)),)
-
-_least_squares_solvers = (
-    (optx.LevenbergMarquardt, (1e-4, 1e-5)),
-    (optx.GaussNewton, (1e-4, 1e-5)),
-)
 
 
 @pytest.mark.parametrize("solver, init_args", _minimisers)
@@ -147,13 +89,3 @@ def test_minimise(solver, init_args, problem, init, result_exact):
     result_optx = optx.minimise(problem, solver, init, max_steps=1024)
 
     assert shaped_allclose(result_optx.value, result_exact, atol=1e-4, rtol=1e-5)
-
-
-# @pytest.mark.parametrize("solver, init_args", _minimisers)
-# @pytest.mark.parametrize("problem, init, result_exact", _fn_and_init)
-# def test_least_squares(solver, init_args, problem, init, result_exact):
-#     solver = solver(*init_args)
-#     solver.init(problem, init, None, {})
-#     result_optx = optx.least_squares(problem, solver, init)
-
-#     assert shaped_allclose(result_optx.value, result_exact)

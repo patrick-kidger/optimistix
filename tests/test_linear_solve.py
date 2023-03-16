@@ -10,8 +10,6 @@ import optimistix as optx
 from .helpers import has_tag, make_diagonal_operator, make_operators, shaped_allclose
 
 
-jax.config.update("jax_enable_x64", True)
-
 if jax.config.jax_enable_x64:
     tol = 1e-12
 else:

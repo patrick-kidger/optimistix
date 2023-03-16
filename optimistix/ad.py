@@ -25,8 +25,7 @@ def implicit_jvp(
 
     - `fn_primal` is a function `(inputs, closure) -> (root, residual)`.
     - `fn_rewrite` is a function `(root, residual, inputs, closure) -> arbitrary`.
-    - `inputs` is some PyTree of arrays, which are the primal inputs to the
-        computation.
+    - `inputs` is some input PyTree of the primal inputs to the computation.
     - `closure` is an arbitrary Python object, used to pass auxiliary inputs to the
         computation.
     - `tags`: any tags (symmetric, diagonal, ...) for the matrix

@@ -299,7 +299,9 @@ class NelderMead(AbstractMinimiser):
         return out, new_state, None
 
     def terminate(self, problem, y, args, options, state):
-
+        ###
+        # TODO(Jason): only check terminate every k steps
+        ###
         f_best, best_index = lax.top_k(-state.f_simplex.T, 1)
         best_index = best_index.flatten()[0]
         f_best = -f_best.flatten()
@@ -331,11 +333,3 @@ class NelderMead(AbstractMinimiser):
         terminate = converged | diverged
         result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
         return terminate, result
-        # Q: How to perform check only every k steps?
-        # terminate_args = (problem, y, args, options, state)
-        # lax.cond(
-        # state.step % self.iters_per_terminate_check != 0,
-        # pass_terminate,
-        # terminate_internal,
-        # terminate_args
-        # )
