@@ -78,14 +78,14 @@ _fn_and_init = (
 # TODO(Jason): add tests for least_square solvers as well.
 ###
 
-_minimisers = ((optx.NelderMead, (1e-4, 1e-5)),)
+_minimisers = ((optx.NelderMead(1e-4, 1e-5)),)
 
 
-@pytest.mark.parametrize("solver, init_args", _minimisers)
+@pytest.mark.parametrize("solver", _minimisers)
 @pytest.mark.parametrize("problem, init, result_exact", _fn_and_init)
-def test_minimise(solver, init_args, problem, init, result_exact):
-    solver = solver(*init_args)
+def test_minimise(solver, problem, init, result_exact):
     solver.init(problem, init, None, {})
-    result_optx = optx.minimise(problem, solver, init, max_steps=1024)
+    with jax.disable_jit():
+        result_optx = optx.minimise(problem, solver, init, max_steps=1024)
 
     assert shaped_allclose(result_optx.value, result_exact, atol=1e-4, rtol=1e-5)

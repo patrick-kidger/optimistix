@@ -2,6 +2,8 @@ from typing import Any, Dict, FrozenSet, Optional, TypeVar
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
+import jax.tree_util as jtu
 from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
@@ -38,6 +40,7 @@ def minimise(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
+    y0 = jtu.tree_map(jnp.asarray, y0)
     struct = jax.eval_shape(lambda: problem.fn(y0, args))
 
     if not (isinstance(struct, jax.ShapeDtypeStruct) and struct.shape == ()):

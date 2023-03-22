@@ -103,7 +103,7 @@ def _iterate(inputs, closure, while_loop):
         state = eqx.combine(dynamic_state, static_state)
         new_y, new_state, aux = solver.step(problem, y, args, options, state)
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
-        assert static_state == new_static_state
+        assert eqx.tree_equal(static_state, new_static_state) is True
         return new_y, num_steps + 1, new_dynamic_state, aux
 
     final_val = while_loop(cond_fun, body_fun, init_val, max_steps)
