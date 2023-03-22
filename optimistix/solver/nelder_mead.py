@@ -191,7 +191,7 @@ class NelderMead(AbstractMinimiser):
             out = lax.cond(i == 1, g, lambda x: vertex, f_vertex)
             return (out, problem.fn(out, args)), None
 
-        (new_vertex, (f_new_vertex, _)), _ = jax.lax.scan(
+        (new_vertex, (f_new_vertex, _)), _ = lax.scan(
             eval_new_vertices, (reflection, (None, None)), jnp.arange(2)
         )
         shrink = f_new_vertex > f_worst
