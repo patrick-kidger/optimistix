@@ -3,6 +3,7 @@ from typing import Any, Callable, Dict, FrozenSet, Optional, TypeVar, Union
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
@@ -57,6 +58,7 @@ def least_squares(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
+    y0 = jtu.tree_map(jnp.asarray, y0)
     if isinstance(solver, AbstractMinimiser):
         minimise_fn = _ToMinimiseFn(problem.fn, problem.has_aux)
         minimise_problem = MinimiseProblem(fn=minimise_fn, has_aux=problem.has_aux)
