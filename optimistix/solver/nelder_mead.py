@@ -158,12 +158,10 @@ class NelderMead(AbstractMinimiser):
         #
         # This will later be replaced with the more general line search api.
         #
-        dim = jnp.size(y)
-
         reflect_const = 1
-        expand_const = 1 + 2 / dim
-        contract_const = 0.75 - 1 / (2 * dim)
-        shrink_const = 1 - 1 / dim
+        expand_const = 2
+        contract_const = 0.5
+        shrink_const = 0.5
 
         f_best, best, best_index = state.best
         f_worst, worst, worst_index = state.worst
@@ -231,11 +229,12 @@ class NelderMead(AbstractMinimiser):
                 out = lax.cond(
                     i == 1, internal_eval, lambda x, y: vertex, *(f_vertex, stats)
                 )
+
                 return (out, problem.fn(out, args), stats), None
 
             (new_vertex, (f_new_vertex, _), stats), _ = lax.scan(
                 eval_new_vertices,
-                (reflection, (None, None), state.stats),
+                (reflection, (jnp.array(0.0), None), state.stats),
                 jnp.arange(2),
             )
 
