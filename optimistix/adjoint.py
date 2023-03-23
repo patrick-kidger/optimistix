@@ -53,7 +53,7 @@ def _while_loop(cond_fun, body_fun, init_val, max_steps):
 
 
 class ImplicitAdjoint(AbstractAdjoint):
-    linear_solver: AbstractLinearSolver = AutoLinearSolver()
+    linear_solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True)
 
     def apply(self, primal_fn, rewrite_fn, inputs, closure, tags):
         primal_fn = ft.partial(primal_fn, while_loop=_while_loop)

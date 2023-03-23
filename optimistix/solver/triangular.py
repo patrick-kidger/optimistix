@@ -1,9 +1,4 @@
-from typing import Optional
-
-import jax.lax as lax
-import jax.numpy as jnp
 import jax.scipy as jsp
-from jaxtyping import Array, Shaped
 
 from ..linear_operator import (
     has_unit_diagonal,
@@ -11,7 +6,6 @@ from ..linear_operator import (
     is_upper_triangular,
 )
 from ..linear_solve import AbstractLinearSolver
-from ..misc import resolve_rcond
 from ..solution import RESULTS
 from .misc import (
     pack_structures,
@@ -25,10 +19,7 @@ class Triangular(AbstractLinearSolver):
     """Triangular solver for linear systems.
 
     The operator should either be lower triangular or upper triangular.
-    This solver can handle singular operators (i.e. diagonal entries with value 0).
     """
-
-    rcond: Optional[float] = None
 
     def init(self, operator, options):
         del options
@@ -46,72 +37,38 @@ class Triangular(AbstractLinearSolver):
             is_lower_triangular(operator),
             has_unit_diagonal(operator),
             pack_structures(operator),
+            False,  # transposed
         )
 
     def compute(self, state, vector, options):
-        matrix, lower, unit_diagonal, packed_structures = state
+        matrix, lower, unit_diagonal, packed_structures, transpose = state
         del state, options
         vector = ravel_vector(vector, packed_structures)
-        solution = solve_triangular(matrix, vector, lower, unit_diagonal, self.rcond)
+        if transpose:
+            trans = "T"
+        else:
+            trans = "N"
+        solution = jsp.linalg.solve_triangular(
+            matrix, vector, trans=trans, lower=lower, unit_diagonal=unit_diagonal
+        )
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
 
-    def pseudoinverse(self, operator):
-        return True
-
     def transpose(self, state, options):
-        matrix, lower, unit_diagonal, packed_structures = state
+        matrix, lower, unit_diagonal, packed_structures, transpose = state
         transposed_packed_structures = transpose_packed_structures(packed_structures)
         transpose_state = (
-            matrix.T,
-            not lower,
+            matrix,
+            lower,
             unit_diagonal,
             transposed_packed_structures,
+            not transpose,
         )
         transpose_options = {}
         return transpose_state, transpose_options
 
+    def allow_dependent_columns(self, operator):
+        return False
 
-def solve_triangular(
-    matrix: Shaped[Array, "n n"],
-    vector: Shaped[Array, " n"],
-    lower: bool,
-    unit_diagonal: bool,
-    rcond: Optional[float],
-) -> Shaped[Array, " n"]:
-    # This differs from jax.scipy.linalg.solve_triangular in that it will return
-    # pseudoinverse solutions if the matrix is singular.
-
-    n, m = matrix.shape
-    (k,) = vector.shape
-    assert n == m
-    assert n == k
-    if unit_diagonal:
-        # Unit diagonal implies nonsingular, so use the fact that this lowers to an XLA
-        # primitive for efficiency.
-        return jsp.linalg.solve_triangular(
-            matrix, vector, lower=lower, unit_diagonal=unit_diagonal
-        )
-    rcond = resolve_rcond(rcond, n, m, matrix.dtype)
-    cutoff = rcond * jnp.max(jnp.abs(jnp.diag(matrix)))
-
-    def scan_fn(_solution, _input):
-        _i, _row = _input
-        _val = jnp.dot(_solution, _row, precision=lax.Precision.HIGHEST)
-        _row_i = _row[_i]
-        _row_i = jnp.where(jnp.abs(_row_i) > cutoff, _row_i, jnp.inf)
-        _solution = _solution.at[_i].set((vector[_i] - _val) / _row_i)
-        return _solution, None
-
-    init_solution = jnp.zeros_like(vector)
-    solution, _ = lax.scan(
-        scan_fn, init_solution, (jnp.arange(n), matrix), reverse=not lower
-    )
-    return solution
-
-
-Triangular.__init__.__doc__ = """**Arguments**:
-
-- `rcond`: the cutoff for handling zero entries on the diagonal. Defaults to machine
-    precision times `N`, where `N` is the input (or output) size of the operator. 
-"""
+    def allow_dependent_rows(self, operator):
+        return False

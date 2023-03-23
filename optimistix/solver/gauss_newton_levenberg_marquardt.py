@@ -52,7 +52,8 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
     atol: float
     kappa: float = 1e-2
     norm: Callable = max_norm
-    linear_solver: AbstractLinearSolver = AutoLinearSolver()
+    # Implies that Levenberg-Marquardt will use a QR solver.
+    linear_solver: AbstractLinearSolver = AutoLinearSolver(well_posed=None)
     modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
 
     @property
@@ -78,9 +79,9 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
             )
         else:
             damping = ...  # TODO(kidger)
-            # TODO: figure out tags here
+            # Note that this doesn't use tags at all.
             jac = JacobianLinearOperator(
-                _Damped(problem.fn, damping, tags=problem.tags),
+                _Damped(problem.fn, damping),
                 y,
                 args,
                 _has_aux=True,
@@ -106,8 +107,8 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
         #   the endless problem with XLA inlining everything.)
         #
         # Much better to just "solve" `diff = J^{-1} r` directly: our `linear_solve`
-        # routine will return a linear least squares solution in general (if the matrix
-        # is singular).
+        # routine will return a linear least squares solution in general (if the system
+        # is not well-posed: in our case, overdetermined).
         #
         # ...and then, if you wish, take `linear_solver=CG(normal=True)` to solve it via
         # the normal equations in the textbook way! (In practice if you go looking

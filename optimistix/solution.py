@@ -6,10 +6,9 @@ from jaxtyping import Array, PyTree
 
 
 _linear_singular_msg = """
-The linear solver returned NaN output. This usually means either:
+The linear solver returned non-finite (NaN or inf) output. This usually means either:
 
-(a) the operator was singular (`jnp.linalg.det(matrix) == 0`), and the solver requires
-    nonsingular matrices; or
+(a) the operator was not full rank, and the solver does not support this; or
 
 (b) the operator had a high condition number (`jnp.linalg.cond(matrix)` is large), and
     the solver can only handle low condition numbers; or
@@ -18,7 +17,8 @@ The linear solver returned NaN output. This usually means either:
     matrices.
 
 In each case consider changing your solver to one that supports the structure of the
-operator. (`optimistix.QR()` is moderately expensive but will work for all problems.)
+operator. (`optimistix.SVD()` is computationally expensive but will work for all
+problems.)
 
 Alternatively, you may have a bug in the definition of your operator. (If you were
 expecting this solver to work for it.)

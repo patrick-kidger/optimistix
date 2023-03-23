@@ -1,6 +1,8 @@
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 import optimistix as optx
 
@@ -40,6 +42,24 @@ def test_ops(getkey):
     assert shaped_allclose(mul_matrix.T, mul.T.as_matrix())
     assert shaped_allclose(mul_matrix.T, rmul.T.as_matrix())
     assert shaped_allclose(div_matrix.T, div.T.as_matrix())
+
+
+@pytest.mark.parametrize("make_operator", make_operators)
+def test_structures_vector(make_operator, getkey):
+    if make_operator is make_diagonal_operator:
+        matrix = jnp.eye(4)
+        tags = optx.diagonal_tag
+        in_size = out_size = 4
+    else:
+        matrix = jr.normal(getkey(), (3, 5))
+        tags = ()
+        in_size = 5
+        out_size = 3
+    operator = make_operator(matrix, tags)
+    in_structure = jax.ShapeDtypeStruct((in_size,), jnp.float64)
+    out_structure = jax.ShapeDtypeStruct((out_size,), jnp.float64)
+    assert shaped_allclose(in_structure, operator.in_structure())
+    assert shaped_allclose(out_structure, operator.out_structure())
 
 
 def _setup(matrix, tag=frozenset()):
@@ -156,12 +176,6 @@ def test_is_negative_semidefinite(getkey):
     _assert_except_diag(
         optx.is_negative_semidefinite, negative_semidefinite, flip_cond=False
     )
-
-
-def test_is_nonsingular(getkey):
-    matrix = jr.normal(getkey(), (3, 3))
-    nonsingular_operators = _setup(matrix, optx.nonsingular_tag)
-    _assert_except_diag(optx.is_nonsingular, nonsingular_operators, flip_cond=False)
 
 
 def test_tangent_as_matrix(getkey):

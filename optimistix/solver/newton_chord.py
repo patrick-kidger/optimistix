@@ -42,7 +42,7 @@ class _NewtonChord(AbstractRootFinder):
     atol: float
     kappa: float = 1e-2
     norm: Callable = max_norm
-    linear_solver: AbstractLinearSolver = AutoLinearSolver()
+    linear_solver: AbstractLinearSolver = AutoLinearSolver(well_posed=None)
     modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
 
     @property

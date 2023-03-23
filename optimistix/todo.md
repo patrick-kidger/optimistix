@@ -19,6 +19,7 @@
  - Armijo backatracking
  - Fista
 - Handling Optax-like things
+- Have QR handle under-ranked matrices via rank-revealing (pivoted) decompositions.
 
 Problems with existing JAXopt:
 - LM etc. evaluates during init, so 2x as long to compile

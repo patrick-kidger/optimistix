@@ -19,7 +19,6 @@ from .linear_operator import (
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
-    is_nonsingular,
     is_positive_semidefinite,
     is_symmetric,
     is_upper_triangular,
@@ -37,11 +36,11 @@ from .linear_tags import (
     diagonal_tag,
     lower_triangular_tag,
     negative_semidefinite_tag,
-    nonsingular_tag,
     positive_semidefinite_tag,
     symmetric_tag,
     transpose_tags,
     transpose_tags_rules,
+    tridiagonal_tag,
     unit_diagonal_tag,
     upper_triangular_tag,
 )
@@ -62,6 +61,7 @@ from .solver import (
     QR,
     SVD,
     Triangular,
+    Tridiagonal,
 )
 
 

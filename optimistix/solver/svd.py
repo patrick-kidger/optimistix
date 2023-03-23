@@ -18,10 +18,8 @@ from .misc import (
 class SVD(AbstractLinearSolver):
     """SVD solver for linear systems.
 
-    This solver can handle singular operators.
-
-    This solver is slightly more expensive than [`optimistix.QR`][], but is slightly
-    more numerically stable.
+    This solver can handle any operator, even nonsquare or singular ones. In these
+    cases it will return the pseudoinverse solution to the linear system.
 
     Equivalent to `scipy.linalg.lstsq`.
     """
@@ -50,9 +48,6 @@ class SVD(AbstractLinearSolver):
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {"rank": rank}
 
-    def pseudoinverse(self, operator):
-        return True
-
     def transpose(self, state, options):
         del options
         (u, s, vt), packed_structures = state
@@ -60,6 +55,12 @@ class SVD(AbstractLinearSolver):
         transpose_state = (vt.T, s, u.T), transposed_packed_structures
         transpose_options = {}
         return transpose_state, transpose_options
+
+    def allow_dependent_columns(self, operator):
+        return True
+
+    def allow_dependent_rows(self, operator):
+        return True
 
 
 SVD.__init__.__doc__ = """**Arguments**:

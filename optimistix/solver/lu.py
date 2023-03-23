@@ -13,7 +13,7 @@ from .misc import (
 class LU(AbstractLinearSolver):
     """LU solver for linear systems.
 
-    This solver can only handle nonsingular operators.
+    This solver can only handle square nonsingular operators.
     """
 
     def init(self, operator, options):
@@ -34,12 +34,15 @@ class LU(AbstractLinearSolver):
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
 
-    def pseudoinverse(self, operator):
-        return False
-
     def transpose(self, state, options):
         lu_and_piv, packed_structures, transpose = state
         transposed_packed_structures = transpose_packed_structures(packed_structures)
         transpose_state = lu_and_piv, transposed_packed_structures, not transpose
         transpose_options = {}
         return transpose_state, transpose_options
+
+    def allow_dependent_columns(self, operator):
+        return False
+
+    def allow_dependent_rows(self, opterator):
+        return False
