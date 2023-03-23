@@ -5,7 +5,7 @@ from typing import Any, Callable, FrozenSet, Optional
 import equinox as eqx
 import equinox.internal as eqxi
 import jax.lax as lax
-from jaxtyping import Array, PyTree
+from jaxtyping import PyTree
 
 from .ad import implicit_jvp
 from .linear_solve import AbstractLinearSolver, AutoLinearSolver
@@ -17,7 +17,7 @@ class AbstractAdjoint(eqx.Module):
         self,
         primal_fn: Callable,
         rewrite_fn: Callable,
-        inputs: PyTree[Array],
+        inputs: PyTree,
         closure: Any,
         tags: FrozenSet[object],
     ):

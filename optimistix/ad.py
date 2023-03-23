@@ -48,7 +48,7 @@ def implicit_jvp(
     root, residual = _implicit_impl(
         fn_primal, fn_rewrite, inputs, closure, tags, linear_solver
     )
-    return root, jtu.tree_map(eqxi.nondifferentible_backward, residual)
+    return root, jtu.tree_map(eqxi.nondifferentiable_backward, residual)
 
 
 @eqx.filter_custom_jvp
