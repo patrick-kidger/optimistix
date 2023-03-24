@@ -59,12 +59,14 @@ def _update_stats(
     expand=jnp.array(False),
     shrink=jnp.array(False),
 ) -> _NMStats:
+    one = jnp.array(1.0)
+    zero = jnp.array(0.0)
     return _NMStats(
-        stats.n_reflect + jnp.where(reflect, 1, 0),
-        stats.n_expand + jnp.where(expand, 1, 0),
-        stats.n_inner_contract + jnp.where(inner_contract, 1, 0),
-        stats.n_outer_contract + jnp.where(outer_contract, 1, 0),
-        stats.n_shrink + jnp.where(shrink, 1, 0),
+        stats.n_reflect + jnp.where(reflect, one, zero),
+        stats.n_inner_contract + jnp.where(inner_contract, one, zero),
+        stats.n_outer_contract + jnp.where(outer_contract, one, zero),
+        stats.n_expand + jnp.where(expand, one, zero),
+        stats.n_shrink + jnp.where(shrink, one, zero),
     )
 
 
@@ -86,6 +88,7 @@ class NelderMead(AbstractMinimiser):
         if self.y0_is_simplex:
             simplex = y
             leaves, treedef = jtu.tree_flatten(simplex)
+            y_type = leaves[0].dtype
             shapes = [leaf.shape[:1] for leaf in leaves]
             (n_vertices, _) = shape_0 = shapes[0]
             are_same_sizes = [shape_0 == leaf_shape for leaf_shape in shapes]
@@ -103,49 +106,48 @@ class NelderMead(AbstractMinimiser):
             size = sum(jnp.size(x) for x in jtu.tree_leaves(y))
             n_vertices = size + 1
             leaves, treedef = jtu.tree_flatten(y)
+            y_type = leaves[0].dtype
 
             running_size = 0
             new_leaves = []
 
             for index, leaf in enumerate(leaves):
                 leaf_size = jnp.size(leaf)
-                broadcast_leaves = jnp.repeat(leaf, size + 1, axis=0)
+                broadcast_leaves = jnp.repeat(leaf[None, ...], size + 1, axis=0)
                 indices = jnp.arange(
                     running_size + 1, running_size + leaf_size + 1, dtype=jnp.int16
                 )
-                running_indices = jnp.unravel_index(
+                relative_indices = jnp.unravel_index(
                     indices - running_size, shape=leaf.shape
                 )
+                indices = jnp.unravel_index(indices, shape=broadcast_leaves.shape)
                 broadcast_leaves = broadcast_leaves.at[indices].add(
-                    self.adelta + self.rdelta * leaf[running_indices]
+                    self.adelta + self.rdelta * leaf[relative_indices]
                 )
                 running_size = running_size + leaf_size
                 new_leaves.append(broadcast_leaves)
 
             simplex = jtu.tree_unflatten(treedef, new_leaves)
 
-        f_simplex = jnp.zeros(n_vertices)
+        f_simplex = jnp.zeros(n_vertices, dtype=y_type)
         #
         # Shrink will be called the first time step is called, so remove one from stats
         # at init.
         #
         stats = _NMStats(
-            jnp.array(0), jnp.array(0), jnp.array(0), jnp.array(0), jnp.array(-1)
+            jnp.array(0.0),
+            jnp.array(0.0),
+            jnp.array(0.0),
+            jnp.array(0.0),
+            jnp.array(-1.0),
         )
-        #
-        # Initializing best to 0 is important, and not just a dummy value. In the
-        # first step we call shrink, which will compute the difference between this
-        # vector and the rest of the simplex, alter the simplex by a multiple of this
-        # vector, and then evaluate fn on the resulting simplex. We want the output
-        # of the shrink procedure to just be f_simplex, so we set this to 0
-        # deliberately.
-        #
-        zero_best = ω(simplex)[0].call(jnp.zeros_like).ω
+
+        # zero_best = ω(simplex)[0].call(jnp.zeros_like).ω
 
         return _NelderMeadState(
             simplex=simplex,
             f_simplex=f_simplex,
-            best=(jnp.array(0.0), zero_best, jnp.array(0)),
+            best=(jnp.array(0.0), ω(simplex)[0].ω, jnp.array(0)),
             worst=(jnp.array(0.0), ω(simplex)[0].ω, jnp.array(0)),
             second_worst=jnp.array(0.0),
             step=jnp.array(0),
@@ -171,13 +173,13 @@ class NelderMead(AbstractMinimiser):
         n_vertices = len(state.f_simplex)
 
         def init_step(state):
-            simplex = (ω(state.simplex) / shrink_const).ω
-            f_new_vertex = jnp.array(1.0)
+            simplex = state.simplex
+            f_new_vertex = jnp.array(1.0, dtype=state.f_simplex.dtype)
             #
             # f_worst is 0., set this so that
             # shrink = f_new_simplex > f_worst is True
             #
-            return state, simplex, ω(simplex)[0].ω, f_new_vertex
+            return (state, simplex, ω(simplex)[0].ω, f_new_vertex, state.stats)
 
         def main_step(state):
             #
@@ -224,10 +226,13 @@ class NelderMead(AbstractMinimiser):
                     stats = _update_stats(
                         stats, reflect, inner_contract, outer_contract, expand
                     )
-                    return new_vertex
+                    return new_vertex, stats
 
-                out = lax.cond(
-                    i == 1, internal_eval, lambda x, y: vertex, *(f_vertex, stats)
+                out, stats = lax.cond(
+                    i == 1,
+                    internal_eval,
+                    lambda x, y: (vertex, stats),
+                    *(f_vertex, stats),
                 )
 
                 return (out, problem.fn(out, args), stats), None
@@ -238,14 +243,9 @@ class NelderMead(AbstractMinimiser):
                 jnp.arange(2),
             )
 
-            return (
-                state,
-                state.simplex,
-                new_vertex,
-                f_new_vertex,
-            )
+            return (state, state.simplex, new_vertex, f_new_vertex, stats)
 
-        state, simplex, new_vertex, f_new_vertex = lax.cond(
+        state, simplex, new_vertex, f_new_vertex, stats = lax.cond(
             state.first_pass, init_step, main_step, state
         )
         #
@@ -258,22 +258,23 @@ class NelderMead(AbstractMinimiser):
         #
         # On the initial call, f_worst is initialized to 0. and f_new_vertex
         # is initialized to 1. This is to deliberately set shrink = True
-        # and call shrink_simplex. On the first iteration, best is the 0 pytree so
-        # shrink_simplex does not change simplex, and only evaluates f_simplex.
-        # This lets us avoid extra compile time from calling problem.fn in init
+        # and call shrink_simplex. This lets us call vmap(problem.fn) only in
+        # shrink simplex, which reduces compile time
         #
         shrink = f_new_vertex > f_worst
         stats = _update_stats(stats, shrink=shrink)
 
-        def update_simplex(best, new_vertex, simplex):
+        def update_simplex(best, new_vertex, simplex, first_pass):
             simplex = ω(simplex).at[worst_index].set(ω(new_vertex)).ω
             f_simplex = state.f_simplex.at[worst_index].set(f_new_vertex)
 
             return f_simplex, simplex
 
-        def shrink_simplex(best, new_vertex, simplex):
+        def shrink_simplex(best, new_vertex, simplex, first_pass):
             diff_best = (ω(simplex) - ω(best)).ω
-            simplex = (ω(best) + shrink_const * ω(diff_best)).ω
+            simplex = _tree_where(
+                first_pass, simplex, (ω(best) + shrink_const * ω(diff_best)).ω
+            )
             f_simplex, _ = jax.vmap(lambda x: problem.fn(x, args))(simplex)
             return f_simplex, simplex
 
@@ -281,7 +282,7 @@ class NelderMead(AbstractMinimiser):
             shrink,
             shrink_simplex,
             update_simplex,
-            *(best, new_vertex, state.simplex),
+            *(best, new_vertex, state.simplex, state.first_pass),
         )
         #
         # TODO(raderj): only 1 value is updated when not shrinking. This implies
