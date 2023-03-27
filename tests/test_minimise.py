@@ -1,19 +1,12 @@
-from typing import List
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
-from equinox.internal import ω
 
 import optimistix as optx
 
 from .helpers import shaped_allclose
-
-
-def _square(x):
-    return ω(x).call(lambda x: x**2).ω
 
 
 #
@@ -104,6 +97,10 @@ def _trigonometric(z, args):
 
 
 def _simple_nn(model, args):
+    # args is the activation functions in
+    # the MLP.
+    model = eqx.combine(model, args)
+
     key = jr.PRNGKey(17)
     model_key, data_key = jr.split(key, 2)
     x = jnp.linspace(0, 1, 100)[..., None]
@@ -116,20 +113,8 @@ def _simple_nn(model, args):
     return loss(model, x, y)
 
 
-class FFN(eqx.Module):
-    layers: List[eqx.nn.Linear]
+ffn_init = eqx.nn.MLP(in_size=1, out_size=1, width_size=8, depth=1, key=jr.PRNGKey(17))
 
-    def __init__(self, *, key):
-        key1, key2 = jax.random.split(key, 2)
-        self.layers = [eqx.nn.Linear(1, 8, key=key1), eqx.nn.Linear(8, 1, key=key2)]
-
-    def __call__(self, x):
-        for layer in self.layers[:-1]:
-            x = jax.nn.relu(layer(x))
-        return self.layers[-1](x)
-
-
-ffn_init = FFN(key=jr.PRNGKey(17))
 layer1, layer2 = ffn_init.layers
 
 weight1 = jnp.array(
@@ -172,6 +157,11 @@ weight2 = jnp.array(
 )
 bias2 = jnp.array([-2.16578771])
 
+#
+# The MLP can be difficult for some of the solvers to optimise. Rather than set
+# max_steps to a higher value and iterate for longer, we initialise the MLP
+# closer to the minimum by explicitly setting the weights and biases.
+#
 weightset = lambda x: x.weight
 biasset = lambda x: x.bias
 layer1 = eqx.tree_at(weightset, layer1, weight1)
@@ -188,10 +178,8 @@ _problems_minima_inits = (
         jnp.array(0.0),
         [jnp.array(0.0), jnp.array(0.0)],
     ),
-    #
     # start relatively close to the min as multidim coupled Rosenbrock is relatively
     # difficult for NM to handle.
-    #
     (
         optx.MinimiseProblem(_rosenbrock, False),
         jnp.array(0.0),
@@ -250,9 +238,11 @@ _problems_minima_inits = (
 @pytest.mark.parametrize("optimiser, tols", _optimisers_tols)
 @pytest.mark.parametrize("problem, minimum, init", _problems_minima_inits)
 def test_minimise(optimiser, tols, problem, minimum, init):
-    optimiser.init(problem, init, None, {})
     atol, rtol = tols
-    result_optx = optx.minimise(problem, optimiser, init, max_steps=10024)
-    minimum_optx = problem.fn(result_optx.value, None)
+    dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
+    result_optx = optx.minimise(
+        problem, optimiser, dynamic_init, args=static_init, max_steps=10024
+    )
+    minimum_optx = problem.fn(result_optx.value, static_init)
 
     assert shaped_allclose(minimum_optx, minimum, atol=atol, rtol=rtol)

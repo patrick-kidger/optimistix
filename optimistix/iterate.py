@@ -90,7 +90,7 @@ def _iterate(inputs, closure, while_loop):
         problem = eqx.tree_at(lambda p: p.fn, problem, NoneAux(problem.fn))
         init_aux = None
 
-    init_val = (y0, 0, dynamic_init_state, init_aux)
+    init_carry = (y0, 0, dynamic_init_state, init_aux)
 
     def cond_fun(carry):
         y, _, dynamic_state, _ = carry
@@ -106,9 +106,9 @@ def _iterate(inputs, closure, while_loop):
         assert eqx.tree_equal(static_state, new_static_state) is True
         return new_y, num_steps + 1, new_dynamic_state, aux
 
-    final_val = while_loop(cond_fun, body_fun, init_val, max_steps)
+    final_carry = while_loop(cond_fun, body_fun, init_carry, max_steps)
 
-    final_y, num_steps, final_state, aux = final_val
+    final_y, num_steps, final_state, aux = final_carry
     terminate, result = solver.terminate(problem, final_y, args, options, final_state)
     result = jnp.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
