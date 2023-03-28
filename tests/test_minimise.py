@@ -162,13 +162,14 @@ bias2 = jnp.array([-2.16578771])
 # max_steps to a higher value and iterate for longer, we initialise the MLP
 # closer to the minimum by explicitly setting the weights and biases.
 #
-weightset = lambda x: x.weight
-biasset = lambda x: x.bias
-layer1 = eqx.tree_at(weightset, layer1, weight1)
-layer1 = eqx.tree_at(biasset, layer1, bias1)
-layer2 = eqx.tree_at(weightset, layer2, weight2)
-layer2 = eqx.tree_at(biasset, layer2, bias2)
-ffn_init = eqx.tree_at(lambda x: x.layers, ffn_init, [layer1, layer2])
+
+
+def get_weights(model):
+    layer1, layer2 = model.layers
+    return layer1.weight, layer1.bias, layer2.weight, layer2.bias
+
+
+ffn_init = eqx.tree_at(get_weights, ffn_init, (weight1, bias1, weight2, bias2))
 
 _optimisers_tols = ((optx.NelderMead(1e-5, 1e-6), (1e-2, 1e-2)),)
 
