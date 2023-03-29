@@ -294,7 +294,6 @@ class NelderMead(AbstractMinimiser):
         # shrink simplex, which reduces compile time
         #
         shrink = f_new_vertex > f_worst
-        shrink = False
         stats = _update_stats(stats, shrink=shrink)
 
         def shrink_simplex(best, new_vertex, simplex, first_pass):
@@ -361,7 +360,7 @@ class NelderMead(AbstractMinimiser):
         return out, new_state, None
 
     def terminate(self, problem, y, args, options, state):
-        # TODO(raderj): only check terminate every k steps
+        # TODO(raderj): only check terminate every k
         (f_best,), (best_index,) = lax.top_k(-state.f_simplex, 1)
         f_best = -f_best
 

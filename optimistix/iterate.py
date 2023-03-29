@@ -131,7 +131,7 @@ def _iterate(inputs, closure, while_loop):
         RESULTS.max_steps_reached,
         result,
     )
-    return final_y, (num_steps, result, final_state, aux), while_loop
+    return final_y, (num_steps, result, final_state, aux)
 
 
 def iterative_solve(

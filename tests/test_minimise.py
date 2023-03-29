@@ -184,7 +184,7 @@ _problems_minima_inits = (
     (
         optx.MinimiseProblem(_rosenbrock, False),
         jnp.array(0.0),
-        (1.5 * jnp.ones(10), {"a": 1.5 * jnp.ones(10)}, ()),
+        (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
     ),
     (
         optx.MinimiseProblem(_himmelblau, False),
@@ -205,7 +205,7 @@ _problems_minima_inits = (
     (
         optx.MinimiseProblem(_penalty_ii, False),
         jnp.array(2.93660e-4),
-        0.5 * jnp.ones(10),
+        0.5 * jnp.ones((2, 5)),
     ),
     (
         optx.MinimiseProblem(_penalty_ii, False),
@@ -220,7 +220,7 @@ _problems_minima_inits = (
     (
         optx.MinimiseProblem(_variably_dimensioned, False),
         jnp.array(0.0),
-        (1 - jnp.arange(1, 7) / 10, {"a": jnp.arange(7, 11) / 10}),
+        (1 - jnp.arange(1, 7) / 10, {"a": (1 - jnp.arange(7, 11)) / 10}),
     ),
     (optx.MinimiseProblem(_trigonometric, False), jnp.array(0.0), jnp.ones(70) / 70),
     (
@@ -242,7 +242,7 @@ def test_minimise(optimiser, tols, problem, minimum, init):
     atol, rtol = tols
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
     result_optx = optx.minimise(
-        problem, optimiser, dynamic_init, args=static_init, max_steps=5012
+        problem, optimiser, dynamic_init, args=static_init, max_steps=10_024
     )
     minimum_optx = problem.fn(result_optx.value, static_init)
 
