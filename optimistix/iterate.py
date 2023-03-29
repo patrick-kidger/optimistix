@@ -101,17 +101,18 @@ def _iterate(inputs, closure, while_loop):
 
     def cond_fun(carry):
         y, _, dynamic_state, _ = carry
-        state = eqx.combine(dynamic_state, static_state)
+        state = eqx.combine(static_state, dynamic_state)
         terminate, _ = solver.terminate(problem, y, args, options, state)
         return jnp.invert(terminate)
 
     def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
+        static_buffered = eqx.filter(state, not eqx.is_array)
         new_y, new_state, aux = solver.step(problem, y, args, options, state)
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
 
-        assert eqx.tree_equal(static_state, new_static_state) is True
+        assert eqx.tree_equal(static_buffered, new_static_state) is True
 
         return new_y, num_steps + 1, new_state, aux
 

@@ -242,7 +242,7 @@ def test_minimise(optimiser, tols, problem, minimum, init):
     atol, rtol = tols
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
     result_optx = optx.minimise(
-        problem, optimiser, dynamic_init, args=static_init, max_steps=10024
+        problem, optimiser, dynamic_init, args=static_init, max_steps=5012
     )
     minimum_optx = problem.fn(result_optx.value, static_init)
 
