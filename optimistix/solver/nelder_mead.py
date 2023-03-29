@@ -298,7 +298,7 @@ class NelderMead(AbstractMinimiser):
 
         def shrink_simplex(best, new_vertex, simplex, first_pass):
             shrink_simplex = ω(simplex, best).at[...].sub(ω(best))
-            shrink_simplex = ω(simplex).at[...].multiply(shrink_const)
+            shrink_simplex = ω(simplex, best).at[...].multiply(shrink_const)
             shrink_simplex = ω(simplex, best).at[...].add(ω(best)).ω
 
             simplex = _tree_where(first_pass, simplex, simplex, shrink_simplex)
