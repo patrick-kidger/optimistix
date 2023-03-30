@@ -202,7 +202,13 @@ class NelderMead(AbstractMinimiser):
             f_new_vertex = jnp.array(1.0, dtype=state.f_simplex.dtype)
             # f_worst is 0., set this so that
             # shrink = f_new_simplex > f_worst is True
-            return (state, simplex, ω(simplex, y)[0].ω, f_new_vertex, state.stats)
+            return (
+                state,
+                simplex,
+                ω(simplex, structure=y)[0].ω,
+                f_new_vertex,
+                state.stats,
+            )
 
         def main_step(state):
             # TODO(raderj): Calculate the centroid and search dir based upon
@@ -210,7 +216,7 @@ class NelderMead(AbstractMinimiser):
             simplex_sum = lambda x: jtu.tree_map(ft.partial(jnp.sum, axis=0), x)
 
             search_direction = (
-                ((ω(state.simplex, y) - ω(worst)) / (n_vertices - 1))
+                ((ω(state.simplex, structure=y) - ω(worst)) / (n_vertices - 1))
                 .call(simplex_sum)
                 .ω
             )
@@ -297,18 +303,20 @@ class NelderMead(AbstractMinimiser):
         stats = _update_stats(stats, shrink=shrink)
 
         def shrink_simplex(best, new_vertex, simplex, first_pass):
-            shrink_simplex = ω(simplex, best).at[...].sub(ω(best))
-            shrink_simplex = ω(simplex, best).at[...].multiply(shrink_const)
-            shrink_simplex = ω(simplex, best).at[...].add(ω(best)).ω
+            shrink_simplex = ω(simplex, structure=best).at[...].add(-ω(best))
+            shrink_simplex = ω(simplex, structure=best).at[...].multiply(shrink_const)
+            shrink_simplex = ω(simplex, structure=best).at[...].add(ω(best)).ω
 
             simplex = _tree_where(first_pass, simplex, simplex, shrink_simplex)
             # Q: Can we avoid computing this?
-            unwrapped_simplex = ω(simplex, y).call(lambda x: x[...]).ω
+            unwrapped_simplex = ω(simplex, structure=y).call(lambda x: x[...]).ω
             f_simplex, _ = jax.vmap(lambda x: problem.fn(x, args))(unwrapped_simplex)
             return f_simplex, simplex
 
         def update_simplex(best, new_vertex, simplex, first_pass):
-            simplex = ω(simplex, new_vertex).at[worst_index].set(ω(new_vertex)).ω
+            simplex = (
+                ω(simplex, structure=new_vertex).at[worst_index].set(ω(new_vertex)).ω
+            )
             f_simplex = state.f_simplex.at[worst_index].set(f_new_vertex)
 
             return f_simplex, simplex
@@ -333,8 +341,8 @@ class NelderMead(AbstractMinimiser):
         f_vals, (worst_index, _) = lax.top_k(f_new_simplex, 2)
         (f_worst, f_second_worst) = f_vals
 
-        best = ω(simplex, y)[best_index].ω
-        worst = ω(simplex, y)[worst_index].ω
+        best = ω(simplex, structure=y)[best_index].ω
+        worst = ω(simplex, structure=y)[worst_index].ω
 
         new_state = _NelderMeadState(
             simplex=new_simplex,
@@ -364,12 +372,12 @@ class NelderMead(AbstractMinimiser):
         (f_best,), (best_index,) = lax.top_k(-state.f_simplex, 1)
         f_best = -f_best
 
-        best = ω(state.simplex, y)[best_index].ω
+        best = ω(state.simplex, structure=y)[best_index].ω
 
         x_scale = (self.atol + self.rtol * ω(best).call(jnp.abs)).ω
         f_scale = (self.atol + self.rtol * ω(f_best).call(jnp.abs)).ω
 
-        unwrapped_simplex = ω(state.simplex, y).call(lambda x: x[...]).ω
+        unwrapped_simplex = ω(state.simplex, structure=y).call(lambda x: x[...]).ω
         x_diff = ((ω(unwrapped_simplex) - ω(best)).call(jnp.abs) / ω(x_scale)).ω
         x_conv = self.norm(x_diff) < 1
 

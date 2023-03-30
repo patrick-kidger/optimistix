@@ -1,7 +1,10 @@
+import functools as ft
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import jax.tree_util as jtu
 import pytest
 
 import optimistix as optx
@@ -175,56 +178,56 @@ _optimisers_tols = ((optx.NelderMead(1e-5, 1e-6), (1e-2, 1e-2)),)
 
 _problems_minima_inits = (
     (
-        optx.MinimiseProblem(_rosenbrock, False),
+        _rosenbrock,
         jnp.array(0.0),
         [jnp.array(0.0), jnp.array(0.0)],
     ),
     # start relatively close to the min as multidim coupled Rosenbrock is relatively
     # difficult for NM to handle.
     (
-        optx.MinimiseProblem(_rosenbrock, False),
+        _rosenbrock,
         jnp.array(0.0),
         (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
     ),
     (
-        optx.MinimiseProblem(_himmelblau, False),
+        _himmelblau,
         jnp.array(0.0),
         [jnp.array(1.0), jnp.array(1.0)],
     ),
     (
-        optx.MinimiseProblem(_matyas, False),
+        _matyas,
         jnp.array(0.0),
         [jnp.array(6.0), jnp.array(6.0)],
     ),
     (
-        optx.MinimiseProblem(_beale, False),
+        _beale,
         jnp.array(0.0),
         [jnp.array(2.0), jnp.array(0.0)],
     ),
-    (optx.MinimiseProblem(_simple_nn, False), jnp.array(0.0), ffn_init),
+    (_simple_nn, jnp.array(0.0), ffn_init),
     (
-        optx.MinimiseProblem(_penalty_ii, False),
+        _penalty_ii,
         jnp.array(2.93660e-4),
         0.5 * jnp.ones((2, 5)),
     ),
     (
-        optx.MinimiseProblem(_penalty_ii, False),
+        _penalty_ii,
         jnp.array(2.93660e-4),
         (({"a": 0.5 * jnp.ones(4)}), 0.5 * jnp.ones(3), (0.5 * jnp.ones(3), ())),
     ),
     (
-        optx.MinimiseProblem(_variably_dimensioned, False),
+        _variably_dimensioned,
         jnp.array(0.0),
         1 - jnp.arange(1, 11) / 10,
     ),
     (
-        optx.MinimiseProblem(_variably_dimensioned, False),
+        _variably_dimensioned,
         jnp.array(0.0),
         (1 - jnp.arange(1, 7) / 10, {"a": (1 - jnp.arange(7, 11)) / 10}),
     ),
-    (optx.MinimiseProblem(_trigonometric, False), jnp.array(0.0), jnp.ones(70) / 70),
+    (_trigonometric, jnp.array(0.0), jnp.ones(70) / 70),
     (
-        optx.MinimiseProblem(_trigonometric, False),
+        _trigonometric,
         jnp.array(0.0),
         ((jnp.ones(40) / 70, (), {"a": jnp.ones(20) / 70}), jnp.ones(10) / 70),
     ),
@@ -237,13 +240,47 @@ _problems_minima_inits = (
 
 
 @pytest.mark.parametrize("optimiser, tols", _optimisers_tols)
-@pytest.mark.parametrize("problem, minimum, init", _problems_minima_inits)
-def test_minimise(optimiser, tols, problem, minimum, init):
+@pytest.mark.parametrize("problem_fn, minimum, init", _problems_minima_inits)
+def test_minimise(optimiser, tols, problem_fn, minimum, init):
+
+    problem = optx.MinimiseProblem(problem_fn, has_aux=False)
     atol, rtol = tols
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
     result_optx = optx.minimise(
-        problem, optimiser, dynamic_init, args=static_init, max_steps=10_024
+        problem, optimiser, dynamic_init, args=static_init, max_steps=5012
     )
     minimum_optx = problem.fn(result_optx.value, static_init)
 
     assert shaped_allclose(minimum_optx, minimum, atol=atol, rtol=rtol)
+
+
+@pytest.mark.parametrize("optimiser, tols", _optimisers_tols)
+@pytest.mark.parametrize("problem_fn, minimum, init", _problems_minima_inits)
+def test_jvp(getkey, optimiser, tols, problem_fn, minimum, init):
+
+    problem = optx.MinimiseProblem(problem_fn, has_aux=False)
+    atol, rtol = tols
+    dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
+    result_optx = optx.minimise(
+        problem, optimiser, dynamic_init, args=static_init, max_steps=5012
+    )
+
+    optimum = result_optx.value
+
+    leaves, treedef = jtu.tree_flatten(init)
+    t_leaves = [jr.normal(getkey(), leaf.shape) for leaf in leaves]
+    t_init = jtu.tree_unflatten(treedef, t_leaves)
+    t_dynamic = eqx.filter(t_init, eqx.is_inexact_array)
+    optx_min = ft.partial(
+        optx.minimise,
+        problem=problem,
+        solver=optimiser,
+        args=static_init,
+        max_steps=5012,
+    )
+
+    breakpoint()
+    jax_jvp = eqx.filter_jvp(jax.scipy.optimize.minimize, (optimum,), (t_dynamic,))
+    optx_jvp = eqx.filter_jvp(optx_min, (dynamic_init,), (t_dynamic))
+
+    assert shaped_allclose(optx_jvp, jax_jvp)
