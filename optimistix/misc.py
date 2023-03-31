@@ -7,7 +7,7 @@ import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import PyTree
+from jaxtyping import Array, ArrayLike, Bool, PyTree
 
 from .custom_types import Scalar
 
@@ -36,6 +36,13 @@ def _rms_norm_jvp(x, tx):
     denominator = jnp.where(pred, 1, out * x.size)
     t_out = jnp.dot(numerator / denominator, tx)
     return out, t_out
+
+
+def tree_where(
+    pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
+) -> PyTree[Array]:
+    keep = lambda a, b: jnp.where(pred, a, b)
+    return jtu.tree_map(keep, true, false)
 
 
 def max_norm(x: PyTree) -> Scalar:

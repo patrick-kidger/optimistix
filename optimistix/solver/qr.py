@@ -1,6 +1,5 @@
-from typing import Optional
-
 import jax.numpy as jnp
+import jax.scipy as jsp
 
 from ..linear_solve import AbstractLinearSolver
 from ..solution import RESULTS
@@ -10,20 +9,25 @@ from .misc import (
     transpose_packed_structures,
     unravel_solution,
 )
-from .triangular import solve_triangular
 
 
 class QR(AbstractLinearSolver):
     """QR solver for linear systems.
 
-    This solver can handle singular operators.
+    This solver can handle non-square operators.
 
-    This is usually the preferred solver when dealing with singular operators.
+    This is usually the preferred solver when dealing with non-square operators.
 
-    Equivalent to `scipy.linalg.lstsq`.
+    !!! info
+
+        Note that whilst this does handle non-square operators, it still cannot handle
+        singular operators (i.e. operators with less than full rank).
+
+        This is because JAX does not currently support a rank-revealing/pivoted QR
+        decomposition, see [issue #12897](https://github.com/google/jax/issues/12897).
+
+        For such use cases, switch to [`optimistix.SVD`][] instead.
     """
-
-    rcond: Optional[float] = None
 
     def init(self, operator, options):
         del options
@@ -41,20 +45,17 @@ class QR(AbstractLinearSolver):
         del state, options
         vector = ravel_vector(vector, packed_structures)
         if transpose:
-            # Minimal norm solution if ill-posed
-            solution = q @ solve_triangular(
-                r.T, vector, lower=True, unit_diagonal=False, rcond=self.rcond
+            # Minimal norm solution if underdetermined.
+            solution = q @ jsp.linalg.solve_triangular(
+                r, vector, trans="T", unit_diagonal=False
             )
         else:
-            # Least squares solution if ill-posed
-            solution = solve_triangular(
-                r, q.T @ vector, lower=False, unit_diagonal=False, rcond=self.rcond
+            # Least squares solution if overdetermined.
+            solution = jsp.linalg.solve_triangular(
+                r, q.T @ vector, trans="N", unit_diagonal=False
             )
         solution = unravel_solution(solution, packed_structures)
         return solution, RESULTS.successful, {}
-
-    def pseudoinverse(self, operator):
-        return True
 
     def transpose(self, state, options):
         (q, r), transpose, structures = state
@@ -63,10 +64,19 @@ class QR(AbstractLinearSolver):
         transpose_options = {}
         return transpose_state, transpose_options
 
+    def allow_dependent_columns(self, operator):
+        rows = operator.out_size()
+        columns = operator.in_size()
+        # We're able to pull an efficiency trick here.
+        #
+        # As we don't use a rank-revealing implementation, then we always require that
+        # the operator have full rank.
+        #
+        # So if we have columns <= rows, then we know that all our columns are linearly
+        # independent. We can return `False` and get a computationally cheaper jvp rule.
+        return columns > rows
 
-QR.__init__.__doc__ = """**Arguments**:
-
-- `rcond`: the cutoff for handling zero entries on the diagonal. Defaults to machine
-    precision times `max(N, M)`, where `(N, M)` is the shape of the operator. (I.e.
-    `N` is the output size and `M` is the input size.)
-"""
+    def allow_dependent_rows(self, operator):
+        rows = operator.out_size()
+        columns = operator.in_size()
+        return rows > columns

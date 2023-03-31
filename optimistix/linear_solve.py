@@ -1,6 +1,6 @@
 import abc
 import functools as ft
-from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
+from typing import Any, Dict, Optional, Tuple, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -19,7 +19,6 @@ from .linear_operator import (
     is_diagonal,
     is_lower_triangular,
     is_negative_semidefinite,
-    is_nonsingular,
     is_positive_semidefinite,
     is_upper_triangular,
     linearise,
@@ -103,40 +102,68 @@ def _linear_solve_jvp(primals, tangents):
     # Consider the primal problem of linearly solving for x in Ax=b.
     # Let ^ denote pseudoinverses, ᵀ denote transposes, and ' denote tangents.
     # The linear_solve routine returns specifically the pseudoinverse solution, i.e.
+    #
     # x = A^b
+    #
     # Therefore x' = A^'b + A^b'
     #
     # Now A^' = -A^A'A^ + A^A^ᵀAᵀ'(I - AA^) + (I - A^A)Aᵀ'A^ᵀA^
     #
     # (Source: https://en.wikipedia.org/wiki/Moore%E2%80%93Penrose_inverse#Derivative)
     #
-    # Noting that one of these terms cancels as (I - AA^)b = 0, we have that
-    # x' = -A^A'x + (I - A^A)Aᵀ'A^ᵀx + A^b'
-    # which may be calculated as
+    # This results in:
     #
-    # x' = A^(-A'x - Ay + b') + y
+    # x' = A^(-A'x + A^ᵀAᵀ'(b - Ax) - Ay + b') + y
+    #
     # where
+    #
     # y = Aᵀ'A^ᵀx
     #
-    # and when A is nonsingular note that this reduces to just
+    # note that if A has linearly independent columns, then the y - A^Ay
+    # term disappears and gives
+    #
+    # x' = A^(-A'x + A^ᵀAᵀ'(b - Ax) + b')
+    #
+    # and if A has linearly independent rows, then the A^A^ᵀAᵀ'(b - Ax) term
+    # disappears giving:
+    #
+    # x' = A^(-A'x - Ay + b') + y
+    #
+    # if A has linearly independent rows and columns, then A is nonsingular and
     #
     # x' = A^(-A'x + b')
-    #
+
     vecs = []
     sols = []
     if any(t is not None for t in jtu.tree_leaves(t_vector, is_leaf=_is_none)):
+        # b' term
         vecs.append(
             jtu.tree_map(eqxi.materialise_zeros, vector, t_vector, is_leaf=_is_none)
         )
     if any(t is not None for t in jtu.tree_leaves(t_operator, is_leaf=_is_none)):
         t_operator = TangentLinearOperator(operator, t_operator)
         t_operator = linearise(t_operator)  # optimise for matvecs
+        # -A'x term
         vec = (-t_operator.mv(solution) ** ω).ω
         vecs.append(vec)
-        operator_transpose = operator.transpose()
-        if solver.pseudoinverse(operator_transpose) and not is_nonsingular(
-            operator_transpose
-        ):
+        if solver.allow_dependent_rows(operator):
+            operator_transpose = operator.transpose()
+            t_operator_transpose = t_operator.transpose()
+            lst_sqr_diff = (vector**ω - operator.mv(solution) ** ω).ω
+            tmp = t_operator_transpose.mv(lst_sqr_diff)
+            state_transpose, options_transpose = solver.transpose(state, options)
+            tmp, _, _ = eqxi.filter_primitive_bind(
+                linear_solve_p,
+                operator_transpose,
+                state_transpose,
+                tmp,
+                options_transpose,
+                solver,
+            )
+            vecs.append(tmp)
+
+        if solver.allow_dependent_columns(operator):
+            operator_transpose = operator.transpose()
             state_transpose, options_transpose = solver.transpose(state, options)
             tmp1, _, _ = eqxi.filter_primitive_bind(
                 linear_solve_p,
@@ -147,11 +174,14 @@ def _linear_solve_jvp(primals, tangents):
                 solver,
             )
             tmp2 = t_operator.transpose().mv(tmp1)
+            # tmp2 is the y term
             tmp3 = operator.mv(tmp2)
             tmp4 = (-(tmp3**ω)).ω
+            # tmp4 is the Ay term
             vecs.append(tmp4)
             sols.append(tmp2)
     vecs = jtu.tree_map(_sum, *vecs)
+    # the A^ term at the very beginning
     sol, _, _ = eqxi.filter_primitive_bind(
         linear_solve_p, operator, state, vecs, options, solver
     )
@@ -292,21 +322,43 @@ class AbstractLinearSolver(eqx.Module):
         """
 
     @abc.abstractmethod
-    def pseudoinverse(self, operator: AbstractLinearOperator) -> bool:
-        """Does this method ever produce the pseudoinverse solution. That is, does it
-        ever (even if only sometimes) handle singular operators?"
+    def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
+        """Does this method ever produce non-NaN outputs for operators with linearly
+        dependent columns? (Even if only sometimes.)
 
         If `True` then a more expensive backward pass is needed, to account for the
-        extra generality. If you're certain that your operator is nonsingular, then you
-        can disable this extra cost by ensuring that `is_nonsingular(operator) == True`.
-        This may produce incorrect gradients if your operator is actually singular,
-        though.
+        extra generality.
 
         If you do not need to autodifferentiate through a custom linear solver then you
         simply define this method as
         ```python
         class MyLinearSolver(AbstractLinearsolver):
-            def pseudoinverse(self, operator):
+            def allow_dependent_columns(self, operator):
+                raise NotImplementedError
+        ```
+
+        **Arguments:**
+
+        - `operator`: a linear operator.
+
+        **Returns:**
+
+        Either `True` or `False`.
+        """
+
+    @abc.abstractmethod
+    def allow_dependent_rows(self, operator: AbstractLinearOperator) -> bool:
+        """Does this method ever produce non-NaN outputs for operators with
+        linearly dependent rows? (Even if only sometimes)
+
+        If `True` then a more expensive backward pass is needed, to account for the
+        extra generality.
+
+        If you do not need to autodifferentiate through a custom linear solver then you
+        simply define this method as
+        ```python
+        class MyLinearSolver(AbstractLinearsolver):
+            def allow_dependent_rows(self, operator):
                 raise NotImplementedError
         ```
 
@@ -351,25 +403,29 @@ class AbstractLinearSolver(eqx.Module):
         """
 
 
-_qr_token = eqxi.str2jax("QR")
-_diagonal_token = eqxi.str2jax("Diagonal")
-_triangular_token = eqxi.str2jax("Triangular")
-_cholesky_token = eqxi.str2jax("Cholesky")
-_lu_token = eqxi.str2jax("LU")
+_qr_token = eqxi.str2jax("qr_token")
+_diagonal_token = eqxi.str2jax("diagonanl_token")
+_well_posed_diagonal_token = eqxi.str2jax("well_posed_diagonal_token")
+_triangular_token = eqxi.str2jax("triangular_token")
+_cholesky_token = eqxi.str2jax("cholesky_token")
+_lu_token = eqxi.str2jax("lu_token")
+_svd_token = eqxi.str2jax("svd_token")
 
 
 # Ugly delayed import because we have the dependency chain
 # linear_solve -> AutoLinearSolver -> {Cholesky,...} -> AbstractLinearSolver
 # but we want linear_solver and AbstractLinearSolver in the same file.
-def _lookup(token) -> Callable[[], AbstractLinearSolver]:
+def _lookup(token) -> AbstractLinearSolver:
     from . import solver
 
     _lookup_dict = {
-        _qr_token: solver.QR,
-        _diagonal_token: solver.Diagonal,
-        _triangular_token: solver.Triangular,
-        _cholesky_token: solver.Cholesky,
-        _lu_token: solver.LU,
+        _qr_token: solver.QR(),
+        _diagonal_token: solver.Diagonal(),
+        _well_posed_diagonal_token: solver.Diagonal(well_posed=True),
+        _triangular_token: solver.Triangular(),
+        _cholesky_token: solver.Cholesky(),
+        _lu_token: solver.LU(),
+        _svd_token: solver.SVD(),
     }
     return _lookup_dict[token]
 
@@ -378,47 +434,102 @@ class AutoLinearSolver(AbstractLinearSolver):
     """Automatically determines a good linear solver based on the structure of the
     operator.
 
-    Each of these options is run through in order:
+    - If `well_posed=True`:
+        - If the operator is diagonal, then use [`optimistix.Diagonal`][].
+        - Else if the operator is triangular, then use [`optimistix.Triangular`][].
+        - Else if the matrix is positive or negative definite, then use
+            [`optimistix.Cholesky`][].
+        - Else use [`optimistix.LU`][].
 
-    - If the operator is non-square, then use [`optimistix.QR`][].
-    - If the operator is diagonal, then use [`optimistix.Diagonal`][].
-    - If the operator is triangular, then use [`optimistix.Triangular`][].
-    - If the matrix is positive or negative definite, then use
-        [`optimistix.Cholesky`][].
-    - Else, use [`optimistix.LU`][]
+    This is a good choice if you want to be certain that an error is raised for
+    ill-posed systems.
+
+    - If `well_posed=False`:
+        - If the operator is diagonal, then use [`optimistix.Diagonal`][].
+        - Else use [`optimistix.SVD`][].
+
+    This is a good choice if you want to be certain that you can handle ill-posed
+    systems.
+
+    - If `well_posed=None`:
+        - If the operator is non-square, then use [`optimistix.QR`][].
+        - If the operator is diagonal, then use [`optimistix.Diagonal`][].
+        - If the operator is triangular, then use [`optimistix.Triangular`][].
+        - If the matrix is positive or negative definite, then use
+            [`optimistix.Cholesky`][].
+        - Else, use [`optimistix.LU`][].
+
+    This is a good choice if your primarily concern is computational efficiency. It will
+    handle ill-posed systems as long as it is not computationally expensive to do so.
     """
 
+    well_posed: Optional[bool]
+
     def _auto_select_solver(self, operator: AbstractLinearOperator):
-        if operator.in_size() != operator.out_size():
-            token = _qr_token
-        elif is_diagonal(operator):
-            token = _diagonal_token
-        elif is_lower_triangular(operator) or is_upper_triangular(operator):
-            token = _triangular_token
-        elif is_positive_semidefinite(operator) or is_negative_semidefinite(operator):
-            token = _cholesky_token
+        if self.well_posed is True:
+            if is_diagonal(operator):
+                token = _well_posed_diagonal_token
+            elif is_lower_triangular(operator) or is_upper_triangular(operator):
+                token = _triangular_token
+            elif is_positive_semidefinite(operator) or is_negative_semidefinite(
+                operator
+            ):
+                token = _cholesky_token
+            else:
+                token = _lu_token
+        elif self.well_posed is False:
+            if is_diagonal(operator):
+                token = _diagonal_token
+            else:
+                # TODO: use rank-revealing QR instead.
+                token = _svd_token
+        elif self.well_posed is None:
+            if operator.in_size() != operator.out_size():
+                token = _qr_token
+            elif is_diagonal(operator):
+                token = _diagonal_token
+            elif is_lower_triangular(operator) or is_upper_triangular(operator):
+                token = _triangular_token
+            elif is_positive_semidefinite(operator) or is_negative_semidefinite(
+                operator
+            ):
+                token = _cholesky_token
+            else:
+                token = _lu_token
         else:
-            token = _lu_token
+            raise ValueError(f"Invalid value `well_posed={self.well_posed}`.")
         return token
 
     def init(self, operator, options):
         token = self._auto_select_solver(operator)
-        return token, _lookup(token)().init(operator, options)
+        return token, _lookup(token).init(operator, options)
 
     def compute(self, state, vector, options):
         token, state = state
-        solver = _lookup(token)()
+        solver = _lookup(token)
         solution, result, _ = solver.compute(state, vector, options)
         return solution, result, {}
 
-    def pseudoinverse(self, operator: AbstractLinearOperator) -> bool:
-        token = self._auto_select_solver(operator)
-        return _lookup(token)().pseudoinverse(operator)
-
     def transpose(self, state, options):
         token, state = state
-        solver = _lookup(token)()
-        return solver.transpose(state, options)
+        solver = _lookup(token)
+        transpose_state, transpose_options = solver.transpose(state, options)
+        transpose_state = (token, transpose_state)
+        return transpose_state, transpose_options
+
+    def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
+        token = self._auto_select_solver(operator)
+        return _lookup(token).allow_dependent_columns(operator)
+
+    def allow_dependent_rows(self, operator: AbstractLinearOperator) -> bool:
+        token = self._auto_select_solver(operator)
+        return _lookup(token).allow_dependent_rows(operator)
+
+
+AutoLinearSolver.__init__.__doc__ = """**Arguments:**
+
+- `well_posed`: whether to only handle well-posed systems or not, as discussed above.
+"""
 
 
 # TODO(kidger): gmres, bicgstab
@@ -427,7 +538,7 @@ class AutoLinearSolver(AbstractLinearSolver):
 def linear_solve(
     operator: AbstractLinearOperator,
     vector: PyTree[ArrayLike],
-    solver: AbstractLinearSolver = AutoLinearSolver(),
+    solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
     *,
     options: Optional[Dict[str, Any]] = None,
     state: PyTree[Any] = sentinel,
@@ -435,46 +546,31 @@ def linear_solve(
 ) -> Solution:
     r"""Solves a linear system.
 
-    - If the operator is nonsingular, then this returns the usual solution to a linear
-        system.
-    - If the operator is singular and overdetermined, then this either returns the
-        least-squares solution, or throws an error. (Depending on the choice of solver.)
-    - If the operator is singular and underdetermined, then this either returns the
-        minimum-norm solution, or throws an error. (Depending on the choice of solver.)
+    Given an operator represented as a matrix $A$, and a vector $b$: if the operator is
+    square and nonsingular (so that the problem is well-posed), then this returns the
+    usual solution $x$ to $Ax = b$, defined as $A^{-1}b$.
+
+    If the operator is overdetermined, then this either returns the least-squares
+    solution $\min_x \| Ax - b \|_2$, or throws an error. (Depending on the choice of
+    solver.)
+
+    If the operator is underdetermined, then this either returns the minimum-norm
+    solution $\min_x \|x\|_2 \text{ subject to } Ax = b$, or throws an error. (Depending
+    on the choice of solver.)
 
     !!! info
 
-        This function is equivalent to either `numpy.linalg.lstsq` or
-        `numpy.linalg.solve`, depending on the choice of solver.
+        This function is equivalent to either `numpy.linalg.solve`, or to its
+        generalisation `numpy.linalg.lstsq`, depending on the choice of solver.
 
-    !!! info
+    The default solver is [`optimistix.AutoLinearSolver(well_posed=True)`][]. This
+    automatically selects a solver depending on the structure (e.g. triangular) of your
+    problem, and will throw an error if your system is overdetermined or
+    underdetermined.
 
-        Given an operator represented as a matrix $A$, and a vector $b$, then the
-        usual solution $x$ to $Ax = b$ is defined as
-
-        $$ A^{-1} b $$
-
-        and the least-squares solution is defined as
-
-        $$ \min_x \| Ax - b \|_2 $$
-
-        and the minimum-norm solution is defined as
-
-        $$ \min_x \|x\|_2 \text{ subject to } Ax = b.$$
-
-    The default solver is [`optimistix.AutoLinearSolver`][]. If the operator is
-    definitely singular (e.g. the operator is not square) or the operator has
-    special structure that can be efficiently exploited even if it is singular (e.g.
-    the operator is triangular), then this will select a solver that can handle the
-    singular case.
-
-    Otherwise, for computational efficiency (and in recognition of the fact that
-    nonsingular operators are more common than singular operators), then a solver that
-    cannot handle the singular case may be used. If you find that your operator is
-    singular and you would like to be sure of getting a least-squares or
-    minimum-norm solution, then specify a solver that handles this case. Typical choices
-    are [`optimistix.QR`][] (slightly cheaper) or [`optimistix.SVD`][] (slightly more
-    numerically stable).
+    Use `optimistix.AutoLinearSolver(well_posed=False)` if your system is known to be
+    overdetermined or underdetermined (although handling this case implies greater
+    computational cost).
 
     !!! tip
 
@@ -507,8 +603,8 @@ def linear_solve(
         The default is [`optimistix.AutoLinearSolver`][] which behaves as discussed
         above.
 
-        If solving with a singular operator then passing either [`optimistix.QR`][] or
-        [`optimistix.SVD`][] is common.
+        If the operator is overdetermined or underdetermined , then passing
+        [`optimistix.SVD`][] is typical.
 
     - `options`: Individual solvers may accept additional runtime arguments; for example
         [`optimistix.CG`][] allows for specifying a preconditioner. See each individual
@@ -521,7 +617,7 @@ def linear_solve(
         argument.
 
     - `throw`: How to report any failures. (E.g. an iterative solver running out of
-        steps, or a nonsingular solver being run with a singular operator.)
+        steps, or a well-posed-only solver being run with a singular operator.)
 
         If `True` then a failure will raise an error. Note that errors are only reliably
         raised on CPUs. If on GPUs then the error may only be printed to stderr, whilst
@@ -548,9 +644,14 @@ def linear_solve(
         options = {}
     vector = jtu.tree_map(inexact_asarray, vector)
     vector_struct = jax.eval_shape(lambda: vector)
+    operator_out_structure = operator.out_structure()
     # `is` to handle tracers
-    if eqx.tree_equal(vector_struct, operator.out_structure()) is not True:
-        raise ValueError("Vector and operator structures do not match")
+    if eqx.tree_equal(vector_struct, operator_out_structure) is not True:
+        raise ValueError(
+            "Vector and operator structures do not match. Got a vector with structure "
+            f"{vector_struct} and an operator with out-structure "
+            f"{operator_out_structure}"
+        )
     if isinstance(operator, IdentityLinearOperator):
         return Solution(
             value=vector, result=RESULTS.successful, state=state, stats={}, aux=None
@@ -576,11 +677,13 @@ def linear_solve(
     # TODO: prevent forward-mode autodiff through stats
     stats = eqxi.nondifferentiable_backward(stats)
 
-    has_nans = jnp.any(
-        jnp.stack([jnp.any(jnp.isnan(x)) for x in jtu.tree_leaves(solution)])
+    has_nonfinites = jnp.any(
+        jnp.stack(
+            [jnp.any(jnp.invert(jnp.isfinite(x))) for x in jtu.tree_leaves(solution)]
+        )
     )
     result = jnp.where(
-        (result == RESULTS.successful) & has_nans, RESULTS.linear_singular, result
+        (result == RESULTS.successful) & has_nonfinites, RESULTS.linear_singular, result
     )
     sol = Solution(value=solution, result=result, state=state, stats=stats, aux=None)
 

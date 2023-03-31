@@ -12,8 +12,7 @@ class Cholesky(AbstractLinearSolver):
 
     Equivalent to `scipy.linalg.solve(..., assume_a="pos")`.
 
-    The operator must be positive or negative definite. The operator must be
-    nonsingular.
+    The operator must be square, nonsingular, and either positive or negative definite.
     """
 
     def init(self, operator, options):
@@ -50,9 +49,12 @@ class Cholesky(AbstractLinearSolver):
         solution = unflatten(solution)
         return solution, RESULTS.successful, {}
 
-    def pseudoinverse(self, operator):
-        return False
-
     def transpose(self, state, options):
         # Matrix is symmetric anyway
         return state, options
+
+    def allow_dependent_columns(self, operator):
+        return False
+
+    def allow_dependent_rows(self, operator):
+        return False

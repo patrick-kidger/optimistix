@@ -17,7 +17,7 @@ from ..linear_operator import (
     linearise,
 )
 from ..linear_solve import AbstractLinearSolver
-from ..misc import max_norm
+from ..misc import max_norm, resolve_rcond, tree_where
 from ..solution import RESULTS
 
 
@@ -149,6 +149,7 @@ class CG(AbstractLinearSolver):
         r0 = (vector**ω - mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
         gamma0 = _tree_dot(r0, p0)
+        rcond = resolve_rcond(None, vector.size, vector.size, vector.dtype)
         initial_value = (jnp.zeros_like(y0), y0, r0, p0, gamma0, 0)
         has_scale = not (
             isinstance(self.atol, (int, float))
@@ -176,7 +177,13 @@ class CG(AbstractLinearSolver):
         def body_fun(value):
             _, y, r, p, gamma, step = value
             mat_p = mv(p)
-            alpha = gamma / _tree_dot(p, mat_p)
+            inner_prod = _tree_dot(p, mat_p)
+            alpha = gamma / inner_prod
+            alpha = tree_where(
+                jnp.abs(inner_prod) > 100 * rcond * gamma,
+                alpha,
+                jnp.inf,
+            )
             diff = (alpha * p**ω).ω
             y = (y**ω + diff**ω).ω
             step = step + 1
@@ -227,13 +234,18 @@ class CG(AbstractLinearSolver):
             {"num_steps": num_steps, "max_steps": self.max_steps},
         )
 
-    def pseudoinverse(self, operator):
-        return True
-
     def transpose(self, state, options):
-        # In particular the preconditioner is necessarily already positive definite, so
-        # it doesn't need transposing or anything.
-        return state, options
+        del options
+        psd_op, is_nsd = state
+        transpose_state = psd_op.transpose(), is_nsd
+        transpose_options = {}
+        return transpose_state, transpose_options
+
+    def allow_dependent_columns(self, operator):
+        return False
+
+    def allow_dependent_rows(self, operator):
+        return False
 
 
 CG.__init__.__doc__ = r"""**Arguments:**

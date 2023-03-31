@@ -8,6 +8,7 @@ import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Float, PyTree, Shaped
 
@@ -16,10 +17,10 @@ from .linear_tags import (
     diagonal_tag,
     lower_triangular_tag,
     negative_semidefinite_tag,
-    nonsingular_tag,
     positive_semidefinite_tag,
     symmetric_tag,
     transpose_tags,
+    tridiagonal_tag,
     unit_diagonal_tag,
     upper_triangular_tag,
 )
@@ -237,11 +238,11 @@ class MatrixLinearOperator(AbstractLinearOperator):
         return MatrixLinearOperator(self.matrix.T, transpose_tags(self.tags))
 
     def in_structure(self):
-        in_size, _ = jnp.shape(self.matrix)
+        _, in_size = jnp.shape(self.matrix)
         return jax.ShapeDtypeStruct(shape=(in_size,), dtype=self.matrix.dtype)
 
     def out_structure(self):
-        _, out_size = jnp.shape(self.matrix)
+        out_size, _ = jnp.shape(self.matrix)
         return jax.ShapeDtypeStruct(shape=(out_size,), dtype=self.matrix.dtype)
 
 
@@ -687,6 +688,65 @@ class DiagonalLinearOperator(AbstractLinearOperator):
         return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
 
 
+class TridiagonalLinearOperator(AbstractLinearOperator):
+    """As [`optimistix.MatrixLinearOperator`][], but for specifically a tridiagonal
+    matrix.
+    """
+
+    diagonal: Float[Array, " size"]
+    lower_diagonal: Float[Array, " size-1"]
+    upper_diagonal: Float[Array, " size-1"]
+
+    def __init__(
+        self,
+        diagonal: Float[Array, " size"],
+        lower_diagonal: Float[Array, " size-1"],
+        upper_diagonal: Float[Array, " size-1"],
+    ):
+        """**Arguments:**
+
+        - `diagonal`: A rank-one JAX array. This is the diagonal of the matrix.
+        - `lower_diagonal`: A rank-one JAX array. This is the lower diagonal of the
+            matrix.
+        - `upper_diagonal`: A rank-one JAX array. This is the upper diagonal of the
+            matrix.
+
+        If `diagonal` has shape `(a,)` then `lower_diagonal` and `upper_diagonal` should
+        both have shape `(a - 1,)`.
+        """
+        self.diagonal = inexact_asarray(diagonal)
+        self.lower_diagonal = inexact_asarray(lower_diagonal)
+        self.upper_diagonal = inexact_asarray(upper_diagonal)
+
+    def mv(self, vector):
+        a = self.upper_diagonal * vector[1:]
+        b = self.diagonal * vector
+        c = self.lower_diagonal * vector[:-1]
+        return a + b + c
+
+    def as_matrix(self):
+        (size,) = jnp.shape(self.diagonal)
+        matrix = jnp.zeros((size, size), self.diagonal.dtype)
+        arange = np.arange(size)
+        matrix = matrix.at[arange, arange].set(self.diagonal)
+        matrix = matrix.at[arange[1:], arange[:-1]].set(self.lower_diagonal)
+        matrix = matrix.at[arange[:-1], arange[1:]].set(self.upper_diagonal)
+        return matrix
+
+    def transpose(self):
+        return TridiagonalLinearOperator(
+            self.diagonal, self.upper_diagonal, self.lower_diagonal
+        )
+
+    def in_structure(self):
+        (size,) = jnp.shape(self.diagonal)
+        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
+
+    def out_structure(self):
+        (size,) = jnp.shape(self.diagonal)
+        return jax.ShapeDtypeStruct(shape=(size,), dtype=self.diagonal.dtype)
+
+
 class TaggedLinearOperator(AbstractLinearOperator):
     """Wraps another linear operator and specifies that it has certain tags, e.g.
     representing symmetry.
@@ -922,10 +982,10 @@ class ComposedLinearOperator(AbstractLinearOperator):
         return self.operator2.transpose() @ self.operator1.transpose()
 
     def in_structure(self):
-        return self.operator1.in_structure()
+        return self.operator2.in_structure()
 
     def out_structure(self):
-        return self.operator2.out_structure()
+        return self.operator1.out_structure()
 
 
 class AuxLinearOperator(AbstractLinearOperator):
@@ -1009,6 +1069,7 @@ def linearise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 @linearise.register(FunctionLinearOperator)
 @linearise.register(IdentityLinearOperator)
 @linearise.register(DiagonalLinearOperator)
+@linearise.register(TridiagonalLinearOperator)
 def _(operator):
     return operator
 
@@ -1084,6 +1145,7 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
 @materialise.register(PyTreeLinearOperator)
 @materialise.register(IdentityLinearOperator)
 @materialise.register(DiagonalLinearOperator)
+@materialise.register(TridiagonalLinearOperator)
 def _(operator):
     return operator
 
@@ -1122,8 +1184,8 @@ def diagonal(operator: AbstractLinearOperator) -> Shaped[Array, " size"]:
     A rank-1 JAX array. (That is, it has shape `(a,)` for some integer `a`.)
 
     For most operators this is just `jnp.diag(operator.as_matrix())`. Some operators
-    (e.g. [`optimistix.DiagonalLinearOperator`][] can have more efficient
-    implementations.) If you don't know what kind of operator you might have, then this
+    (e.g. [`optimistix.DiagonalLinearOperator`][]) can have more efficient
+    implementations. If you don't know what kind of operator you might have, then this
     function ensures that you always get the most efficient implementation.
     """
     _default_not_implemented("diagonal", operator)
@@ -1143,8 +1205,77 @@ def _(operator):
 
 
 @diagonal.register(DiagonalLinearOperator)
+@diagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return operator.diagonal
+
+
+# tridiagonal
+
+
+@ft.singledispatch
+def tridiagonal(
+    operator: AbstractLinearOperator,
+) -> Tuple[Shaped[Array, " size"], Shaped[Array, " size-1"], Shaped[Array, " size-1"]]:
+    """Extracts the diagonal, lower diagonal, and upper diagonal, from a linear
+    operator. Returns three vectors.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    A 3-tuple, consisting of:
+
+    - The diagonal of the matrix, represented as a vector.
+    - The lower diagonal of the matrix, represented as a vector.
+    - The upper diagonal of the matrix, represented as a vector.
+
+    If the diagonal has shape `(a,)` then the lower and upper diagonals will have shape
+    `(a - 1,)`.
+
+    For most operators these are computed by materialising the array and then extracting
+    the relevant elements, e.g. getting the main diagonal via
+    `jnp.diag(operator.as_matrix())`. Some operators (e.g.
+    [`optimistix.TridiagonalLinearOperator`][]) can have more efficient implementations.
+    If you don't know what kind of operator you might have, then this function ensures
+    that you always get the most efficient implementation.
+    """
+    _default_not_implemented("tridiagonal", operator)
+
+
+@tridiagonal.register(MatrixLinearOperator)
+@tridiagonal.register(PyTreeLinearOperator)
+@tridiagonal.register(JacobianLinearOperator)
+@tridiagonal.register(FunctionLinearOperator)
+def _(operator):
+    matrix = operator.as_matrix()
+    assert matrix.ndim == 2
+    diagonal = jnp.diagonal(matrix, offset=0)
+    upper_diagonal = jnp.diagonal(matrix, offset=1)
+    lower_diagonal = jnp.diagonal(matrix, offset=-1)
+    return diagonal, lower_diagonal, upper_diagonal
+
+
+@tridiagonal.register(IdentityLinearOperator)
+def _(operator):
+    size = operator.in_size()
+    diagonal = jnp.ones(size)
+    off_diagonal = jnp.zeros(size - 1)
+    return diagonal, off_diagonal, off_diagonal
+
+
+@tridiagonal.register(DiagonalLinearOperator)
+def _(operator):
+    (size,) = operator.diagonal.shape
+    off_diagonal = jnp.zeros(size - 1)
+    return operator.diagonal, off_diagonal, off_diagonal
+
+
+@tridiagonal.register(TridiagonalLinearOperator)
+def _(operator):
+    return operator.diagonal, operator.lower_diagonal, operator.upper_diagonal
 
 
 # is_symmetric
@@ -1190,6 +1321,11 @@ def _(operator):
     return True
 
 
+@is_symmetric.register(TridiagonalLinearOperator)
+def _(operator):
+    return False
+
+
 # is_diagonal
 
 
@@ -1221,6 +1357,47 @@ def _(operator):
 
 @is_diagonal.register(IdentityLinearOperator)
 @is_diagonal.register(DiagonalLinearOperator)
+def _(operator):
+    return True
+
+
+@is_diagonal.register(TridiagonalLinearOperator)
+def _(operator):
+    return False
+
+
+# is_tridiagonal
+
+
+@ft.singledispatch
+def is_tridiagonal(operator: AbstractLinearOperator) -> bool:
+    """Returns whether an operator is marked as tridiagonal.
+
+    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
+    information.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Either `True` or `False.`
+    """
+    _default_not_implemented("is_tridiagonal", operator)
+
+
+@is_tridiagonal.register(MatrixLinearOperator)
+@is_tridiagonal.register(PyTreeLinearOperator)
+@is_tridiagonal.register(JacobianLinearOperator)
+@is_tridiagonal.register(FunctionLinearOperator)
+def _(operator):
+    return tridiagonal_tag in operator.tags or diagonal_tag in operator.tags
+
+
+@is_tridiagonal.register(IdentityLinearOperator)
+@is_tridiagonal.register(DiagonalLinearOperator)
+@is_tridiagonal.register(TridiagonalLinearOperator)
 def _(operator):
     return True
 
@@ -1260,6 +1437,7 @@ def _(operator):
 
 
 @has_unit_diagonal.register(DiagonalLinearOperator)
+@has_unit_diagonal.register(TridiagonalLinearOperator)
 def _(operator):
     # TODO: refine this
     return False
@@ -1300,6 +1478,11 @@ def _(operator):
     return True
 
 
+@is_lower_triangular.register(TridiagonalLinearOperator)
+def _(operator):
+    return False
+
+
 # is_upper_triangular
 
 
@@ -1333,6 +1516,11 @@ def _(operator):
 @is_upper_triangular.register(DiagonalLinearOperator)
 def _(operator):
     return True
+
+
+@is_upper_triangular.register(TridiagonalLinearOperator)
+def _(operator):
+    return False
 
 
 # is_positive_semidefinite
@@ -1370,6 +1558,7 @@ def _(operator):
 
 
 @is_positive_semidefinite.register(DiagonalLinearOperator)
+@is_positive_semidefinite.register(TridiagonalLinearOperator)
 def _(operator):
     # TODO: refine this
     return False
@@ -1410,46 +1599,7 @@ def _(operator):
 
 
 @is_negative_semidefinite.register(DiagonalLinearOperator)
-def _(operator):
-    # TODO: refine this
-    return False
-
-
-# is_nonsingular
-
-
-@ft.singledispatch
-def is_nonsingular(operator: AbstractLinearOperator) -> bool:
-    """Returns whether an operator is marked as nonsingular.
-
-    See [the documentation on linear operator tags](../../api/linear_tags.md) for more
-    information.
-
-    **Arguments:**
-
-    - `operator`: a linear operator.
-
-    **Returns:**
-
-    Either `True` or `False.`
-    """
-    _default_not_implemented("is_nonsingular", operator)
-
-
-@is_nonsingular.register(MatrixLinearOperator)
-@is_nonsingular.register(PyTreeLinearOperator)
-@is_nonsingular.register(JacobianLinearOperator)
-@is_nonsingular.register(FunctionLinearOperator)
-def _(operator):
-    return nonsingular_tag in operator.tags
-
-
-@is_nonsingular.register(IdentityLinearOperator)
-def _(operator):
-    return True
-
-
-@is_nonsingular.register(DiagonalLinearOperator)
+@is_negative_semidefinite.register(TridiagonalLinearOperator)
 def _(operator):
     # TODO: refine this
     return False
@@ -1472,6 +1622,11 @@ def _(operator):
 def _(operator):
     # Untagged; we might not have any of the properties our tags represent any more.
     return diagonal(operator.operator)
+
+
+@tridiagonal.register(TaggedLinearOperator)
+def _(operator):
+    return tridiagonal(operator.operator)
 
 
 for transform in (linearise, materialise, diagonal):
@@ -1500,6 +1655,39 @@ for transform in (linearise, materialise, diagonal):
         return transform(operator.operator)
 
 
+@tridiagonal.register(TangentLinearOperator)
+def _(operator):
+    # this one I'm a bit uncertain about
+    primal_out, tangent_out = eqx.filter_jvp(
+        transform, (operator.primal,), (operator.tangent,)
+    )
+    return TangentLinearOperator(primal_out, tangent_out)
+
+
+@tridiagonal.register(AddLinearOperator)
+def _(operator):
+    (diag1, lower1, upper1) = tridiagonal(operator.operator1)
+    (diag2, lower2, upper2) = tridiagonal(operator.operator2)
+    return (diag1 + diag2, lower1 + lower2, upper1 + upper2)
+
+
+@tridiagonal.register(MulLinearOperator)
+def _(operator):
+    (diag, lower, upper) = tridiagonal(operator.operator)
+    return (diag * operator.scalar, lower * operator.scalar, upper * operator.scalar)
+
+
+@tridiagonal.register(DivLinearOperator)
+def _(operator):
+    (diag, lower, upper) = tridiagonal(operator.operator)
+    return (diag / operator.scalar, lower / operator.scalar, upper / operator.scalar)
+
+
+@tridiagonal.register(AuxLinearOperator)
+def _(operator):
+    return tridiagonal(operator.operator)
+
+
 @linearise.register(ComposedLinearOperator)
 def _(operator):
     return linearise(operator.operator1) @ linearise(operator.operator2)
@@ -1515,6 +1703,16 @@ def _(operator):
     return jnp.diag(operator.as_matrix())
 
 
+@tridiagonal.register(ComposedLinearOperator)
+def _(operator):
+    matrix = operator.as_matrix()
+    assert matrix.ndim == 2
+    diagonal = jnp.diagonal(matrix, offset=0)
+    upper_diagonal = jnp.diagonal(matrix, offset=1)
+    lower_diagonal = jnp.diagonal(matrix, offset=-1)
+    return diagonal, lower_diagonal, upper_diagonal
+
+
 for check in (
     is_symmetric,
     is_diagonal,
@@ -1523,7 +1721,7 @@ for check in (
     is_upper_triangular,
     is_positive_semidefinite,
     is_negative_semidefinite,
-    is_nonsingular,
+    is_tridiagonal,
 ):
 
     @check.register(TangentLinearOperator)
@@ -1545,7 +1743,7 @@ for check, tag in (
     (is_upper_triangular, upper_triangular_tag),
     (is_positive_semidefinite, positive_semidefinite_tag),
     (is_negative_semidefinite, negative_semidefinite_tag),
-    (is_nonsingular, nonsingular_tag),
+    (is_tridiagonal, tridiagonal_tag),
 ):
 
     @check.register(TaggedLinearOperator)
@@ -1560,6 +1758,7 @@ for check in (
     is_upper_triangular,
     is_positive_semidefinite,
     is_negative_semidefinite,
+    is_tridiagonal,
 ):
 
     @check.register(AddLinearOperator)
@@ -1572,11 +1771,6 @@ def _(operator):
     return False
 
 
-@is_nonsingular.register(AddLinearOperator)
-def _(operator):
-    return False
-
-
 for check in (
     is_symmetric,
     is_diagonal,
@@ -1584,7 +1778,7 @@ for check in (
     is_upper_triangular,
     is_positive_semidefinite,
     is_negative_semidefinite,
-    is_nonsingular,
+    is_tridiagonal,
 ):
 
     @check.register(ComposedLinearOperator)

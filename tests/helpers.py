@@ -36,6 +36,8 @@ def _shaped_allclose(x, y, **kwargs):
             )
         else:
             return x.shape == y.shape and x.dtype == y.dtype and np.all(x == y)
+    elif isinstance(x, jax.ShapeDtypeStruct):
+        assert x.shape == y.shape and x.dtype == y.dtype
     else:
         return x == y
 
@@ -71,25 +73,30 @@ def make_matrix_operator(matrix, tags):
 
 @_operators_append
 def make_trivial_pytree_operator(matrix, tags):
-    struct = jax.ShapeDtypeStruct((3,), matrix.dtype)
+    out_size, _ = matrix.shape
+    struct = jax.ShapeDtypeStruct((out_size,), matrix.dtype)
     return optx.PyTreeLinearOperator(matrix, struct, tags)
 
 
 @_operators_append
 def make_function_operator(matrix, tags):
     fn = lambda x: matrix @ x
-    in_struct = jax.ShapeDtypeStruct((3,), matrix.dtype)
+    _, in_size = matrix.shape
+    in_struct = jax.ShapeDtypeStruct((in_size,), matrix.dtype)
     return optx.FunctionLinearOperator(fn, in_struct, tags)
 
 
 @_operators_append
 def make_jac_operator(matrix, tags):
-    x = jr.normal(getkey(), (3,))
-    b = jr.normal(getkey(), (3, 3))
-    fn_tmp = lambda x, _: x + b @ x**2
+    out_size, in_size = matrix.shape
+    x = jr.normal(getkey(), (in_size,))
+    a = jr.normal(getkey(), (out_size,))
+    b = jr.normal(getkey(), (out_size, in_size))
+    c = jr.normal(getkey(), (out_size, in_size))
+    fn_tmp = lambda x, _: a + b @ x + c @ x**2
     jac = jax.jacfwd(fn_tmp)(x, None)
     diff = matrix - jac
-    fn = lambda x, _: x + b @ x**2 + diff @ x
+    fn = lambda x, _: a + (b + diff) @ x + c @ x**2
     return optx.JacobianLinearOperator(fn, x, None, tags)
 
 
@@ -116,7 +123,7 @@ def make_mul_operator(matrix, tags):
 
 @_operators_append
 def make_composed_operator(matrix, tags):
-    size, _ = matrix.shape
+    _, size = matrix.shape
     diag = jr.normal(getkey(), (size,))
     diag = jnp.where(jnp.abs(diag) < 0.05, 0.8, diag)
     operator1 = make_trivial_pytree_operator(matrix / diag, ())

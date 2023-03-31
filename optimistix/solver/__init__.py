@@ -10,3 +10,4 @@ from .newton_chord import Chord, Newton
 from .qr import QR
 from .svd import SVD
 from .triangular import Triangular
+from .tridiagonal import Tridiagonal

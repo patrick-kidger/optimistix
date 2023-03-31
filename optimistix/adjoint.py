@@ -35,7 +35,7 @@ class RecursiveCheckpointAdjoint(AbstractAdjoint):
 
 
 class ImplicitAdjoint(AbstractAdjoint):
-    linear_solver: AbstractLinearSolver = AutoLinearSolver()
+    linear_solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True)
 
     def apply(self, primal_fn, rewrite_fn, inputs, closure, tags):
         while_loop = ft.partial(eqxi.while_loop, kind="lax")
