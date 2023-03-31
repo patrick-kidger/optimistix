@@ -1,10 +1,7 @@
-import functools as ft
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import jax.tree_util as jtu
 import pytest
 
 import optimistix as optx
@@ -239,48 +236,25 @@ _problems_minima_inits = (
 #
 
 
+@pytest.mark.parametrize("has_aux", (True, False))
 @pytest.mark.parametrize("optimiser, tols", _optimisers_tols)
 @pytest.mark.parametrize("problem_fn, minimum, init", _problems_minima_inits)
-def test_minimise(optimiser, tols, problem_fn, minimum, init):
+def test_minimise(optimiser, tols, problem_fn, minimum, init, has_aux):
 
-    problem = optx.MinimiseProblem(problem_fn, has_aux=False)
+    if has_aux:
+        fn = lambda x, args: (problem_fn(x, args), None)
+    else:
+        fn = problem_fn
+
+    problem = optx.MinimiseProblem(fn, has_aux=has_aux)
     atol, rtol = tols
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
     result_optx = optx.minimise(
-        problem, optimiser, dynamic_init, args=static_init, max_steps=5012
+        problem, optimiser, dynamic_init, args=static_init, max_steps=10_024
     )
-    minimum_optx = problem.fn(result_optx.value, static_init)
+    if has_aux:
+        (minimum_optx, _) = problem.fn(result_optx.value, static_init)
+    else:
+        minimum_optx = problem.fn(result_optx.value, static_init)
 
     assert shaped_allclose(minimum_optx, minimum, atol=atol, rtol=rtol)
-
-
-@pytest.mark.parametrize("optimiser, tols", _optimisers_tols)
-@pytest.mark.parametrize("problem_fn, minimum, init", _problems_minima_inits)
-def test_jvp(getkey, optimiser, tols, problem_fn, minimum, init):
-
-    problem = optx.MinimiseProblem(problem_fn, has_aux=False)
-    atol, rtol = tols
-    dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
-    result_optx = optx.minimise(
-        problem, optimiser, dynamic_init, args=static_init, max_steps=5012
-    )
-
-    optimum = result_optx.value
-
-    leaves, treedef = jtu.tree_flatten(init)
-    t_leaves = [jr.normal(getkey(), leaf.shape) for leaf in leaves]
-    t_init = jtu.tree_unflatten(treedef, t_leaves)
-    t_dynamic = eqx.filter(t_init, eqx.is_inexact_array)
-    optx_min = ft.partial(
-        optx.minimise,
-        problem=problem,
-        solver=optimiser,
-        args=static_init,
-        max_steps=5012,
-    )
-
-    breakpoint()
-    jax_jvp = eqx.filter_jvp(jax.scipy.optimize.minimize, (optimum,), (t_dynamic,))
-    optx_jvp = eqx.filter_jvp(optx_min, (dynamic_init,), (t_dynamic))
-
-    assert shaped_allclose(optx_jvp, jax_jvp)
