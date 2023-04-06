@@ -5,6 +5,7 @@ from .least_squares import (
     least_squares,
     LeastSquaresProblem,
 )
+from .line_search import AbstractGLS, AbstractModel
 from .linear_operator import (
     AbstractLinearOperator,
     AddLinearOperator,
@@ -46,6 +47,13 @@ from .linear_tags import (
 )
 from .minimise import AbstractMinimiser, minimise, MinimiseProblem
 from .root_find import AbstractRootFinder, root_find, RootFindProblem
+from .search import (
+    AbstractBacktrackingGLS,
+    NormalizedGradient,
+    NormalizedNewton,
+    UnnormalizedGradient,
+    UnnormalizedNewton,
+)
 from .solution import RESULTS, Solution
 from .solver import (
     Bisection,
