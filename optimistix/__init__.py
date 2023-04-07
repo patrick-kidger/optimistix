@@ -65,6 +65,7 @@ from .solver import (
     GaussNewton,
     LevenbergMarquardt,
     LU,
+    NelderMead,
     Newton,
     QR,
     SVD,

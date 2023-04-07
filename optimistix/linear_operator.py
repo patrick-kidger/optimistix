@@ -430,7 +430,7 @@ class PyTreeLinearOperator(AbstractLinearOperator):
 
 class _NoAuxIn(eqx.Module):
     fn: Callable
-    args: PyTree[Array]
+    args: PyTree[Any]
 
     def __call__(self, x):
         return self.fn(x, self.args)

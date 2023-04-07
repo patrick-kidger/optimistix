@@ -48,7 +48,7 @@ def implicit_jvp(
     root, residual = _implicit_impl(
         fn_primal, fn_rewrite, inputs, closure, tags, linear_solver
     )
-    return root, jtu.tree_map(eqxi.nondifferentible_backward, residual)
+    return root, jtu.tree_map(eqxi.nondifferentiable_backward, residual)
 
 
 @eqx.filter_custom_jvp
@@ -77,10 +77,10 @@ def _implicit_impl_jvp(primals, tangents):
         t_tags,
         t_linear_solver,
     ) = tangents
-    t_unused = jtu.tree_leaves(
-        t_fn_primal, t_fn_rewrite, t_closure, t_tags, t_linear_solver
+    t_unused = jtu.tree_map(
+        lambda x: 1, t_fn_primal, t_fn_rewrite, t_closure, t_tags, t_linear_solver
     )
-    assert len(t_unused) == 0
+    assert t_unused is None
     del t_fn_primal, t_fn_rewrite, t_closure, t_tags, t_linear_solver, t_unused
     no_tangent = jtu.tree_map(_is_none, t_inputs, is_leaf=_is_none)
     nondiff, diff = eqx.partition(inputs, no_tangent, is_leaf=_is_none)
@@ -98,6 +98,9 @@ def _implicit_impl_jvp(primals, tangents):
     )
     _, jvp_diff = jax.jvp(_for_jvp, (diff,), (t_inputs,))
 
-    t_root = (-linear_solve(operator, jvp_diff, linear_solver) ** ω).ω
+    t_root = linear_solve(operator, jvp_diff, linear_solver)
+    t_root_dynamic, t_root_static = eqx.partition(t_root, eqx.is_inexact_array)
+    t_root = eqx.combine((-ω(t_root_dynamic)).ω, t_root_static)
+
     t_residual = jtu.tree_map(lambda _: None, residual)
     return (root, residual), (t_root, t_residual)

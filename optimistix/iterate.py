@@ -55,6 +55,13 @@ class AbstractIterativeSolver(eqx.Module):
     ) -> bool:
         ...
 
+    @abc.abstractmethod
+    def buffer(
+        self,
+        state: _SolverState,
+    ) -> Callable:
+        ...
+
 
 def _zero(x):
     if isinstance(x, jax.ShapeDtypeStruct):
@@ -90,23 +97,34 @@ def _iterate(inputs, closure, while_loop):
         problem = eqx.tree_at(lambda p: p.fn, problem, NoneAux(problem.fn))
         init_aux = None
 
-    init_val = (y0, 0, dynamic_init_state, init_aux)
+    init_carry = (y0, 0, dynamic_init_state, init_aux)
 
     def cond_fun(carry):
         y, _, dynamic_state, _ = carry
-        state = eqx.combine(dynamic_state, static_state)
+        state = eqx.combine(static_state, dynamic_state)
         terminate, _ = solver.terminate(problem, y, args, options, state)
         return jnp.invert(terminate)
 
     def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
-        state = eqx.combine(dynamic_state, static_state)
+        state = eqx.combine(static_state, dynamic_state)
+        static_buffered = eqx.filter(state, not eqx.is_array)
         new_y, new_state, aux = solver.step(problem, y, args, options, state)
+        new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
+
+        assert eqx.tree_equal(static_buffered, new_static_state) is True
+
         return new_y, num_steps + 1, new_state, aux
 
-    final_val = while_loop(cond_fun, body_fun, init_val, max_steps)
+    def buffer(carry):
+        _, _, state, _ = carry
+        return solver.buffer(state)
 
-    final_y, num_steps, final_state, aux = final_val
+    final_carry = while_loop(
+        cond_fun, body_fun, init_carry, max_steps=max_steps, buffers=buffer
+    )
+
+    final_y, num_steps, final_state, aux = final_carry
     terminate, result = solver.terminate(problem, final_y, args, options, final_state)
     result = jnp.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
