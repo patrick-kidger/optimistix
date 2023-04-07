@@ -1,9 +1,9 @@
-from backtracking import AbstractBacktrackingGLS
-from levenberg_marquardt import DirectLevenbergMarquardt, IndirectLevenbergMarquardt
-from models import (
+from .backtracking import AbstractBacktrackingGLS, BacktrackingArmijo
+from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
+from .models import (
     NormalizedGradient,
     NormalizedNewton,
     UnnormalizedGradient,
     UnnormalizedNewton,
 )
-from trust_region import TrustRegionDecrease
+from .trust_region import ClassicalTrustRegion

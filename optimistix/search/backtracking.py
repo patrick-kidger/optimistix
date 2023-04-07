@@ -10,6 +10,7 @@ import optimistix as optx
 
 from ..custom_types import sentinel
 from ..line_search import AbstractGLS, AbstractModel
+from ..linear_operator import AbstractLinearOperator
 from ..solution import RESULTS
 from .misc import init_derivatives
 
@@ -19,24 +20,17 @@ class BacktrackingState(eqx.Module):
     descent_dir: PyTree[ArrayLike]
     f_y: Float[ArrayLike, " "]
     f_new: Float[ArrayLike, " "]
-    residual: PyTree[ArrayLike]
-    model: AbstractModel
-    gradient: PyTree[ArrayLike]
-    hessian: PyTree[ArrayLike]
-    slope: float
-    decrease_factor: float
+    operator: AbstractLinearOperator
+    vector: PyTree[ArrayLike]
     aux: PyTree
 
 
 def _update_state(state):
-    return (state.delta, state.descent_dir)
-
-
-def _update_state_fvals(state):
-    return (state.f_y, state.f_new)
+    return (state.delta, state.descent_dir, state.f_y, state.f_new)
 
 
 class AbstractBacktrackingGLS(AbstractGLS):
+    model: AbstractModel
     backtrack_slope: float
     decrease_factor: float
     needs_gradient: ClassVar[bool]
@@ -47,46 +41,39 @@ class AbstractBacktrackingGLS(AbstractGLS):
             delta_0 = options["delta_0"]
         except KeyError:
             delta_0 = 1.0
-        try:
-            (f_y, aux) = options["f_and_aux"]
-        except KeyError:
-            if problem.has_aux:
-                (f_y, aux) = problem.fn(y, args)
-            else:
-                f_y = problem.fn(y, args)
-                aux = None
-        gradient, hessian = init_derivatives(
-            problem, y, self.needs_gradient, self.needs_hessian, options
+
+        # see the definition of init_derivatives for an explanation of this terminology
+        f_y, vector, operator, aux = init_derivatives(
+            self.model,
+            problem,
+            y,
+            self.needs_gradient,
+            self.needs_hessian,
+            options,
+            args,
         )
         state = BacktrackingState(
-            delta_0,
-            sentinel,
-            f_y,
-            f_y,
-            gradient,
-            hessian,
-            self.backtrack_slope,
-            self.decrease_factor,
-            aux,
+            delta=delta_0,
+            descent_dir=sentinel,
+            f_y=f_y,
+            f_new=f_y,
+            operator=operator,
+            vector=vector,
+            aux=aux,
         )
-        try:
-            model = options["model"]
-        except KeyError:
-            raise ValueError("A model must be passed via the line-search options!")
-        descent_dir = model.descent_dir(state.delta, state)
+        descent_dir = self.model.descent_dir(delta_0, problem, y, state, args, options)
         state = eqx.tree_at(lambda x: x.descent_dir, state, descent_dir)
         return state
 
     def step(self, problem, y, args, options, state):
-        delta = state.delta * state.decrease_factor
+        delta = state.delta * self.decrease_factor
         f_y = state.f_new
 
-        f_new = problem.fn((ω(state.y) + delta * ω(state.gradient)).ω)
+        descent_dir = self.model.descent_dir(delta, problem, y, state, args, options)
 
-        state = eqx.tree_at(_update_state_fvals, state, (f_y, f_new))
-        descent_dir = state.model.descent_dir(delta, state)
+        f_new = problem.fn((ω(y) + ω(descent_dir)).ω)
 
-        state = eqx.tree_at(_update_state, state, (delta, descent_dir))
+        state = eqx.tree_at(_update_state, state, (delta, descent_dir, f_y, f_new))
 
         return state
 
@@ -96,15 +83,25 @@ class AbstractBacktrackingGLS(AbstractGLS):
 
 
 class BacktrackingArmijo(optx.AbstractBacktrackingGLS):
+    model: AbstractModel
     backtrack_slope: float = 0.1
     decrease_factor: float = 0.5
     needs_gradient: ClassVar[bool] = True
     needs_hessian: ClassVar[bool] = False
 
-    def terminate(self, carry):
-        state, delta = carry
+    def terminate(self, problem, y, args, options, state):
         result = jnp.where(
             jnp.isfinite(state.delta), RESULTS.successful, RESULTS.divergence
         )
-        linear_decrease = (ω(state.descent_dir.T) @ ω(state.gradient)).ω
-        return state.f_new < state.f_y + state.slope * delta * linear_decrease, result
+
+        if self.model.gauss_newton:
+            gradient = state.operator.mv(state.vector)
+        else:
+            gradient = state.vector
+
+        linear_decrease = (ω(state.descent_dir.T) @ ω(gradient)).ω
+        return (
+            state.f_new
+            < state.f_y + self.backtrack_slope * state.delta * linear_decrease,
+            result,
+        )

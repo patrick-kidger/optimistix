@@ -1,10 +1,12 @@
 import equinox as eqx
+import jax.lax as lax
 import jax.numpy as jnp
 from equinox import ω
 from jaxtyping import ArrayLike, Float, PyTree
 
 from ..custom_types import sentinel
 from ..line_search import AbstractGLS, AbstractTRModel
+from ..linear_operator import AbstractLinearOperator
 from ..solution import RESULTS
 from .misc import init_derivatives
 
@@ -12,6 +14,7 @@ from .misc import init_derivatives
 def _update_state(state):
     return (
         state.delta,
+        state.descent_dir,
         state.f_y,
         state.f_new,
         state.model_y,
@@ -20,19 +23,29 @@ def _update_state(state):
     )
 
 
+def _init_state(state):
+    return (
+        state.descent_dir,
+        state.model_y,
+        state.model_new,
+    )
+
+
 class TRState(eqx.Module):
     delta: float
     descent_dir: PyTree[ArrayLike]
-    model: AbstractTRModel
     f_y: Float[ArrayLike, " "]
     f_new: Float[ArrayLike, " "]
+    vector: PyTree[ArrayLike]
+    operator: AbstractLinearOperator
     model_y: Float[ArrayLike, " "]
     model_new: Float[ArrayLike, " "]
     finished: bool
     aux: PyTree
 
 
-class TrustRegionDecrease(AbstractGLS):
+class ClassicalTrustRegion(AbstractGLS):
+    model: AbstractTRModel
     high_cutoff: float = 0.99
     low_cutoff: float = 1e-2
     high_constant: float = 3.5
@@ -54,58 +67,60 @@ class TrustRegionDecrease(AbstractGLS):
         except KeyError:
             raise ValueError(
                 "delta_0 must be passed for trust region methods via \
-                options. Standard use is `delta_0` is accepted delta of trust \
-                region last step."
+                options. Standard use is to set `delta_0` to the accepted \
+                trust region size from last step."
             )
-        try:
-            (f_y, aux) = options["f_and_aux"]
-        except KeyError:
-            if problem.has_aux:
-                (f_y, aux) = problem.fn(y, args)
-            else:
-                f_y = problem.fn(y, args)
-                aux = None
-        try:
-            model = options["model"]
-        except KeyError:
-            raise ValueError("A model must be passed via the line-search options!")
-        try:
-            model_y = options["model_y"]
-        except KeyError:
-            model_y = model(y)
-
-        if not isinstance(model, AbstractTRModel):
+        if not isinstance(self.model, AbstractTRModel):
             raise ValueError(
-                f"The model: {model} is not an instance of AbstractTRModel \
+                f"The model: {self.model} is not an instance of AbstractTRModel \
                 (it does not have a __call__ method), which is necessary for trust \
                 region methods."
             )
 
-        gradient, hessian = init_derivatives(
-            problem, y, self.needs_gradient, self.needs_hessian, options
+        f_y, vector, operator, aux = init_derivatives(
+            self.model,
+            problem,
+            y,
+            self.needs_gradient,
+            self.needs_hessian,
+            options,
+            args,
         )
+
         state = TRState(
             delta_0,
             sentinel,
-            model,
             f_y,
             f_y,
-            model_y,
-            model_y,
+            vector,
+            operator,
+            sentinel,
+            sentinel,
             finished=False,
             aux=aux,
         )
-        descent_dir = model.descent_dir(state.delta, state)
-        state = eqx.tree_at(lambda x: x.descent_dir, state, descent_dir)
+
+        try:
+            model_y = options["model_y"]
+        except KeyError:
+            model_y = self.model(y, state)
+
+        descent_dir = self.model.descent_dir(
+            state.delta, problem, y, state, args, options
+        )
+
+        state = eqx.tree_at(_init_state, state, (descent_dir, model_y, model_y))
+
         return state
 
     def step(self, problem, y, args, options, state):
-        f_y = state.f_new
-        f_new = problem.fn((ω(y) + state.delta * ω(state.descent_dir)))
-        model_y = state.model_new
-        model_new = state.model((ω(y) + state.delta * ω(state.descent_dir)))
+        f_new = problem.fn((ω(y) + state.delta * ω(state.descent_dir)).ω)
+        model_new = self.model((ω(y) + state.delta * ω(state.descent_dir)).ω, state)
 
-        tr_ratio = (f_y - f_new) / (model_y - model_new)
+        model_y = state.model_new
+        f_y = state.f_new
+
+        tr_ratio = (f_y - f_new) / (state.model_y - state.model_new)
 
         finished = tr_ratio > self.low_cutoff
         delta = jnp.where(
@@ -115,10 +130,23 @@ class TrustRegionDecrease(AbstractGLS):
             tr_ratio <= self.low_cutoff, state.delta * self.low_constant, state.delta
         )
 
-        # this finishes after 1 step! this updates delta, the f_i, the model evals,
-        # and sets `finished = True` to end the iterations.
+        def accept_direction(model, problem, y, args, options, state):
+            return state.descent_dir
+
+        def reject_direction(model, problem, y, args, options, state):
+            return model.descent_dir(delta, problem, y, state, args, options)
+
+        # if the tr algorithm has terminated, don't compute the next descent dir.
+        # I am expecting the direction to be computed in the init instead.
+        cond_args = (self.model, problem, y, args, options, state)
+        descent_dir = lax.cond(finished, accept_direction, reject_direction, cond_args)
+
+        # this often finishes after 1 step! This updates delta, the f_i, the model
+        # evals, and sets `finished = True` to end the iterations.
         state = eqx.tree_at(
-            _update_state, state, (delta, f_y, f_new, model_y, model_new, finished)
+            _update_state,
+            state,
+            (delta, descent_dir, f_y, f_new, model_y, model_new, finished),
         )
 
         return state

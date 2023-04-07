@@ -1,31 +1,37 @@
 import abc
-from typing import ClassVar, TypeVar
+from typing import Any, ClassVar, Dict, Optional, TypeVar
 
 import equinox as eqx
-import jax
+from jaxtyping import ArrayLike, PyTree
 
 from .custom_types import sentinel
-from .minimise import AbstractMinimiser
+from .minimise import AbstractMinimiser, MinimiseProblem
 
 
 _SearchState = TypeVar("_SearchState")
 
 
 class AbstractModel(eqx.Module):
+    gauss_newton: bool | ClassVar[bool]
+
     @abc.abstractmethod
-    def descent_dir(self, delta: float, state: _SearchState):
+    def descent_dir(
+        self,
+        delta: float,
+        problem: MinimiseProblem,
+        y: PyTree[ArrayLike],
+        state: _SearchState,
+        args: PyTree = None,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> PyTree[ArrayLike]:
         ...
 
 
 class AbstractTRModel(AbstractModel):
+    gauss_newton: bool | ClassVar[bool]
+
     def __call__(self, x, state):
         ...
-
-
-class AbstractQuasiNewtonTR(AbstractTRModel):
-    def __call__(self, x, state):
-        (grad_flat, _) = jax.flatten_util.tree_ravel(state.grad)
-        return state.f_new + state.grad @ x + 0.5 * x.T @ state.hessian.mv(x)
 
 
 class AbstractGLS(AbstractMinimiser):
