@@ -3,10 +3,8 @@ from typing import ClassVar
 
 import equinox as eqx
 import jax.numpy as jnp
-from equinox import ω
+from equinox.internal import ω
 from jaxtyping import ArrayLike, Float, PyTree
-
-import optimistix as optx
 
 from ..custom_types import sentinel
 from ..line_search import AbstractGLS, AbstractModel
@@ -82,7 +80,7 @@ class AbstractBacktrackingGLS(AbstractGLS):
         ...
 
 
-class BacktrackingArmijo(optx.AbstractBacktrackingGLS):
+class BacktrackingArmijo(AbstractBacktrackingGLS):
     model: AbstractModel
     backtrack_slope: float = 0.1
     decrease_factor: float = 0.5

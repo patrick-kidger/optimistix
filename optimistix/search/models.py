@@ -2,9 +2,8 @@ from typing import Callable, ClassVar
 
 import jax.numpy as jnp
 
-import optimistix as optx
-
 from ..line_search import AbstractModel
+from ..linear_solve import linear_solve
 
 
 class UnnormalizedGradient(AbstractModel):
@@ -22,7 +21,7 @@ class UnnormalizedNewton(AbstractModel):
     computes_vector: ClassVar[bool] = False
 
     def descent_dir(self, delta, state):
-        return -delta * optx.linear_solve(state.operator, state.vector)
+        return -delta * linear_solve(state.operator, state.vector)
 
 
 class NormalizedGradient(AbstractModel):
@@ -42,5 +41,5 @@ class NormalizedNewton(AbstractModel):
     norm: Callable = jnp.linalg.norm
 
     def descent_dir(self, delta, state):
-        newton = optx.linear_solve(state.operator, state.vector)
+        newton = linear_solve(state.operator, state.vector)
         return -delta * newton / self.norm(newton)

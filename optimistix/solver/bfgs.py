@@ -25,7 +25,27 @@ from .quasi_newton import AbstractQuasiNewton, QNState
 #
 
 
-class AbstractBFGS(AbstractQuasiNewton):
+class BFGS(AbstractQuasiNewton):
+    line_search: AbstractGLS
+    model: AbstractModel = UnnormalizedNewton(gauss_newton=False)
+
+    def step(self, problem, y, args, options, state):
+        if self.model.gauss_newton:
+            raise ValueError(
+                "A model with gauss_newton=True was passed to GeneralBFGS \
+                which is not a Gauss-Newton method."
+            )
+        line_search = self.line_search(self.model)
+
+        if state.vector != sentinel and state.vector != sentinel:
+            options["gradient"] = state.vector
+            options["hessian"] = state.operator
+
+        sol = minimise(problem, line_search, y, args, options)
+        new_y, new_state = self.update_solution(problem, y, sol, state)
+
+        return new_y, new_state, sol.state.aux
+
     def update_state(self, problem, y, sol, state):
         # TODO(raderj): find a way to remove this call to problem.fn.
         # it should be possible by calling step with no gradient and
@@ -61,42 +81,3 @@ class AbstractBFGS(AbstractQuasiNewton):
             operator=sentinel,
         )
         return new_y, new_state
-
-
-class BFGS(AbstractBFGS):
-    line_search: AbstractGLS
-
-    def step(self, problem, y, args, options, state):
-        model = UnnormalizedNewton(gauss_newton=False)
-        line_search = self.line_search(model)
-
-        if state.vector != sentinel and state.vector != sentinel:
-            options["gradient"] = state.vector
-            options["hessian"] = state.operator
-
-        sol = minimise(problem, line_search, y, args, options)
-        new_y, new_state = self.update_solution(problem, y, sol, state)
-
-        return new_y, new_state, sol.state.aux
-
-
-class GeneralBFGS(AbstractBFGS):
-    line_search: AbstractGLS
-    model: AbstractModel
-
-    def step(self, problem, y, args, options, state):
-        if self.model.gauss_newton:
-            raise ValueError(
-                "A model with gauss_newton=True was passed to GeneralBFGS \
-                which is not a Gauss-Newton method."
-            )
-        line_search = self.line_search(self.model)
-
-        if state.vector != sentinel and state.vector != sentinel:
-            options["gradient"] = state.vector
-            options["hessian"] = state.operator
-
-        sol = minimise(problem, line_search, y, args, options)
-        new_y, new_state = self.update_solution(problem, y, sol, state)
-
-        return new_y, new_state, sol.state.aux

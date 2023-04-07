@@ -1,7 +1,7 @@
 import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
-from equinox import ω
+from equinox.internal import ω
 from jaxtyping import ArrayLike, Float, PyTree
 
 from ..custom_types import sentinel
