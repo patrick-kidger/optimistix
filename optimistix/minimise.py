@@ -44,14 +44,15 @@ def minimise(
     struct = jax.eval_shape(lambda: problem.fn(y0, args))
     if problem.has_aux:
         struct, aux_struct = struct
-    else:
-        aux_struct = None
+    # TODO(raderj): get this working
+    # else:
+    #     aux_struct = None
 
-    if options is None:
-        options = {}
+    # if options is None:
+    #     options = {}
 
-    options["struct"] = struct
-    options["aux_struct"] = aux_struct
+    # options["struct"] = struct
+    # options["aux_struct"] = aux_struct
     if not (isinstance(struct, jax.ShapeDtypeStruct) and struct.shape == ()):
         raise ValueError(
             "problem function must map to a scalar PyTree output, it looks like \

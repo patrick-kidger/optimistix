@@ -2,7 +2,10 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import jax.tree_util as jtu
+import numpy as np
 import pytest
+from equinox.internal import ω
 
 import optimistix as optx
 
@@ -240,21 +243,68 @@ _problems_minima_inits = (
 @pytest.mark.parametrize("optimiser, tols", _optimisers_tols)
 @pytest.mark.parametrize("problem_fn, minimum, init", _problems_minima_inits)
 def test_minimise(optimiser, tols, problem_fn, minimum, init, has_aux):
+    atol, rtol = tols
+    dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
 
     if has_aux:
         fn = lambda x, args: (problem_fn(x, args), None)
     else:
         fn = problem_fn
 
-    problem = optx.MinimiseProblem(fn, has_aux=has_aux)
+    opt_problem = optx.MinimiseProblem(fn, has_aux=has_aux)
+
+    optx_argmin = optx.minimise(
+        opt_problem, optimiser, dynamic_init, args=static_init, max_steps=10_024
+    ).value
+
+    optx_min = opt_problem.fn(optx_argmin, static_init)
+
+    if has_aux:
+        (optx_min, _) = optx_min
+
+    assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
+
+
+def _finite_difference_jvp(fn, primals, tangents):
+    out = fn(*primals)
+    # Choose ε to trade-off truncation error and floating-point rounding error.
+    max_leaves = [jnp.max(jnp.abs(p)) for p in jtu.tree_leaves(primals)] + [1]
+    scale = jnp.max(jnp.stack(max_leaves))
+    ε = np.sqrt(np.finfo(np.float64).eps) * scale
+    primals_ε = (ω(primals) + ε * ω(tangents)).ω
+    out_ε = fn(*primals_ε)
+    tangents_out = jtu.tree_map(lambda x, y: (x - y) / ε, out_ε, out)
+    return out, tangents_out
+
+
+@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("optimiser, tols", _optimisers_tols)
+@pytest.mark.parametrize("problem_fn, minimum, init", _problems_minima_inits)
+def test_jvp(getkey, optimiser, tols, problem_fn, minimum, init, has_aux):
     atol, rtol = tols
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
-    result_optx = optx.minimise(
-        problem, optimiser, dynamic_init, args=static_init, max_steps=10_024
-    )
-    if has_aux:
-        (minimum_optx, _) = problem.fn(result_optx.value, static_init)
-    else:
-        minimum_optx = problem.fn(result_optx.value, static_init)
 
-    assert shaped_allclose(minimum_optx, minimum, atol=atol, rtol=rtol)
+    replace_random = lambda x: jr.normal(getkey(), x.shape)
+    t_dynamic_init = ω(dynamic_init).call(replace_random).ω
+
+    if has_aux:
+        fn = lambda x, args: (problem_fn(x, args), None)
+    else:
+        fn = problem_fn
+
+    opt_problem = optx.MinimiseProblem(fn, has_aux=has_aux)
+
+    def minimise(x):
+        return optx.minimise(
+            opt_problem, optimiser, x, args=static_init, max_steps=10_024
+        ).value
+
+    optx_argmin = minimise(dynamic_init)
+
+    expected_out, t_expected_out = _finite_difference_jvp(
+        minimise, (optx_argmin,), (t_dynamic_init,)
+    )
+    out, t_out = eqx.filter_jvp(minimise, (optx_argmin,), (t_dynamic_init,))
+
+    assert shaped_allclose(out, expected_out, atol=atol, rtol=rtol)
+    assert shaped_allclose(t_out, t_expected_out, atol=atol, rtol=rtol)
