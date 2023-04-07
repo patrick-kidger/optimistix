@@ -27,6 +27,10 @@ from .quasi_newton import AbstractQuasiNewton, QNState
 
 class AbstractBFGS(AbstractQuasiNewton):
     def update_state(self, problem, y, sol, state):
+        # TODO(raderj): find a way to remove this call to problem.fn.
+        # it should be possible by calling step with no gradient and
+        # using the resulting vector. I just want to avoid the whole line
+        # search...
         new_grad = jax.jacrev(problem.fn, has_aux=problem.has_aux)(y)
 
         diff = sol.state.decrease_dir
