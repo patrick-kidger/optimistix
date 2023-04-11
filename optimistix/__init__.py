@@ -47,19 +47,16 @@ from .linear_tags import (
 )
 from .minimise import AbstractMinimiser, minimise, MinimiseProblem
 from .root_find import AbstractRootFinder, root_find, RootFindProblem
-from .search import (
-    AbstractBacktrackingGLS,
-    NormalizedGradient,
-    NormalizedNewton,
-    UnnormalizedGradient,
-    UnnormalizedNewton,
-)
 from .solution import RESULTS, Solution
 from .solver import (
+    AbstractBacktrackingGLS,
+    BacktrackingArmijo,
+    BFGS,
     Bisection,
     CG,
     Cholesky,
     Chord,
+    ClassicalTrustRegion,
     Diagonal,
     FixedPointIteration,
     GaussNewton,
@@ -67,10 +64,14 @@ from .solver import (
     LU,
     NelderMead,
     Newton,
+    NormalizedGradient,
+    NormalizedNewton,
     QR,
     SVD,
     Triangular,
     Tridiagonal,
+    UnnormalizedGradient,
+    UnnormalizedNewton,
 )
 
 

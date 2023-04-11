@@ -136,7 +136,7 @@ class _GaussNewtonLevenbergMarquardt(AbstractLeastSquaresSolver):
         converged = _converged(factor, self.kappa)
         linsolve_fail = state.result != RESULTS.successful
         terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
-        result = jnp.where(diverged, RESULTS.divergence, RESULTS.successful)
+        result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
         result = jnp.where(linsolve_fail, state.result, result)
         return terminate, result
 

@@ -20,7 +20,8 @@ from ..linear_operator import (
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..linear_tags import positive_semidefinite_tag
 from ..root_find import AbstractRootFinder, root_find
-from ..solver import Newton, QR
+from .newton_chord import Newton
+from .qr import QR
 
 
 #
@@ -83,6 +84,8 @@ class DirectIterativeDual(AbstractTRModel):
     modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator]
     computes_operator: bool = True
     computes_vector: ClassVar[bool] = False
+    needs_gradient: ClassVar[bool] = True
+    needs_hessian: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -157,6 +160,8 @@ class IndirectIterativeDual(AbstractTRModel):
     norm: Callable = jnp.linalg.norm
     root_finder: AbstractRootFinder = Newton
     modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
+    needs_gradient: ClassVar[bool] = True
+    needs_hessian: ClassVar[bool] = True
 
     def __init__(
         self,

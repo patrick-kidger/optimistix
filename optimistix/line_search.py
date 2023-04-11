@@ -4,7 +4,6 @@ from typing import Any, ClassVar, Dict, Optional, TypeVar
 import equinox as eqx
 from jaxtyping import ArrayLike, PyTree
 
-from .custom_types import sentinel
 from .minimise import AbstractMinimiser, MinimiseProblem
 
 
@@ -12,7 +11,9 @@ _SearchState = TypeVar("_SearchState")
 
 
 class AbstractModel(eqx.Module):
-    gauss_newton: bool | ClassVar[bool]
+    gauss_newton: Any
+    needs_gradient: ClassVar[bool]
+    needs_hessian: ClassVar[bool]
 
     @abc.abstractmethod
     def descent_dir(
@@ -28,13 +29,13 @@ class AbstractModel(eqx.Module):
 
 
 class AbstractTRModel(AbstractModel):
-    gauss_newton: bool | ClassVar[bool]
+    gauss_newton: Any
 
     def __call__(self, x, state):
         ...
 
 
 class AbstractGLS(AbstractMinimiser):
-    needs_gradient: ClassVar[bool] = sentinel
-    needs_hessian: ClassVar[bool] = sentinel
+    needs_gradient: bool
+    needs_hessian: bool
     pass

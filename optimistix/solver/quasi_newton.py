@@ -1,13 +1,13 @@
-from typing import Callable, Optional
+from typing import Optional
 
 import equinox as eqx
 import jax.numpy as jnp
-from equinox import ω
+from equinox.internal import ω
 from jaxtyping import ArrayLike, PyTree
 
 from ..custom_types import Scalar, sentinel
-from ..least_squares import AbstractLeastSquaresSolver
 from ..linear_operator import AbstractLinearOperator
+from ..minimise import AbstractMinimiser
 from ..misc import max_norm
 from ..solution import RESULTS
 
@@ -31,15 +31,14 @@ class QNState(eqx.Module):
     step: Scalar
     diffsize: Scalar
     diffsize_prev: Scalar
-    approx_hess: AbstractLinearOperator
     result: RESULTS
-    vector: Optional[PyTree[ArrayLike]]
-    operator: Optional[AbstractLinearOperator]
+    # TODO(raderj): can we specifically say that we could encounter a sentinel
+    # value? Maybe a custom sentinel type
+    vector: Optional[PyTree[ArrayLike]] | object
+    operator: Optional[AbstractLinearOperator] | object
 
 
-class AbstractQuasiNewton(AbstractLeastSquaresSolver):
-    norm: Callable = max_norm
-
+class AbstractQuasiNewton(AbstractMinimiser):
     def init(self, problem, y, args, options):
         del problem, y, args, options
         return QNState(
@@ -67,7 +66,7 @@ class AbstractQuasiNewton(AbstractLeastSquaresSolver):
     def update_state(self, y, sol, state):
         new_y = (ω(y) + sol.state.descent_dir).ω
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
-        diffsize = self.norm((ω(sol.state.descent_dir) / ω(scale)).ω)
+        diffsize = max_norm((ω(sol.state.descent_dir) / ω(scale)).ω)
         new_state = QNState(
             step=state.step + 1,
             diffsize=diffsize,

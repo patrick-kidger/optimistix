@@ -1,13 +1,12 @@
 import jax
 import jax.numpy as jnp
-from equinox import ω
+from equinox.internal import ω
 
 from ..custom_types import sentinel
 from ..line_search import AbstractGLS, AbstractModel
-from ..linear_operator import MatrixLinearOperator
-from ..linear_tags import positive_semidefinite_tag
+from ..linear_operator import PyTreeLinearOperator
 from ..minimise import minimise
-from ..search import UnnormalizedNewton
+from .models import UnnormalizedNewton
 from .quasi_newton import AbstractQuasiNewton, QNState
 
 
@@ -26,8 +25,15 @@ from .quasi_newton import AbstractQuasiNewton, QNState
 
 
 class BFGS(AbstractQuasiNewton):
-    line_search: AbstractGLS
-    model: AbstractModel = UnnormalizedNewton(gauss_newton=False)
+    line_search: AbstractGLS = sentinel
+    model: AbstractModel = sentinel
+
+    def __post_init__(self):
+        if self.line_search == sentinel:
+            raise ValueError("No line search initialized in BFGS")
+
+        if self.model == sentinel:
+            self.model = UnnormalizedNewton(gauss_newton=False)
 
     def step(self, problem, y, args, options, state):
         if self.model.gauss_newton:
@@ -64,9 +70,9 @@ class BFGS(AbstractQuasiNewton):
             hess_mv = state.operator.mv(diff)
             term1 = (t_diff_ravel @ t_diff_ravel.T) / (t_diff_ravel.T @ diff_ravel)
             term2 = (hess_mv @ hess_mv.T) / (diff_ravel.T @ hess_mv)
-            new_hess = MatrixLinearOperator(
+            new_hess = PyTreeLinearOperator(
                 state.operator.as_matrix() + term1 - term2,
-                tags=positive_semidefinite_tag,
+                jax.eval_shape(lambda: new_grad),
             )
 
         new_y = (ω(y) + diff).ω

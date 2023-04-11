@@ -1,12 +1,22 @@
+from ..custom_types import sentinel
 from ..line_search import AbstractGLS, AbstractModel
 from ..minimise import minimise
-from ..search import ClassicalTrustRegion, IndirectIterativeDual
+from .iterative_dual import IndirectIterativeDual
 from .quasi_newton import AbstractQuasiNewton
+from .trust_region import ClassicalTrustRegion
 
 
 class GaussNewton(AbstractQuasiNewton):
-    line_search: AbstractGLS
-    model: AbstractModel
+    line_search: AbstractGLS = sentinel
+    model: AbstractModel = sentinel
+
+    def __post_init__(self):
+
+        if self.line_search == sentinel:
+            raise ValueError("No line search initialized in GaussNewton")
+
+        if self.model == sentinel:
+            raise ValueError("No model initialized in GaussNewton")
 
     def step(self, problem, y, args, options, state):
         if not self.model.gauss_newton:
@@ -30,13 +40,19 @@ class GaussNewton(AbstractQuasiNewton):
 
 
 class LevenbergMarquardt(GaussNewton):
-    model = IndirectIterativeDual(
-        gauss_newton=True,
-        atol=1e-6,
-        rtol=1e-6,
-        lambda_0=0.5,
-    )
-    line_search: AbstractGLS = ClassicalTrustRegion
+    line_search: AbstractGLS = sentinel
+    model: AbstractModel = sentinel
+
+    def __post_init__(self):
+        if self.model == sentinel:
+            self.model = IndirectIterativeDual(
+                gauss_newton=True,
+                atol=1e-6,
+                rtol=1e-6,
+                lambda_0=0.5,
+            )
+        if self.line_search == sentinel:
+            self.line_search = ClassicalTrustRegion()
 
     def step(self, problem, y, args, options, state):
         super().step(problem, y, args, options, state)

@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
@@ -45,13 +47,33 @@ class TRState(eqx.Module):
 
 
 class ClassicalTrustRegion(AbstractGLS):
-    model: AbstractTRModel
     high_cutoff: float = 0.99
     low_cutoff: float = 1e-2
     high_constant: float = 3.5
     low_constant: float = 0.25
     needs_gradient = True
     needs_hessian = True
+
+    def __call__(self, model):
+        return _ClassicalTrustRegion(
+            model,
+            self.high_cutoff,
+            self.low_cutoff,
+            self.high_constant,
+            self.low_constant,
+            self.needs_gradient,
+            self.needs_hessian,
+        )
+
+
+class _ClassicalTrustRegion(AbstractGLS):
+    model: AbstractTRModel
+    high_cutoff: float
+    low_cutoff: float
+    high_constant: float
+    low_constant: float
+    needs_gradient: ClassVar[bool]
+    needs_hessian: ClassVar[bool]
     #
     # These are not the textbook choices for the trust region line search
     # parameter values. This choice of default parameters comes from Gould
@@ -60,6 +82,12 @@ class ClassicalTrustRegion(AbstractGLS):
     # problems. This set of constants had on average the fewest required iterations
     # to converge.
     #
+
+    def __post_init__(self):
+        if self.needs_gradient or self.model.needs_gradient:
+            self.needs_gradient = True
+        if self.needs_hessian or self.model.needs_hessian:
+            self.needs_hessian = True
 
     def init(self, problem, y, args, options):
         try:

@@ -108,7 +108,7 @@ def _iterate(inputs, closure, while_loop):
     def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        static_buffered = eqx.filter(state, not eqx.is_array)
+        static_buffered = eqx.filter(state, eqx.is_array, inverse=True)
         new_y, new_state, aux = solver.step(problem, y, args, options, state)
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
 
