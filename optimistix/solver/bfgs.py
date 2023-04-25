@@ -1,12 +1,18 @@
+from typing import Callable
+
+import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 from equinox.internal import ω
 
-from ..custom_types import sentinel
-from ..line_search import AbstractGLS, AbstractModel
+from ..line_search import AbstractDescent, AbstractLineSearch, OneDimProblem
 from ..linear_operator import PyTreeLinearOperator
-from ..minimise import minimise
-from .models import UnnormalizedNewton
+from ..minimise import minimise, MinimiseProblem
+from ..misc import max_norm
+from ..solution import RESULTS
+from .descent import UnnormalizedNewton
+from .misc import compute_hess_grad
 from .quasi_newton import AbstractQuasiNewton, QNState
 
 
@@ -15,75 +21,108 @@ from .quasi_newton import AbstractQuasiNewton, QNState
 # `B_k p = g`. We could just as well update `Binv_k -> Binv_(k + 1)`, ie.
 # `p = Binv_k g` is just the matrix vector product.
 #
-# To change to this version is straightforward, change update_state below
-# to make the correct BFGS update, and then create a model which returns as
-# its descent direction the mvp
-# ```
-# model.descent_dir(state, ...) = state.operator.mv(g)
-# ```
-#
 
 
 class BFGS(AbstractQuasiNewton):
-    line_search: AbstractGLS = sentinel
-    model: AbstractModel = sentinel
+    atol: float
+    rtol: float
+    norm: Callable
 
-    def __post_init__(self):
-        if self.line_search == sentinel:
-            raise ValueError("No line search initialized in BFGS")
+    def __init__(
+        self,
+        atol: float,
+        rtol: float,
+        line_search: AbstractLineSearch,
+        descent: AbstractDescent = UnnormalizedNewton(),
+        norm: Callable = max_norm,
+    ):
+        self.atol = atol
+        self.rtol = rtol
+        self.line_search = line_search
+        self.descent = descent
+        self.norm = norm
 
-        if self.model == sentinel:
-            self.model = UnnormalizedNewton(gauss_newton=False)
+    def init(self, problem, y, args, options):
+
+        vector, operator, aux = compute_hess_grad(problem, y, options, args)
+
+        return QNState(
+            step=jnp.array(0),
+            diffsize=jnp.array(0.0),
+            diffsize_prev=jnp.array(0.0),
+            result=jnp.array(RESULTS.successful),
+            vector=vector,
+            operator=operator,
+            aux=aux,
+        )
 
     def step(self, problem, y, args, options, state):
-        if self.model.gauss_newton:
-            raise ValueError(
-                "A model with gauss_newton=True was passed to GeneralBFGS \
-                which is not a Gauss-Newton method."
-            )
-        line_search = self.line_search(self.model)
+        aux = state.aux
+        descent = eqxi.Partial(
+            self.descent,
+            problem=problem,
+            y=y,
+            args=args,
+            state=state,
+            options=options,
+            vector=state.vector,
+            operator=state.operator,
+        )
 
-        if state.vector != sentinel and state.vector != sentinel:
-            options["gradient"] = state.vector
-            options["hessian"] = state.operator
+        problem_1d = MinimiseProblem(
+            OneDimProblem(problem.fn, descent, y), has_aux=True
+        )
 
-        sol = minimise(problem, line_search, y, args, options)
-        new_y, new_state = self.update_solution(problem, y, sol, state)
+        line_sol = minimise(
+            problem_1d, self.line_search, jnp.array(2.0), args=args, options=options
+        )
 
-        return new_y, new_state, sol.state.aux
+        (diff, new_aux) = line_sol.aux
+        new_grad, _ = jax.jacrev(problem.fn, has_aux=problem.has_aux)(
+            (ω(y) + ω(diff)).ω, args
+        )
 
-    def update_state(self, problem, y, sol, state):
-        # TODO(raderj): find a way to remove this call to problem.fn.
-        # it should be possible by calling step with no gradient and
-        # using the resulting vector. I just want to avoid the whole line
-        # search...
-        new_grad = jax.jacrev(problem.fn, has_aux=problem.has_aux)(y)
+        t_diff = (ω(new_grad) - ω(state.vector)).ω
 
-        diff = sol.state.decrease_dir
-        t_diff = new_grad - sol.state.vector
+        def _outer(tree):
+            def leaf_fn(x):
+                return jtu.tree_map(lambda leaf2: jnp.tensordot(x, leaf2, axes=0), tree)
 
-        if state.operator == sentinel:
-            new_hess = sol.state.operator
-        else:
-            (t_diff_ravel, _) = jax.flatten_util.ravel_pytree(t_diff)
-            (diff_ravel, _) = jax.flatten_util.ravel_pytree(diff)
-            hess_mv = state.operator.mv(diff)
-            term1 = (t_diff_ravel @ t_diff_ravel.T) / (t_diff_ravel.T @ diff_ravel)
-            term2 = (hess_mv @ hess_mv.T) / (diff_ravel.T @ hess_mv)
-            new_hess = PyTreeLinearOperator(
-                state.operator.as_matrix() + term1 - term2,
-                jax.eval_shape(lambda: new_grad),
-            )
+            return jtu.tree_map(leaf_fn, tree)
 
-        new_y = (ω(y) + diff).ω
+        hess_mv = state.operator.mv(diff)
+
+        diff_outer = _outer(t_diff)
+        diff_inner = jtu.tree_reduce(
+            lambda x, y: x + y, (ω(t_diff) * ω(t_diff)).call(jnp.sum).ω
+        )
+
+        hess_outer = _outer(hess_mv)
+        hess_inner = jtu.tree_reduce(
+            lambda x, y: x + y, (ω(diff) * ω(hess_mv)).call(jnp.sum).ω
+        )
+
+        term1 = ω(diff_outer) / diff_inner
+        term2 = ω(hess_outer) / hess_inner
+        new_hess = PyTreeLinearOperator(
+            (ω(state.operator.pytree) + term1 - term2).ω,
+            jax.eval_shape(lambda: new_grad),
+        )
+
+        new_y = (ω(y) + ω(diff)).ω
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
-        diffsize = self.norm((ω(sol.state.descent_dir) / ω(scale)).ω)
+        diffsize = self.norm((ω(diff) / ω(scale)).ω)
         new_state = QNState(
             step=state.step + 1,
             diffsize=diffsize,
             diffsize_prev=state.diffsize,
-            result=sol.result,
-            vector=new_hess,
-            operator=sentinel,
+            result=line_sol.result,
+            vector=new_grad,
+            operator=new_hess,
+            aux=new_aux,
         )
-        return new_y, new_state
+
+        return new_y, new_state, aux
+
+    def buffer(self, state):
+        return ()

@@ -137,9 +137,8 @@ def _linear_solve_jvp(primals, tangents):
     sols = []
     if any(t is not None for t in jtu.tree_leaves(t_vector, is_leaf=_is_none)):
         # b' term
-        vecs.append(
-            jtu.tree_map(eqxi.materialise_zeros, vector, t_vector, is_leaf=_is_none)
-        )
+        vec = jtu.tree_map(eqxi.materialise_zeros, vector, t_vector, is_leaf=_is_none)
+        vecs.append(vec)
     if any(t is not None for t in jtu.tree_leaves(t_operator, is_leaf=_is_none)):
         t_operator = TangentLinearOperator(operator, t_operator)
         t_operator = linearise(t_operator)  # optimise for matvecs
@@ -173,7 +172,7 @@ def _linear_solve_jvp(primals, tangents):
                 options_transpose,
                 solver,
             )
-            tmp2 = t_operator.transpose().mv(tmp1)
+            tmp2 = t_operator_transpose.mv(tmp1)
             # tmp2 is the y term
             tmp3 = operator.mv(tmp2)
             tmp4 = (-(tmp3**ω)).ω

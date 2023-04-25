@@ -4,6 +4,7 @@ import math
 from typing import Any, Callable, FrozenSet, Iterable, List, Tuple, TypeVar, Union
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
@@ -31,6 +32,10 @@ from .misc import (
     jacobian,
     NoneAux,
 )
+
+
+def _is_none(x):
+    return x is None
 
 
 def _frozenset(x: Union[object, Iterable[object]]) -> FrozenSet[object]:
@@ -821,13 +826,14 @@ class TangentLinearOperator(AbstractLinearOperator):
 
     def mv(self, vector):
         mv = lambda operator: operator.mv(vector)
-        _, out = eqx.filter_jvp(mv, (self.primal,), (self.tangent,))
-        return out
+        out, t_out = eqx.filter_jvp(mv, (self.primal,), (self.tangent,))
+        t_out = jtu.tree_map(eqxi.materialise_zeros, out, t_out, is_leaf=_is_none)
+        return t_out
 
     def as_matrix(self):
         as_matrix = lambda operator: operator.as_matrix()
-        _, out = eqx.filter_jvp(as_matrix, (self.primal,), (self.tangent,))
-        return out
+        _, t_out = eqx.filter_jvp(as_matrix, (self.primal,), (self.tangent,))
+        return t_out
 
     def transpose(self):
         transpose = lambda operator: operator.transpose()

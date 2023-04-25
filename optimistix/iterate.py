@@ -81,6 +81,13 @@ def _iterate(inputs, closure, while_loop):
     init_state = solver.init(problem, y0, args, options)
     # We need to filter non-JAX-arrays, as our linear solvers use Python bools in their
     # state.
+
+    def _is_jaxpr(x):
+        return isinstance(x, (jax.core.Jaxpr, jax.core.ClosedJaxpr))
+
+    def _is_array_jaxpr(x):
+        return _is_jaxpr(x) or eqx.is_array(x)
+
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
 
     if problem.has_aux:
@@ -108,13 +115,14 @@ def _iterate(inputs, closure, while_loop):
     def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        static_buffered = eqx.filter(state, eqx.is_array, inverse=True)
+        static_buffered = eqx.filter(state, _is_array_jaxpr, inverse=True)
         new_y, new_state, aux = solver.step(problem, y, args, options, state)
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
+        new_static_state = eqx.filter(new_static_state, _is_jaxpr, inverse=True)
 
         assert eqx.tree_equal(static_buffered, new_static_state) is True
 
-        return new_y, num_steps + 1, new_state, aux
+        return new_y, num_steps + 1, new_dynamic_state, aux
 
     def buffer(carry):
         _, _, state, _ = carry

@@ -1,186 +1,93 @@
-from typing import ClassVar
-
 import equinox as eqx
-import jax.lax as lax
+import jax
 import jax.numpy as jnp
-from equinox.internal import ω
-from jaxtyping import ArrayLike, Float, PyTree
+from jaxtyping import ArrayLike, Bool, Float
 
-from ..custom_types import sentinel
-from ..line_search import AbstractGLS, AbstractTRModel
-from ..linear_operator import AbstractLinearOperator
+from ..line_search import AbstractLineSearch
 from ..solution import RESULTS
-from .misc import init_derivatives
-
-
-def _update_state(state):
-    return (
-        state.delta,
-        state.descent_dir,
-        state.f_y,
-        state.f_new,
-        state.model_y,
-        state.model_new,
-        state.finished,
-    )
-
-
-def _init_state(state):
-    return (
-        state.descent_dir,
-        state.model_y,
-        state.model_new,
-    )
 
 
 class TRState(eqx.Module):
-    delta: float
-    descent_dir: PyTree[ArrayLike]
-    f_y: Float[ArrayLike, " "]
-    f_new: Float[ArrayLike, " "]
-    vector: PyTree[ArrayLike]
-    operator: AbstractLinearOperator
-    model_y: Float[ArrayLike, " "]
-    model_new: Float[ArrayLike, " "]
-    finished: bool
-    aux: PyTree
+    f_prev: Float[ArrayLike, " "]
+    finished: Bool[ArrayLike, " "]
 
 
-class ClassicalTrustRegion(AbstractGLS):
+#
+# NOTE: typically classical trust region methods compute
+# (true decrease)/(predicted decrease) > const. We use
+# -(true decrease) < const * -(predicted decrease) instead
+# This is for numerical reasons, as this can avoid an unnecessary subtraction
+# and division in many cases.
+#
+class ClassicalTrustRegion(AbstractLineSearch):
     high_cutoff: float = 0.99
-    low_cutoff: float = 1e-2
+    low_cutoff: float = 0.01
     high_constant: float = 3.5
     low_constant: float = 0.25
-    needs_gradient = True
-    needs_hessian = True
-
-    def __call__(self, model):
-        return _ClassicalTrustRegion(
-            model,
-            self.high_cutoff,
-            self.low_cutoff,
-            self.high_constant,
-            self.low_constant,
-            self.needs_gradient,
-            self.needs_hessian,
-        )
-
-
-class _ClassicalTrustRegion(AbstractGLS):
-    model: AbstractTRModel
-    high_cutoff: float
-    low_cutoff: float
-    high_constant: float
-    low_constant: float
-    needs_gradient: ClassVar[bool]
-    needs_hessian: ClassVar[bool]
-    #
-    # These are not the textbook choices for the trust region line search
-    # parameter values. This choice of default parameters comes from Gould
-    # et al. "Sensitivity of trust region algorithms to their parameters," which
-    # empirically tried a large grid of trust region constants on a number of test
-    # problems. This set of constants had on average the fewest required iterations
-    # to converge.
-    #
-
-    def __post_init__(self):
-        if self.needs_gradient or self.model.needs_gradient:
-            self.needs_gradient = True
-        if self.needs_hessian or self.model.needs_hessian:
-            self.needs_hessian = True
+    # This choice of default parameters comes from Gould et al.
+    # "Sensitivity of trust region algorithms to their parameters."
 
     def init(self, problem, y, args, options):
+        # NOTE: passing f_0 via options to exploit FSAL. This may be a bit of a
+        # footgun, as it requires users to be more careful at the solver level.
         try:
-            delta_0 = options["delta_0"]
+            f_0 = options["f_0"]
         except KeyError:
-            raise ValueError(
-                "delta_0 must be passed for trust region methods via \
-                options. Standard use is to set `delta_0` to the accepted \
-                trust region size from last step."
-            )
-        if not isinstance(self.model, AbstractTRModel):
-            raise ValueError(
-                f"The model: {self.model} is not an instance of AbstractTRModel \
-                (it does not have a __call__ method), which is necessary for trust \
-                region methods."
-            )
-
-        f_y, vector, operator, aux = init_derivatives(
-            self.model,
-            problem,
-            y,
-            self.needs_gradient,
-            self.needs_hessian,
-            options,
-            args,
-        )
+            raise ValueError("f_0 must be passed via options to classical trust region")
 
         state = TRState(
-            delta_0,
-            sentinel,
-            f_y,
-            f_y,
-            vector,
-            operator,
-            sentinel,
-            sentinel,
-            finished=False,
-            aux=aux,
+            f_0,
+            jnp.array(False),
         )
-
-        try:
-            model_y = options["model_y"]
-        except KeyError:
-            model_y = self.model(y, state)
-
-        descent_dir = self.model.descent_dir(
-            state.delta, problem, y, state, args, options
-        )
-
-        state = eqx.tree_at(_init_state, state, (descent_dir, model_y, model_y))
 
         return state
 
     def step(self, problem, y, args, options, state):
-        f_new = problem.fn((ω(y) + state.delta * ω(state.descent_dir)).ω)
-        model_new = self.model((ω(y) + state.delta * ω(state.descent_dir)).ω, state)
+        (f_new, (descent_dir, aux)) = problem.fn(y, args)
 
-        model_y = state.model_new
-        f_y = state.f_new
+        # TODO(raderj): Make this less awful.
+        try:
+            vector = options["vector"]
+            operator = options["operator"]
+            predicted_reduction = problem.fn.descent_fn.fn.predicted_reduction(
+                descent_dir, args, state, options, vector, operator
+            )
+        except KeyError:
+            try:
+                predicted_reduction_fn = options["predicted_reduction"]
+                predicted_reduction = predicted_reduction_fn(
+                    descent_dir, args, state, options
+                )
+            except KeyError:
+                raise ValueError(
+                    "Need a method to predict reduction. \
+                    This can be achieved by passing `vector` and `operator` via \
+                    options, or by passing `predicted_reduction_fn` via options."
+                )
 
-        tr_ratio = (f_y - f_new) / (state.model_y - state.model_new)
+        finished = f_new < state.f_prev + self.low_cutoff * predicted_reduction
+        good = f_new < state.f_prev + self.high_cutoff * predicted_reduction
+        bad = f_new > state.f_prev + self.low_cutoff * predicted_reduction
 
-        finished = tr_ratio > self.low_cutoff
-        delta = jnp.where(
-            tr_ratio >= self.high_cutoff, state.delta * self.high_constant, state.delta
-        )
-        delta = jnp.where(
-            tr_ratio <= self.low_cutoff, state.delta * self.low_constant, state.delta
-        )
+        new_y = jnp.where(good, y * self.high_constant, y)
 
-        def accept_direction(model, problem, y, args, options, state):
-            return state.descent_dir
+        new_y = jnp.where(bad, y * self.low_constant, new_y)
+        jax.debug.print("FINISHED: {}", finished)
 
-        def reject_direction(model, problem, y, args, options, state):
-            return model.descent_dir(delta, problem, y, state, args, options)
+        jax.debug.print("f_new: {}", f_new)
+        jax.debug.print("f_prev: {}", state.f_prev)
+        jax.debug.print("pred_reduction: {}", predicted_reduction)
+        jax.debug.print("new_y: {}", new_y)
+        jax.debug.print("PR: {}", state.f_prev + self.low_cutoff * predicted_reduction)
+        new_state = TRState(f_new, finished)
 
-        # if the tr algorithm has terminated, don't compute the next descent dir.
-        # I am expecting the direction to be computed in the init instead.
-        cond_args = (self.model, problem, y, args, options, state)
-        descent_dir = lax.cond(finished, accept_direction, reject_direction, cond_args)
-
-        # this often finishes after 1 step! This updates delta, the f_i, the model
-        # evals, and sets `finished = True` to end the iterations.
-        state = eqx.tree_at(
-            _update_state,
-            state,
-            (delta, descent_dir, f_y, f_new, model_y, model_new, finished),
-        )
-
-        return state
+        return new_y, new_state, (descent_dir, aux)
 
     def terminate(self, problem, y, args, options, state):
         result = jnp.where(
-            jnp.isfinite(state.delta), RESULTS.successful, RESULTS.divergence
+            jnp.isfinite(y), RESULTS.successful, RESULTS.nonlinear_divergence
         )
-        return state.finished, result
+        return (state.finished, result)
+
+    def buffer(self, state):
+        return ()

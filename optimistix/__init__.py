@@ -5,7 +5,7 @@ from .least_squares import (
     least_squares,
     LeastSquaresProblem,
 )
-from .line_search import AbstractGLS, AbstractModel
+from .line_search import AbstractDescent, AbstractLineSearch
 from .linear_operator import (
     AbstractLinearOperator,
     AddLinearOperator,
@@ -49,7 +49,8 @@ from .minimise import AbstractMinimiser, minimise, MinimiseProblem
 from .root_find import AbstractRootFinder, root_find, RootFindProblem
 from .solution import RESULTS, Solution
 from .solver import (
-    AbstractBacktrackingGLS,
+    AbstractBacktrackingLineSearch,
+    AbstractGaussNewton,
     BacktrackingArmijo,
     BFGS,
     Bisection,
@@ -59,7 +60,6 @@ from .solver import (
     ClassicalTrustRegion,
     Diagonal,
     FixedPointIteration,
-    GaussNewton,
     LevenbergMarquardt,
     LU,
     NelderMead,
