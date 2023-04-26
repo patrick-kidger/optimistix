@@ -2,7 +2,6 @@ import abc
 from typing import Callable, Optional
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import ArrayLike, Bool, PyTree
@@ -83,10 +82,7 @@ class _NewtonChord(AbstractRootFinder):
         else:
             jac, state = state.linear_state
             sol = linear_solve(jac, fx, self.linear_solver, state=state, throw=False)
-        jax.debug.print("fx: {}", fx)
-        jax.debug.print("JAC: {}", jac.as_matrix())
         diff = sol.value
-        jax.debug.print("diff: {}", diff)
         new_y = (y**ω - diff**ω).ω
         # this clip is very important for LM, as it keeps lambda > 0.
         if self.lower is not None:

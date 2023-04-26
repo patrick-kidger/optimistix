@@ -41,9 +41,11 @@ class _ToMinimiseFn(eqx.Module):
         out = self.residual_fn(y, args)
         if self.has_aux:
             out, aux = out
-            return jnp.sum(out**2), aux
+            out_ravel, _ = jax.flatten_util.ravel_pytree(out)
+            return jnp.sum(out_ravel**2), aux
         else:
-            return jnp.sum(out**2)
+            out_ravel, _ = jax.flatten_util.ravel_pytree(out)
+            return jnp.sum(out_ravel**2)
 
 
 @eqx.filter_jit

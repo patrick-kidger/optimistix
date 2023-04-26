@@ -1,12 +1,14 @@
-from typing import Callable
+from typing import Any, Callable, Optional
 
+import equinox as eqx
 import equinox.internal as eqxi
-import jax
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import ArrayLike, Float
+from jaxtyping import ArrayLike, Float, PyTree
 
+from ..custom_types import Scalar
 from ..line_search import AbstractDescent, AbstractLineSearch, OneDimProblem
+from ..linear_operator import AbstractLinearOperator
 from ..minimise import minimise, MinimiseProblem
 from ..misc import max_norm
 from ..solution import RESULTS
@@ -14,8 +16,19 @@ from .backtracking import BacktrackingArmijo
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .misc import compute_jac_residual
 from .newton_chord import Newton
-from .quasi_newton import AbstractQuasiNewton, QNState
+from .quasi_newton import AbstractQuasiNewton
 from .trust_region import ClassicalTrustRegion
+
+
+class GNState(eqx.Module):
+    step: Scalar
+    diffsize: Scalar
+    diffsize_prev: Scalar
+    result: RESULTS
+    vector: Optional[PyTree[ArrayLike]]
+    operator: Optional[AbstractLinearOperator]
+    aux: Any
+    f_i: Float[ArrayLike, " "]
 
 
 class AbstractGaussNewton(AbstractQuasiNewton):
@@ -29,17 +42,17 @@ class AbstractGaussNewton(AbstractQuasiNewton):
 
         vector, operator, aux = compute_jac_residual(problem, y, options, args)
         #
-        # WARNING: there are some footguns throughout regarding this f_i! Really we
-        # should have something like search_state and use this. However, to initialize
-        # search_state we need to have problem_1d as in the step, which requires
+        # WARNING: the `f_i` term in state is a footgun. We
+        # should have something like `search_state` instead. However, to initialize
+        # `search_state` we need to have `problem_1d` as in `self.step`. This requires
         # the descent function to get state as an argument. Maybe we create something
-        # like InitState(step, diffsize, ...) with no search_state, use this to
-        # create problem_1d, and then use problem_1d to initialize search_state.
-        # search state can then be passed via QNState.
+        # like `InitState(step, diffsize, ...)` without `search_state`, use this to
+        # create `problem_1d`, and then use `problem_1d` to initialize `search_state`?
+        # search state could then be passed via `QNState`. Seems a bit hacky though.
         #
         f_0 = problem.fn(y, args)
 
-        return QNState(
+        return GNState(
             step=jnp.array(0),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
@@ -51,11 +64,6 @@ class AbstractGaussNewton(AbstractQuasiNewton):
         )
 
     def step(self, problem, y, args, options, state):
-        # WARNING: Literally the only difference between this and bfgs is
-        # the init. All the state updating happens in update_state.
-        # should we
-        # a) remove update state and toss it into step.
-        # b) write step in quasi-Newton and then just implement update_state?
         aux = state.aux
         descent = eqxi.Partial(
             self.descent,
@@ -72,8 +80,6 @@ class AbstractGaussNewton(AbstractQuasiNewton):
             OneDimProblem(problem.fn, descent, y), has_aux=True
         )
         options["vector"] = state.vector
-        jax.debug.print("residual_vec: {}", state.vector)
-        jax.debug.print("y: {}", y)
         options["operator"] = state.operator
         options["f_0"] = state.f_i
 
@@ -85,14 +91,13 @@ class AbstractGaussNewton(AbstractQuasiNewton):
             options=options,
             max_steps=512,
         )
-        jax.debug.print("line_sol returned stuff: {}", line_sol.value)
 
         (diff, new_aux) = line_sol.aux
         new_y = (ω(y) + ω(diff)).ω
         vector, operator, _ = compute_jac_residual(problem, new_y, options, args)
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         diffsize = self.norm((ω(diff) / ω(scale)).ω)
-        new_state = QNState(
+        new_state = GNState(
             step=state.step + 1,
             diffsize=diffsize,
             diffsize_prev=state.diffsize,
@@ -100,22 +105,12 @@ class AbstractGaussNewton(AbstractQuasiNewton):
             vector=vector,
             operator=operator,
             aux=new_aux,
-            # BAD!
             f_i=line_sol.state.f_prev,
         )
-        jax.debug.print("new_y: {}", new_y)
-
         return new_y, new_state, aux
 
     def buffer(self, state):
         return ()
-
-
-#
-# Yep, LevenbergMarquardt is just an alias of GaussNewton with a default
-# choice of descent and line search. This is similar to the popular implementation
-# of Moré (1978) "The Levenberg-Marquardt Algorithm: Implementation and Theory."
-#
 
 
 class LevenbergMarquardt(AbstractGaussNewton):
@@ -133,7 +128,7 @@ class LevenbergMarquardt(AbstractGaussNewton):
         self.descent = IndirectIterativeDual(
             gauss_newton=True,
             lambda_0=lambda_0,
-            root_finder=Newton(rtol, atol, lower=1e-10),
+            root_finder=Newton(rtol, atol),  # , lower=1e-10),
         )
         self.line_search = ClassicalTrustRegion()
         self.atol = atol

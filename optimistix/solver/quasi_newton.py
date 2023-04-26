@@ -1,8 +1,9 @@
+import abc
 from typing import Any, Optional
 
 import equinox as eqx
 import jax.numpy as jnp
-from jaxtyping import ArrayLike, Bool, Float, PyTree
+from jaxtyping import ArrayLike, Bool, PyTree
 
 from ..custom_types import Scalar
 from ..line_search import AbstractDescent, AbstractLineSearch
@@ -34,7 +35,6 @@ class QNState(eqx.Module):
     vector: Optional[PyTree[ArrayLike]]
     operator: Optional[AbstractLinearOperator]
     aux: Any
-    f_i: Float[ArrayLike, " "]
 
 
 class AbstractQuasiNewton(AbstractMinimiser):
@@ -42,9 +42,11 @@ class AbstractQuasiNewton(AbstractMinimiser):
     descent: AbstractDescent
     converged_tol: float
 
+    @abc.abstractmethod
     def init(self, problem, y, args, options):
         ...
 
+    @abc.abstractmethod
     def step(self, problem, y, args, options, state):
         ...
 
@@ -61,5 +63,6 @@ class AbstractQuasiNewton(AbstractMinimiser):
         result = jnp.where(linsolve_fail, state.result, result)
         return terminate, result
 
+    @abc.abstractmethod
     def buffer(self, state):
         ...

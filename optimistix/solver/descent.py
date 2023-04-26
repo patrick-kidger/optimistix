@@ -16,7 +16,8 @@ class UnnormalizedGradient(AbstractDescent):
         self, delta, delta_args, problem, y, args, state, options, vector, operator
     ):
         descent_dir = (-delta * ω(vector)).ω
-        return descent_dir
+        aux = None
+        return descent_dir, aux
 
 
 class UnnormalizedNewton(AbstractDescent):
@@ -32,7 +33,8 @@ class UnnormalizedNewton(AbstractDescent):
                 linear_solve(operator, vector, AutoLinearSolver(well_posed=False)).value
             )
         ).ω
-        return descent_dir
+        aux = None
+        return descent_dir, aux
 
 
 class NormalizedGradient(AbstractDescent):
@@ -43,7 +45,8 @@ class NormalizedGradient(AbstractDescent):
         _sumsqr = lambda x: jnp.sum(x**2)
         vec_norm = jtu.tree_reduce(lambda x, y: x + y, ω(vector).call(_sumsqr).ω)
         descent_dir = (-delta * ω(vector) / vec_norm).ω
-        return descent_dir
+        aux = None
+        return descent_dir, aux
 
 
 class NormalizedNewton(AbstractDescent):
@@ -59,4 +62,5 @@ class NormalizedNewton(AbstractDescent):
         _sumsqr = lambda x: jnp.sum(x**2)
         newton_norm = jtu.tree_reduce(lambda x, y: x + y, ω(newton).call(_sumsqr).ω)
         descent_dir = ((-delta * ω(newton)).ω / newton_norm).ω
-        return descent_dir
+        aux = None
+        return descent_dir, aux

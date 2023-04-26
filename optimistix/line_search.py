@@ -58,8 +58,8 @@ class OneDimProblem(eqx.Module):
     y: PyTree[ArrayLike]
 
     def __call__(self, delta: Float[ArrayLike, " "], args: Any):
-        args = (self, delta)
-        dynamic_args, static_args = eqx.partition(args, eqx.is_inexact_array)
+        cond_args = (self, delta)
+        dynamic_args, static_args = eqx.partition(cond_args, eqx.is_inexact_array)
 
         def descent_dir(dynamic_args):
             (self, delta) = eqx.combine(dynamic_args, static_args)

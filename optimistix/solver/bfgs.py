@@ -35,12 +35,14 @@ class BFGS(AbstractQuasiNewton):
         line_search: AbstractLineSearch,
         descent: AbstractDescent = UnnormalizedNewton(),
         norm: Callable = max_norm,
+        converged_tol: float = 1e-2,
     ):
         self.atol = atol
         self.rtol = rtol
         self.line_search = line_search
         self.descent = descent
         self.norm = norm
+        self.converged_tol = converged_tol
 
     def init(self, problem, y, args, options):
 

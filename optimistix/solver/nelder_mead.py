@@ -23,6 +23,9 @@ class _NMStats(eqx.Module):
     n_shrink: Scalar
 
 
+# WARNING: WIP, not changed to line search
+
+
 class _NelderMeadState(eqx.Module):
     """
     Information to update and store the simplex of the Nelder Mead update. If

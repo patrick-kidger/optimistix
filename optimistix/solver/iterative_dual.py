@@ -57,14 +57,10 @@ from .newton_chord import Newton
 # ||p(lambda)||^2 = sum(((q_j^T g)^2)/(l_1 + lambda)^2)
 # ```
 # The consequence of this is that the relationship between lambda and the trust region
-# radius changes each iteration as `B` is updated. For this reason, I (raderj) tend
-# towards the more interpretable indirect approach. This is what Moré used in their
+# radius changes each iteration as `B` is updated. For this reason, many researchers
+# prefer the more interpretable indirect approach. This is what Moré used in their
 # classical implementation of the algorithm as well (see Moré, "The Levenberg-Marquardt
 # Algorithm: Implementation and Theory.")
-#
-
-#
-# TODO(raderj): handle the case where we pass in a nonsingular L into the trust region.
 #
 
 
@@ -108,7 +104,6 @@ class DirectIterativeDual(AbstractDescent):
                 y,
                 args,
                 _has_aux=True,
-                # tags=positive_semidefinite_tag,
             )
             vector = (vector, ω(y).call(jnp.zeros_like).ω)
         else:
@@ -126,7 +121,7 @@ class DirectIterativeDual(AbstractDescent):
         operator = self.modify_jac(operator)
 
         eqxi.error_if(
-            delta, delta < 1e-10, "The dual (LM) parameter must be >1e-10 to ensure psd"
+            delta, delta < 1e-6, "The dual (LM) parameter must be >1e-6 to ensure psd"
         )
         linear_soln = linear_solve(operator, vector, self.solver)
         descent_dir = (-ω(linear_soln.value)).ω
@@ -157,7 +152,7 @@ class IndirectIterativeDual(AbstractProxyDescent):
     # TODO(raderj): write a solver in root_finder which specifically assumes iterative
     # dual so we can use the trick (or at least see if it's worth doing.)
     #
-    # NOTE/WARNING: this is not using the more efficient QR method.
+    # NOTE/WARNING: this is not using the QR method.
     #
     gauss_newton: bool
     lambda_0: Float[ArrayLike, " "]
@@ -188,16 +183,15 @@ class IndirectIterativeDual(AbstractProxyDescent):
         self.tr_reg = tr_reg
         self.modify_jac = modify_jac
         self.solver = solver
-
-        # it a gauss_newton method, then the model will compute the Jacobian
         self.gauss_newton = gauss_newton
+        # TODO(raderj): remove computes operator by implementing block operators.
         self.computes_operator = gauss_newton
-        # WARNING: the intended behavior is that the user would pass Newton(atol, rtol)
-        # themselves if they want a specific atol/rtol, but this may be a poor design
-        # choice and we can just ask for atol, rtol.
+        # the intended behavior is that the user would pass Newton(atol, rtol)
+        # themselves if they want a specific atol/rtol.
         if root_finder is None:
-            # being super precise is not very important in the Newton step
-            self.root_finder = Newton(rtol=1e-1, atol=1e-2, lower=0.0)
+            # being super precise is not very important in the Newton step,
+            # but being lower bounded above 0 is.
+            self.root_finder = Newton(rtol=1e-1, atol=1e-2, lower=1e-6)
         else:
             self.root_finder = root_finder
 
@@ -249,29 +243,21 @@ class IndirectIterativeDual(AbstractProxyDescent):
 
         ravel_newton, _ = jax.flatten_util.ravel_pytree(tr_reg.mv(newton_step))
         newton_norm = self.norm(ravel_newton)
-
-        jax.debug.print("Newton norm: {}", newton_norm)
         return lax.cond(newton_norm < delta, accept_newton, reject_newton, dynamic_args)
 
     def comparison_fn(self, lambda_i, lambda_i_args, delta, direct_dual, tr_reg):
-        jax.debug.print("lambda_i: {}", lambda_i)
         (step, _) = direct_dual(lambda_i)
-        (step_test, _) = direct_dual(lambda_i + 1)
-        # TODO(raderj): should just be self.norm! But we need to assure that
-        # self.norm acts on pytrees, in which case this tree_reduce can be
-        # removed as well
+        # TODO(raderj): should just be self.norm! But we need to ask
+        # self.norm to act on pytrees.
         ravel_step, _ = jax.flatten_util.ravel_pytree(step)
         step_norm = self.norm(ravel_step)
-        # step_norm = jtu.tree_reduce(
-        #     lambda x,y: x + y, ω(step).call(lambda x: jnp.linalg.norm(x)**2).ω
-        # )
-
-        jax.debug.print("Delta: {}", delta)
-        jax.debug.print("Step_norm: {}", step_norm)
-
         return 1 / delta - 1 / step_norm
 
     def predicted_reduction(self, descent_dir, args, state, options, vector, operator):
-        model_0 = self.norm(vector) ** 2
-        model_p = self.norm((ω(operator.mv(descent_dir)) - ω(vector)).ω) ** 2
+        ravel_vector, _ = jax.flatten_util.ravel_pytree(vector)
+        model_0 = self.norm(ravel_vector) ** 2
+        ravel_difference, _ = jax.flatten_util.ravel_pytree(
+            (ω(operator.mv(descent_dir)) - ω(vector)).ω
+        )
+        model_p = self.norm(ravel_difference) ** 2
         return 0.5 * (model_0 - model_p)
