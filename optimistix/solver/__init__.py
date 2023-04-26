@@ -1,4 +1,4 @@
-from .backtracking import AbstractBacktrackingLineSearch, BacktrackingArmijo
+from .backtracking import BacktrackingArmijo
 from .bfgs import BFGS
 from .bisection import Bisection
 from .cg import CG

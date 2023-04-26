@@ -457,5 +457,5 @@ class NelderMead(AbstractMinimiser):
         result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
         return terminate, result
 
-    def buffer(self, state):
+    def buffers(self, state):
         return state.simplex

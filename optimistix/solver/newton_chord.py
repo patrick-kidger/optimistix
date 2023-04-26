@@ -114,7 +114,7 @@ class _NewtonChord(AbstractRootFinder):
         result = jnp.where(linsolve_fail, state.result, result)
         return terminate, result
 
-    def buffer(self, state):
+    def buffers(self, state):
         return ()
 
 

@@ -6,9 +6,9 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 
-from ..line_search import AbstractDescent, AbstractLineSearch, OneDimProblem
+from ..line_search import AbstractDescent, OneDimFunction
 from ..linear_operator import PyTreeLinearOperator
-from ..minimise import minimise, MinimiseProblem
+from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
 from ..misc import max_norm
 from ..solution import RESULTS
 from .descent import UnnormalizedNewton
@@ -32,7 +32,7 @@ class BFGS(AbstractQuasiNewton):
         self,
         atol: float,
         rtol: float,
-        line_search: AbstractLineSearch,
+        line_search: AbstractMinimiser,
         descent: AbstractDescent = UnnormalizedNewton(),
         norm: Callable = max_norm,
         converged_tol: float = 1e-2,
@@ -46,7 +46,7 @@ class BFGS(AbstractQuasiNewton):
 
     def init(self, problem, y, args, options):
 
-        vector, operator, aux = compute_hess_grad(problem, y, options, args)
+        vector, operator, aux = compute_hess_grad(problem, y, args)
 
         return QNState(
             step=jnp.array(0),
@@ -72,7 +72,7 @@ class BFGS(AbstractQuasiNewton):
         )
 
         problem_1d = MinimiseProblem(
-            OneDimProblem(problem.fn, descent, y), has_aux=True
+            OneDimFunction(problem.fn, descent, y), has_aux=True
         )
 
         line_sol = minimise(
@@ -126,5 +126,5 @@ class BFGS(AbstractQuasiNewton):
 
         return new_y, new_state, aux
 
-    def buffer(self, state):
+    def buffers(self, state):
         return ()

@@ -2,7 +2,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import ArrayLike, Bool, Float
 
-from ..line_search import AbstractLineSearch
+from ..minimise import AbstractMinimiser
 from ..solution import RESULTS
 
 
@@ -17,7 +17,7 @@ class TRState(eqx.Module):
 # -(true decrease) < const * -(predicted decrease) instead.
 # This is for numerical reasons, as it avoids an uneccessary subtraction and division
 #
-class ClassicalTrustRegion(AbstractLineSearch):
+class ClassicalTrustRegion(AbstractMinimiser):
     high_cutoff: float = 0.99
     low_cutoff: float = 0.01
     high_constant: float = 3.5
@@ -82,5 +82,5 @@ class ClassicalTrustRegion(AbstractLineSearch):
         )
         return (state.finished, result)
 
-    def buffer(self, state):
+    def buffers(self, state):
         return ()

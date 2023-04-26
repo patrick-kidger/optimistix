@@ -25,8 +25,7 @@ class _NoAuxOut(eqx.Module):
         return f
 
 
-def compute_hess_grad(problem, y, options, args):
-    del options
+def compute_hess_grad(problem, y, args):
     jrev = jax.jacrev(problem.fn, has_aux=problem.has_aux)
     grad = jrev(y, args)
     hessian = jax.jacfwd(jrev, has_aux=problem.has_aux)(y, args)
@@ -42,8 +41,7 @@ def compute_hess_grad(problem, y, options, args):
     return grad, hessian, aux
 
 
-def compute_jac_residual(problem, y, options, args):
-    del options
+def compute_jac_residual(problem, y, args):
     if problem.has_aux and not isinstance(problem.fn, NoneAux):
         fn = problem.fn.residual_fn
     elif isinstance(problem.fn, NoneAux):

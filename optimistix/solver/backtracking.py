@@ -1,27 +1,20 @@
-import abc
-
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import ArrayLike, Float, PyTree
 
-from ..line_search import AbstractLineSearch
+from ..minimise import AbstractMinimiser
 from ..solution import RESULTS
 
 
 class BacktrackingState(eqx.Module):
-    f_delta: Float[ArrayLike, " "]
-    f_0: Float[ArrayLike, " "]
+    f_delta: Float[ArrayLike, ""]
+    f_0: Float[ArrayLike, ""]
     descent_dir: PyTree[ArrayLike]
 
 
-def _update_state(state):
-    return (state.f_delta, state.descent_dir)
-
-
-class AbstractBacktrackingLineSearch(AbstractLineSearch):
+class BacktrackingArmijo(AbstractMinimiser):
     backtrack_slope: Float[ArrayLike, " "]
     decrease_factor: Float[ArrayLike, " "]
 
@@ -38,18 +31,9 @@ class AbstractBacktrackingLineSearch(AbstractLineSearch):
 
         (f_delta, (descent_dir, aux)) = problem.fn(y, args)
 
-        state = eqx.tree_at(_update_state, state, (f_delta, descent_dir))
+        new_state = BacktrackingState(f_delta, state.f_0, descent_dir)
 
-        return delta, state, (descent_dir, aux)
-
-    @abc.abstractmethod
-    def terminate(self, problem, y, args, options, state):
-        ...
-
-
-class BacktrackingArmijo(AbstractBacktrackingLineSearch):
-    backtrack_slope: Float[ArrayLike, " "]
-    decrease_factor: Float[ArrayLike, " "]
+        return delta, new_state, (descent_dir, aux)
 
     def terminate(self, problem, y, args, options, state):
         result = jnp.where(
@@ -59,18 +43,15 @@ class BacktrackingArmijo(AbstractBacktrackingLineSearch):
         # normally this will be presented in textbooks as g^T d where g
         # is the gradient of f and d is the descent direction. We assume that
         # problem.fn is the 1d line search, and so these are equivalent.
-        try:
-            vector = options["vector"]
-            gradient = jtu.tree_reduce(
-                lambda x, y: x + y, (ω(vector) * ω(state.descent_dir)).ω
-            )
-        except KeyError:
-            (gradient, _) = jax.jacfwd(problem.fn)(0.0, args)
-
-        return (
-            state.f_delta < state.f_0 + self.backtrack_slope * y * gradient,
-            result,
+        vector = options["vector"]
+        gradient = jtu.tree_reduce(
+            lambda x, y: x + y, (ω(vector) * ω(state.descent_dir)).ω
         )
 
-    def buffer(self, state):
+        # NOTE: this is not missing an absolute value, this is a standard Armijo
+        # condition.
+        finished = state.f_delta < state.f_0 + self.backtrack_slope * y * gradient
+        return finished, result
+
+    def buffers(self, state):
         return ()

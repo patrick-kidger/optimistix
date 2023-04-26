@@ -4,7 +4,6 @@ from typing import Callable
 import equinox as eqx
 import jax
 import jax.flatten_util as jfu
-import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, ArrayLike, Bool, PyTree
@@ -47,7 +46,7 @@ def tree_where(
 
 def max_norm(x: PyTree) -> Scalar:
     leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)]
-    return jnp.max(jtu.tree_reduce(lax.max, leaf_maxes))
+    return jtu.tree_reduce(jnp.maximum, leaf_maxes)
 
 
 def resolve_rcond(rcond, n, m, dtype):

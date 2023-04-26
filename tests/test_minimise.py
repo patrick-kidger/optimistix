@@ -273,15 +273,15 @@ def test_minimise(
 
     if (not prob_lstsqr and not opt_lstsqr) or prob_lstsqr:
         if prob_lstsqr:
-            if not opt_lstsqr:
+            if opt_lstsqr:
+                fn = problem_fn
+            else:
 
                 def _fn_min(x, args):
                     ravel_out, _ = jax.flatten_util.ravel_pytree(problem_fn(x, args))
                     return jnp.sum(ravel_out**2)
 
                 fn = _fn_min
-            else:
-                fn = problem_fn
             if has_aux:
                 fn = lambda x, args: (fn(x, args), None)
         else:

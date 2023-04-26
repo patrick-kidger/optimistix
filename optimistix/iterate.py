@@ -9,12 +9,21 @@ import jax.tree_util as jtu
 from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint
+from .custom_types import sentinel
 from .misc import NoneAux
 from .solution import RESULTS, Solution
 
 
 _SolverState = TypeVar("_SolverState")
 _Aux = TypeVar("_Aux")
+
+
+def _is_jaxpr(x):
+    return isinstance(x, (jax.core.Jaxpr, jax.core.ClosedJaxpr))
+
+
+def _is_array_or_jaxpr(x):
+    return _is_jaxpr(x) or eqx.is_array(x)
 
 
 class AbstractIterativeProblem(eqx.Module):
@@ -56,7 +65,7 @@ class AbstractIterativeSolver(eqx.Module):
         ...
 
     @abc.abstractmethod
-    def buffer(
+    def buffers(
         self,
         state: _SolverState,
     ) -> Callable:
@@ -72,7 +81,7 @@ def _zero(x):
 
 def _iterate(inputs, closure, while_loop):
     problem, args = inputs
-    solver, y0, options, max_steps = closure
+    solver, y0, options, max_steps, aux_struct = closure
     del inputs, closure
 
     if options is None:
@@ -82,24 +91,20 @@ def _iterate(inputs, closure, while_loop):
     # We need to filter non-JAX-arrays, as our linear solvers use Python bools in their
     # state.
 
-    def _is_jaxpr(x):
-        return isinstance(x, (jax.core.Jaxpr, jax.core.ClosedJaxpr))
-
-    def _is_array_jaxpr(x):
-        return _is_jaxpr(x) or eqx.is_array(x)
-
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
 
     if problem.has_aux:
+        if aux_struct == sentinel:
 
-        def _aux(_solver, _problem, _y, _args, _options, _state):
-            _, _, _aux = _solver.step(_problem, _y, _args, _options, _state)
-            return _aux
+            def _aux(_solver, _problem, _y, _args, _options, _state):
+                _, _, _aux = _solver.step(_problem, _y, _args, _options, _state)
+                return _aux
 
-        init_aux = eqx.filter_eval_shape(
-            _aux, solver, problem, y0, args, options, init_state
-        )
-        init_aux = jtu.tree_map(_zero, init_aux)
+            aux_struct = eqx.filter_eval_shape(
+                _aux, solver, problem, y0, args, options, init_state
+            )
+
+        init_aux = jtu.tree_map(_zero, aux_struct)
     else:
         problem = eqx.tree_at(lambda p: p.fn, problem, NoneAux(problem.fn))
         init_aux = None
@@ -115,21 +120,23 @@ def _iterate(inputs, closure, while_loop):
     def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        static_buffered = eqx.filter(state, _is_array_jaxpr, inverse=True)
         new_y, new_state, aux = solver.step(problem, y, args, options, state)
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
-        new_static_state = eqx.filter(new_static_state, _is_jaxpr, inverse=True)
 
-        assert eqx.tree_equal(static_buffered, new_static_state) is True
+        new_static_state_no_jaxpr = eqx.filter(
+            new_static_state, _is_jaxpr, inverse=True
+        )
+        static_state_no_jaxpr = eqx.filter(state, _is_array_or_jaxpr, inverse=True)
+        assert eqx.tree_equal(static_state_no_jaxpr, new_static_state_no_jaxpr) is True
 
         return new_y, num_steps + 1, new_dynamic_state, aux
 
-    def buffer(carry):
+    def buffers(carry):
         _, _, state, _ = carry
-        return solver.buffer(state)
+        return solver.buffers(state)
 
     final_carry = while_loop(
-        cond_fun, body_fun, init_carry, max_steps=max_steps, buffers=buffer
+        cond_fun, body_fun, init_carry, max_steps=max_steps, buffers=buffers
     )
 
     final_y, num_steps, final_state, aux = final_carry
@@ -154,9 +161,10 @@ def iterative_solve(
     adjoint: AbstractAdjoint,
     throw: bool,
     tags: FrozenSet[object],
+    aux_struct: PyTree[jax.ShapedDtypeStruct] = sentinel
 ) -> Solution:
     inputs = problem, args
-    closure = solver, y0, options, max_steps
+    closure = solver, y0, options, max_steps, aux_struct
     out, (num_steps, result, final_state, aux) = adjoint.apply(
         _iterate, rewrite_fn, inputs, closure, tags
     )

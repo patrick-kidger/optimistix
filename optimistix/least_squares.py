@@ -9,6 +9,7 @@ from jaxtyping import Array, PyTree
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
 from .minimise import AbstractMinimiser, minimise, MinimiseProblem
+from .misc import inexact_asarray
 from .solution import Solution
 
 
@@ -60,7 +61,7 @@ def least_squares(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
-    y0 = jtu.tree_map(jnp.asarray, y0)
+    y0 = jtu.tree_map(inexact_asarray, y0)
     if isinstance(solver, AbstractMinimiser):
         minimise_fn = _ToMinimiseFn(problem.fn, problem.has_aux)
         minimise_problem = MinimiseProblem(fn=minimise_fn, has_aux=problem.has_aux)

@@ -7,9 +7,9 @@ from equinox.internal import ω
 from jaxtyping import ArrayLike, Float, PyTree
 
 from ..custom_types import Scalar
-from ..line_search import AbstractDescent, AbstractLineSearch, OneDimProblem
+from ..line_search import AbstractDescent, OneDimFunction
 from ..linear_operator import AbstractLinearOperator
-from ..minimise import minimise, MinimiseProblem
+from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
 from ..misc import max_norm
 from ..solution import RESULTS
 from .backtracking import BacktrackingArmijo
@@ -34,13 +34,11 @@ class GNState(eqx.Module):
 class AbstractGaussNewton(AbstractQuasiNewton):
     atol: float
     rtol: float
-    line_search: AbstractLineSearch
-    descent: AbstractDescent
     norm: Callable
 
     def init(self, problem, y, args, options):
 
-        vector, operator, aux = compute_jac_residual(problem, y, options, args)
+        vector, operator, aux = compute_jac_residual(problem, y, args)
         #
         # WARNING: the `f_i` term in state is a footgun. We
         # should have something like `search_state` instead. However, to initialize
@@ -77,7 +75,7 @@ class AbstractGaussNewton(AbstractQuasiNewton):
         )
 
         problem_1d = MinimiseProblem(
-            OneDimProblem(problem.fn, descent, y), has_aux=True
+            OneDimFunction(problem.fn, descent, y), has_aux=True
         )
         options["vector"] = state.vector
         options["operator"] = state.operator
@@ -109,35 +107,56 @@ class AbstractGaussNewton(AbstractQuasiNewton):
         )
         return new_y, new_state, aux
 
-    def buffer(self, state):
+    def buffers(self, state):
         return ()
 
 
 class LevenbergMarquardt(AbstractGaussNewton):
+    line_search: AbstractMinimiser
+    descent: AbstractDescent
+    converged_tol: float
+
     def __init__(
         self,
         atol: float,
         rtol: float,
-        lambda_0: Float[ArrayLike, " "],
-        converged_tol: float = 1e-2,
         norm=max_norm,
+        converged_tol: float = 1e-2,
+        lambda_0: Float[ArrayLike, ""] = 1e-3,
     ):
         # WARNING: atol and rtol are being used both for
         # IndirectIterativeDual and for self! This may be bad
         # practice.
+        self.atol = atol
+        self.rtol = rtol
+        self.norm = norm
+        self.converged_tol = converged_tol
+        self.line_search = ClassicalTrustRegion()
         self.descent = IndirectIterativeDual(
             gauss_newton=True,
             lambda_0=lambda_0,
-            root_finder=Newton(rtol, atol),  # , lower=1e-10),
+            root_finder=Newton(rtol, atol, lower=1e-6),
         )
-        self.line_search = ClassicalTrustRegion()
-        self.atol = atol
-        self.rtol = rtol
-        self.converged_tol = converged_tol
-        self.norm = norm
 
 
 class DirectLevenbergMarquardt(AbstractGaussNewton):
-    # should use a slightly different backtracking algo
-    descent = DirectIterativeDual(gauss_newton=True)
-    line_search = BacktrackingArmijo(backtrack_slope=0.1, decrease_factor=0.5)
+    converged_tol: float
+
+    def __init__(
+        self,
+        atol: float,
+        rtol: float,
+        norm=max_norm,
+        converged_tol: float = 1e-2,
+        backtrack_slope: float = 0.1,
+        decrease_factor: float = 0.5,
+    ):
+        self.atol = atol
+        self.rtol = rtol
+        self.norm = norm
+        self.converged_tol = converged_tol
+        self.descent = DirectIterativeDual(gauss_newton=True)
+        # TODO(raderj): should use a slightly different backtracking algo
+        self.line_search = BacktrackingArmijo(
+            backtrack_slope=backtrack_slope, decrease_factor=decrease_factor
+        )
