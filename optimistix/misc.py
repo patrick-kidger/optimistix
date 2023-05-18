@@ -11,6 +11,32 @@ from jaxtyping import Array, ArrayLike, Bool, PyTree
 from .custom_types import Scalar
 
 
+def two_norm(x: PyTree) -> Scalar:
+    x, _ = jfu.ravel_pytree(x)
+    if x.size == 0:
+        return 0
+    return _two_norm(x)
+
+
+@jax.custom_jvp
+def _two_norm(x):
+    x_sq = jnp.real(x * jnp.conj(x))
+    return jnp.sqrt(jnp.sum(x_sq))
+
+
+@_two_norm.defjvp
+def _two_norm_jvp(x, tx):
+    (x,) = x
+    (tx,) = tx
+    out = _two_norm(x)
+    # Get zero gradient, rather than NaN gradient, in these cases
+    pred = (out == 0) | jnp.isinf(out)
+    numerator = jnp.where(pred, 0, jnp.dot(x, tx))
+    denominator = jnp.where(pred, 1, out)
+    t_out = numerator / denominator
+    return out, t_out
+
+
 def rms_norm(x: PyTree) -> Scalar:
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
@@ -35,6 +61,12 @@ def _rms_norm_jvp(x, tx):
     denominator = jnp.where(pred, 1, out * x.size)
     t_out = jnp.dot(numerator / denominator, tx)
     return out, t_out
+
+
+def tree_inner_prod(tree1, tree2):
+    tree1_ravel, _ = jax.flatten_util.ravel_pytree(tree1)
+    tree2_ravel, _ = jax.flatten_util.ravel_pytree(tree2)
+    return tree1_ravel.T @ tree2_ravel
 
 
 def tree_where(

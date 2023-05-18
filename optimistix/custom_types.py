@@ -1,8 +1,9 @@
 from typing import Any
 
 import equinox.internal as eqxi
-from jaxtyping import ArrayLike, Shaped
+from jaxtyping import Array, ArrayLike, Shaped
 
 
 sentinel: Any = eqxi.doc_repr(object(), "sentinel")
-Scalar = Shaped[ArrayLike, ""]
+Scalar = Shaped[Array, ""]
+ScalarLike = Shaped[ArrayLike, ""]

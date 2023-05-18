@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Callable, Dict, FrozenSet, Optional, Tuple, TypeVar
+from typing import Any, Callable, Dict, FrozenSet, Generic, Optional, Tuple, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -26,8 +26,11 @@ def _is_array_or_jaxpr(x):
     return _is_jaxpr(x) or eqx.is_array(x)
 
 
-class AbstractIterativeProblem(eqx.Module):
-    fn: Callable
+IterativeFunction = TypeVar("IterativeFunction")
+
+
+class AbstractIterativeProblem(eqx.Module, Generic[IterativeFunction]):
+    fn: IterativeFunction
     has_aux: bool = False
 
 
@@ -87,10 +90,13 @@ def _iterate(inputs, closure, while_loop):
     if options is None:
         options = {}
 
+    if not problem.has_aux:
+        problem = eqx.tree_at(lambda p: p.fn, problem, NoneAux(problem.fn))
+        init_aux = None
+
     init_state = solver.init(problem, y0, args, options)
     # We need to filter non-JAX-arrays, as our linear solvers use Python bools in their
     # state.
-
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
 
     if problem.has_aux:
@@ -105,9 +111,6 @@ def _iterate(inputs, closure, while_loop):
             )
 
         init_aux = jtu.tree_map(_zero, aux_struct)
-    else:
-        problem = eqx.tree_at(lambda p: p.fn, problem, NoneAux(problem.fn))
-        init_aux = None
 
     init_carry = (y0, 0, dynamic_init_state, init_aux)
 
@@ -128,7 +131,6 @@ def _iterate(inputs, closure, while_loop):
         )
         static_state_no_jaxpr = eqx.filter(state, _is_array_or_jaxpr, inverse=True)
         assert eqx.tree_equal(static_state_no_jaxpr, new_static_state_no_jaxpr) is True
-
         return new_y, num_steps + 1, new_dynamic_state, aux
 
     def buffers(carry):
@@ -161,7 +163,7 @@ def iterative_solve(
     adjoint: AbstractAdjoint,
     throw: bool,
     tags: FrozenSet[object],
-    aux_struct: PyTree[jax.ShapedDtypeStruct] = sentinel
+    aux_struct: PyTree[jax.ShapeDtypeStruct] = sentinel
 ) -> Solution:
     inputs = problem, args
     closure = solver, y0, options, max_steps, aux_struct

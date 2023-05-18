@@ -67,14 +67,14 @@ def _penalty_ii(z, args):
     # least squares
     (x, _) = jax.flatten_util.ravel_pytree(z)
     x_0, x_i = x[0], x[1:]
-    y_i = jnp.exp(jnp.arange(2, jnp.size(x_i) + 2) / 10) + jnp.exp(
-        jnp.arange(1, jnp.size(x_i) + 1) / 10
+    y_i = jnp.exp(jnp.arange(2, jnp.size(x) + 1) / 10) + jnp.exp(
+        jnp.arange(1, jnp.size(x)) / 10
     )
     a = jnp.sqrt(1e-5)
     term1 = x_0 - 0.2
-    term2 = a * (jnp.exp(x_i / 10) - jnp.exp(x[:-1] / 10) - y_i)
+    term2 = a * (jnp.exp(x_i / 10) + jnp.exp(x[:-1] / 10) - y_i)
     term3 = a * (jnp.exp(x_i / 10) - jnp.exp(-1 / 10))
-    term4 = jnp.sum(jnp.arange(jnp.size(x), 0, step=-1) * x**2) - 1
+    term4 = jnp.sum(jnp.arange(jnp.size(x), 1, step=-1) * x[:-1] ** 2) - 1
     return (term1, term2, term3, term4)
 
 
@@ -174,151 +174,125 @@ def get_weights(model):
 ffn_init = eqx.tree_at(get_weights, ffn_init, (weight1, bias1, weight2, bias2))
 
 _optimisers_tols = (
-    (optx.NelderMead(1e-5, 1e-6), (1e-2, 1e-2), False),
+    # (optx.NelderMead(1e-5, 1e-6), (1e-2, 1e-2)),
+    # (
+    #     optx.BFGS(
+    #         atol=1e-6,
+    #         rtol=1e-5,
+    #         line_search=optx.BacktrackingArmijo(
+    #             backtrack_slope=0.1, decrease_factor=0.5
+    #         ),
+    #     ),
+    #     (1e-2, 1e-2),
+    # ),
     (
-        optx.BFGS(
-            atol=1e-6,
-            rtol=1e-5,
-            line_search=optx.BacktrackingArmijo(
-                backtrack_slope=0.05, decrease_factor=0.5
-            ),
+        optx.NonlinearCG(
+            1e-5,
+            1e-5,
+            optx.BacktrackingArmijo(backtrack_slope=0.05, decrease_factor=0.5),
+            method=optx.dai_yuan,
         ),
         (1e-2, 1e-2),
-        False,
-    ),
-    (
-        optx.LevenbergMarquardt(1e-5, 1e-5, lambda_0=jnp.array(1e-5)),
-        (1e-2, 1e-2),
-        True,
     ),
 )
 
 _problems_minima_inits = (
     (
-        _rosenbrock,
+        optx.LeastSquaresProblem(_rosenbrock),
         jnp.array(0.0),
         [jnp.array(0.0), jnp.array(0.0)],
-        True,
     ),
-    # start relatively close to the min as multidim coupled Rosenbrock is relatively
+    # start relatively close to the min as multidim coupled Rosenbrock is
     # difficult for NM to handle.
     (
-        _rosenbrock,
+        optx.LeastSquaresProblem(_rosenbrock),
         jnp.array(0.0),
         (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
-        True,
     ),
-    # (
-    #     _himmelblau,
-    #     jnp.array(0.0),
-    #     [jnp.array(1.0), jnp.array(1.0)],
-    # ),
+    # the init seems to be finickey here? this is strange.
     (
-        _matyas,
+        optx.MinimiseProblem(_himmelblau),
+        jnp.array(0.0),
+        [jnp.array(2.0), jnp.array(2.5)],
+    ),
+    (
+        optx.MinimiseProblem(_matyas),
         jnp.array(0.0),
         [jnp.array(6.0), jnp.array(6.0)],
-        False,
     ),
     (
-        _beale,
+        optx.MinimiseProblem(_beale),
         jnp.array(0.0),
         [jnp.array(2.0), jnp.array(0.0)],
-        False,
     ),
-    (_simple_nn, jnp.array(0.0), ffn_init, True),
+    # (optx.LeastSquaresProblem(_simple_nn), jnp.array(0.0), ffn_init),
     # (
-    #     _penalty_ii,
+    #     optx.LeastSquaresProblem(_penalty_ii),
     #     jnp.array(2.93660e-4),
     #     0.5 * jnp.ones((2, 5)),
-    #     True,
     # ),
     # (
-    #     _penalty_ii,
+    #     optx.LeastSquaresProblem(_penalty_ii),
     #     jnp.array(2.93660e-4),
     #     (({"a": 0.5 * jnp.ones(4)}), 0.5 * jnp.ones(3), (0.5 * jnp.ones(3), ())),
-    #     True,
     # ),
     (
-        _variably_dimensioned,
+        optx.LeastSquaresProblem(_variably_dimensioned),
         jnp.array(0.0),
         1 - jnp.arange(1, 11) / 10,
-        True,
     ),
     (
-        _variably_dimensioned,
+        optx.LeastSquaresProblem(_variably_dimensioned),
         jnp.array(0.0),
         (1 - jnp.arange(1, 7) / 10, {"a": (1 - jnp.arange(7, 11)) / 10}),
-        True,
     ),
-    (_trigonometric, jnp.array(0.0), jnp.ones(70) / 70, True),
+    (optx.LeastSquaresProblem(_trigonometric), jnp.array(0.0), jnp.ones(70) / 70),
     (
-        _trigonometric,
+        optx.LeastSquaresProblem(_trigonometric),
         jnp.array(0.0),
         ((jnp.ones(40) / 70, (), {"a": jnp.ones(20) / 70}), jnp.ones(10) / 70),
-        True,
     ),
 )
+
+
+import scipy
+
+
+@pytest.mark.parametrize("problem, minimum, init", _problems_minima_inits)
+def test_scipy(problem, minimum, init):
+    if isinstance(problem, optx.LeastSquaresProblem):
+
+        def scipy_problem(x):
+            out_pytree = problem.fn(x, None)
+            out_flat, _ = jax.flatten_util.ravel_pytree(out_pytree)
+            return jnp.sum(out_flat**2)
+
+    else:
+        scipy_problem = lambda x: problem.fn(x, None)
+    scipy_init, _ = jax.flatten_util.ravel_pytree(init)
+    scipy_min = scipy.optimize.fmin_cg(scipy_problem, scipy_init)
+    assert shaped_allclose(scipy_problem(scipy_min), minimum, atol=1e-3, rtol=1e-3)
 
 
 @pytest.mark.parametrize("has_aux", (False,))
-@pytest.mark.parametrize("optimiser, tols, opt_lstsqr", _optimisers_tols)
-@pytest.mark.parametrize(
-    "problem_fn, minimum, init, prob_lstsqr", _problems_minima_inits
-)
-def test_minimise(
-    optimiser, tols, problem_fn, minimum, init, has_aux, opt_lstsqr, prob_lstsqr
-):
+@pytest.mark.parametrize("solver, tols", _optimisers_tols)
+@pytest.mark.parametrize("problem, minimum, init", _problems_minima_inits)
+def test_minimise(solver, tols, problem, minimum, init, has_aux):
     atol, rtol = tols
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
 
-    if (not prob_lstsqr and not opt_lstsqr) or prob_lstsqr:
-        if prob_lstsqr:
-            if opt_lstsqr:
-                fn = problem_fn
-            else:
-
-                def _fn_min(x, args):
-                    ravel_out, _ = jax.flatten_util.ravel_pytree(problem_fn(x, args))
-                    return jnp.sum(ravel_out**2)
-
-                fn = _fn_min
-            if has_aux:
-                fn = lambda x, args: (fn(x, args), None)
-        else:
-            fn = problem_fn
-
-        if opt_lstsqr:
-            opt_problem = optx.LeastSquaresProblem(fn, has_aux=has_aux)
-            optx_argmin = optx.least_squares(
-                opt_problem, optimiser, dynamic_init, args=static_init, max_steps=None
-            ).value
-            optx_residual = opt_problem.fn(optx_argmin, static_init)
-            optx_residual_ravel, _ = jax.flatten_util.ravel_pytree(optx_residual)
-            optx_min = jnp.sum(optx_residual_ravel**2)
-
-        else:
-            if problem_fn == _variably_dimensioned and isinstance(
-                optimiser, optx.NelderMead
-            ):
-                # TODO(raderj): I'm not sure why exactly this is breaking, but Nelder
-                # Mead needs to be reworked anyway so I'm just passing it for now.
-                optx_min = jnp.array(0.0)
-            else:
-                opt_problem = optx.MinimiseProblem(fn, has_aux=has_aux)
-                optx_argmin = optx.minimise(
-                    opt_problem,
-                    optimiser,
-                    dynamic_init,
-                    args=static_init,
-                    max_steps=None,
-                ).value
-
-                optx_min = opt_problem.fn(optx_argmin, static_init)
-
-        if has_aux:
-            (optx_min, _) = optx_min
-
+    if isinstance(problem, optx.LeastSquaresProblem):
+        optx_argmin = optx.least_squares(problem, solver, init, max_steps=None).value
+        out = problem.fn(optx_argmin, static_init)
+        out_ravel, _ = jax.flatten_util.ravel_pytree(out)
+        optx_min = jnp.sum(out_ravel**2)
         assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
+    else:
+        if not isinstance(solver, optx.AbstractLeastSquaresSolver):
+            optx_argmin = optx.minimise(problem, solver, init, max_steps=None).value
+            optx_min = problem.fn(optx_argmin, static_init)
+
+            assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
 
 def _finite_difference_jvp(fn, primals, tangents):

@@ -5,7 +5,7 @@ from .least_squares import (
     least_squares,
     LeastSquaresProblem,
 )
-from .line_search import AbstractDescent, AbstractLineSearch
+from .line_search import AbstractDescent
 from .linear_operator import (
     AbstractLinearOperator,
     AddLinearOperator,
@@ -49,7 +49,6 @@ from .minimise import AbstractMinimiser, minimise, MinimiseProblem
 from .root_find import AbstractRootFinder, root_find, RootFindProblem
 from .solution import RESULTS, Solution
 from .solver import (
-    AbstractBacktrackingLineSearch,
     AbstractGaussNewton,
     BacktrackingArmijo,
     BFGS,
@@ -58,14 +57,25 @@ from .solver import (
     Cholesky,
     Chord,
     ClassicalTrustRegion,
+    dai_yuan,
     Diagonal,
+    DirectIterativeDual,
+    DirectLevenbergMarquardt,
     FixedPointIteration,
+    fletcher_reeves,
+    GaussNewton,
+    GradOnly,
+    hestenes_stiefel,
+    IndirectIterativeDual,
     LevenbergMarquardt,
     LU,
     NelderMead,
     Newton,
+    NonlinearCG,
+    NonlinearCGDescent,
     NormalizedGradient,
     NormalizedNewton,
+    polak_ribiere,
     QR,
     SVD,
     Triangular,

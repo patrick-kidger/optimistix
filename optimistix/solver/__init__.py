@@ -12,12 +12,24 @@ from .descent import (
 from .diagonal import Diagonal
 from .fixed_point import FixedPointIteration
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
-from .levenberg_marquardt_gauss_newton import AbstractGaussNewton, LevenbergMarquardt
+from .levenberg_marquardt_gauss_newton import (
+    AbstractGaussNewton,
+    DirectLevenbergMarquardt,
+    GaussNewton,
+    LevenbergMarquardt,
+)
 from .lu import LU
 from .nelder_mead import NelderMead
 from .newton_chord import Chord, Newton
+from .nonlinear_cg import GradOnly, NonlinearCG
+from .nonlinear_cg_descent import (
+    dai_yuan,
+    fletcher_reeves,
+    hestenes_stiefel,
+    NonlinearCGDescent,
+    polak_ribiere,
+)
 from .qr import QR
-from .quasi_newton import AbstractQuasiNewton
 from .svd import SVD
 from .triangular import Triangular
 from .tridiagonal import Tridiagonal

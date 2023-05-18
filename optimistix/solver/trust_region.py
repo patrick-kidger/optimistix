@@ -1,14 +1,43 @@
+from typing import Any, cast
+
 import equinox as eqx
 import jax.numpy as jnp
-from jaxtyping import ArrayLike, Bool, Float
+from jaxtyping import Array, Bool, Int, PyTree
 
-from ..minimise import AbstractMinimiser
+from ..line_search import OneDimensionalFunction
+from ..minimise import AbstractMinimiser, MinimiseProblem
 from ..solution import RESULTS
+from .misc import get_f0
 
 
 class TRState(eqx.Module):
-    f_prev: Float[ArrayLike, " "]
-    finished: Bool[ArrayLike, " "]
+    f_val: Array
+    finished: Array
+    compute_f0: Bool[Array, " "]
+    result: RESULTS
+    step: Int[Array, ""]
+
+
+def _get_predicted_reduction(options, diff):
+    # This just exists for readibility, and because it may be
+    # moved to solver/misc in the future
+    try:
+        predicted_reduction_fn = options["predicted_reduction"]
+        if predicted_reduction_fn is None:
+            # valueerror? also maybe change the error message
+            raise ValueError(
+                "Expected a predicted reduction, got `None`. "
+                "This is likely because a Descent without a predicted reduction "
+                "was passed."
+            )
+        else:
+            predicted_reduction = predicted_reduction_fn(diff)
+    except KeyError:
+        raise ValueError(
+            "the predicted reduction function must be passed to the "
+            "classical trust region line search via `options['predicted_reduction']`"
+        )
+    return predicted_reduction
 
 
 #
@@ -25,62 +54,80 @@ class ClassicalTrustRegion(AbstractMinimiser):
     # This choice of default parameters comes from Gould et al.
     # "Sensitivity of trust region algorithms to their parameters."
 
-    def init(self, problem, y, args, options):
-        # NOTE: passing `f_0` via options to exploit FSAL. We could also add default
-        # behavior by computing `problem.fn(jnp.array(0.), args)` at the cost of
-        # compilation time.
-        try:
-            f_0 = options["f_0"]
-        except KeyError:
-            raise ValueError("f_0 must be passed via options to classical trust region")
-
+    def init(
+        self,
+        problem: MinimiseProblem[OneDimensionalFunction],
+        y: PyTree[Array],
+        args: Any,
+        options: dict[str, Any],
+    ):
+        f0, compute_f0 = get_f0(problem.fn, options)
         state = TRState(
-            f_0,
-            jnp.array(False),
+            f_val=f0,
+            finished=jnp.array(False),
+            compute_f0=compute_f0,
+            result=jnp.array(RESULTS.successful),
+            step=jnp.array(0),
         )
-
         return state
 
-    def step(self, problem, y, args, options, state):
-        (f_new, (descent_dir, aux)) = problem.fn(y, args)
-        # WARNING: this `problem.fn.descent_fn.fn` is annoying. However, I don't have a
-        # great way out of this.
-        try:
-            vector = options["vector"]
-            operator = options["operator"]
-            predicted_reduction = problem.fn.descent_fn.fn.predicted_reduction(
-                descent_dir, args, state, options, vector, operator
-            )
-        except KeyError:
-            try:
-                predicted_reduction_fn = options["predicted_reduction"]
-                predicted_reduction = predicted_reduction_fn(
-                    descent_dir, args, state, options
-                )
-            except KeyError:
-                raise ValueError(
-                    "Need a method to predict reduction. \
-                    This can be achieved by passing `vector` and `operator` via \
-                    options, or by passing `predicted_reduction_fn` via options."
-                )
-
-        finished = f_new < state.f_prev + self.low_cutoff * predicted_reduction
-        good = f_new < state.f_prev + self.high_cutoff * predicted_reduction
-        bad = f_new > state.f_prev + self.low_cutoff * predicted_reduction
-
-        new_y = jnp.where(good, y * self.high_constant, y)
-
-        new_y = jnp.where(bad, y * self.low_constant, new_y)
-
-        new_state = TRState(f_new, finished)
-
-        return new_y, new_state, (descent_dir, aux)
-
-    def terminate(self, problem, y, args, options, state):
-        result = jnp.where(
-            jnp.isfinite(y), RESULTS.successful, RESULTS.nonlinear_divergence
+    def step(
+        self,
+        problem: MinimiseProblem[OneDimensionalFunction],
+        y: PyTree[Array],
+        args: Any,
+        options: dict[str, Any],
+        state: TRState,
+    ):
+        (f_new, (_, diff, aux, result)) = problem.fn(y, args)
+        # Q: cann I just pass this via state?
+        predicted_reduction = _get_predicted_reduction(options, diff)
+        # predicted_reduction should be < 0, this is a safety measure.
+        f_prev = jnp.where(state.compute_f0, -jnp.inf, state.f_val)
+        # TODO(raderj): switch this into a predicted_reduction < 0
+        # check downstream, and add an indication that the line_search
+        # failed and should not be taken into account in the termination
+        # condition of the final solver
+        predicted_reduction = jnp.minimum(predicted_reduction, 0)
+        # usually this is written in terms of a "trust region ratio", but this
+        # is equivalent and slightly more numerically stable. Note that when
+        # the predicted reduction is linear, `good` and `finished` are Armijo
+        # conditions.
+        finished = f_new < f_prev + self.low_cutoff * predicted_reduction
+        finished = cast(
+            Bool[Array, ""], jnp.where(state.compute_f0, jnp.array(True), finished)
         )
-        return (state.finished, result)
+        finished = finished | state.compute_f0
+        good = f_new < f_prev + self.high_cutoff * predicted_reduction
+        good = good & jnp.invert(state.compute_f0)
+        bad = f_new > f_prev + self.low_cutoff * predicted_reduction
+        bad = bad & jnp.invert(state.compute_f0)
+        new_y = jnp.where(good, y * self.high_constant, y)
+        new_y = jnp.where(bad, y * self.low_constant, new_y)
+        f_new = jnp.where(finished, f_new, f_prev)
+        new_state = TRState(
+            f_val=f_new,
+            finished=finished,
+            compute_f0=jnp.array(False),
+            result=result,
+            step=state.step + 1,
+        )
+        return new_y, new_state, (f_new, diff, aux, result)
 
-    def buffers(self, state):
+    def terminate(
+        self,
+        problem: MinimiseProblem[OneDimensionalFunction],
+        y: PyTree[Array],
+        args: Any,
+        options: dict[str, Any],
+        state: TRState,
+    ):
+        result = jnp.where(
+            jnp.isfinite(y),
+            state.result,  # pyright: ignore
+            RESULTS.nonlinear_divergence,  # pyright: ignore
+        )
+        return state.finished, result
+
+    def buffers(self, state: TRState):
         return ()

@@ -1,114 +1,205 @@
-from typing import Any, Callable, Optional
+import functools as ft
+from typing import Any, Callable
 
 import equinox as eqx
-import equinox.internal as eqxi
+import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import ArrayLike, Float, PyTree
+from jaxtyping import Array, ArrayLike, Bool, Float, Int, PyTree
 
 from ..custom_types import Scalar
-from ..line_search import AbstractDescent, OneDimFunction
+from ..least_squares import (
+    AbstractLeastSquaresSolver,
+    least_squares,
+    LeastSquaresProblem,
+)
+from ..line_search import AbstractDescent, AbstractProxyDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator
-from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
-from ..misc import max_norm
+from ..minimise import AbstractMinimiser
+from ..misc import max_norm, two_norm
 from ..solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .misc import compute_jac_residual
 from .newton_chord import Newton
-from .quasi_newton import AbstractQuasiNewton
 from .trust_region import ClassicalTrustRegion
 
 
+def _small(diffsize: Scalar) -> Bool[ArrayLike, " "]:
+    # TODO(kidger): make a more careful choice here -- the existence of this
+    # function is pretty ad-hoc.
+    resolution = 10 ** (2 - jnp.finfo(diffsize.dtype).precision)
+    return diffsize < resolution
+
+
+def _diverged(rate: Scalar) -> Bool[ArrayLike, " "]:
+    return jnp.invert(jnp.isfinite(rate))
+
+
+def _converged(factor: Scalar, tol: Scalar) -> Bool[ArrayLike, " "]:
+    return (factor > 0) & (factor < tol)
+
+
 class GNState(eqx.Module):
-    step: Scalar
+    descent_state: PyTree
+    vector: PyTree[ArrayLike]
+    operator: AbstractLinearOperator
+    diff: PyTree[Array]
     diffsize: Scalar
     diffsize_prev: Scalar
     result: RESULTS
-    vector: Optional[PyTree[ArrayLike]]
-    operator: Optional[AbstractLinearOperator]
+    f_val: PyTree[Array]
+    search_size_prev: Array
     aux: Any
-    f_i: Float[ArrayLike, " "]
+    step: Int[Array, ""]
 
 
-class AbstractGaussNewton(AbstractQuasiNewton):
+class AbstractGaussNewton(AbstractLeastSquaresSolver):
     atol: float
     rtol: float
+    line_search: AbstractMinimiser
+    descent: AbstractDescent
     norm: Callable
+    converged_tol: float
 
-    def init(self, problem, y, args, options):
-
+    def init(
+        self,
+        problem: LeastSquaresProblem,
+        y: PyTree[Array],
+        args: Any,
+        options: dict[str, Any],
+    ):
+        # TODO(raderj): add flags for when these things need to be
+        # computed. for current implementation of LM this computation
+        # of the operator is unnecessary.
         vector, operator, aux = compute_jac_residual(problem, y, args)
-        #
-        # WARNING: the `f_i` term in state is a footgun. We
-        # should have something like `search_state` instead. However, to initialize
-        # `search_state` we need to have `problem_1d` as in `self.step`. This requires
-        # the descent function to get state as an argument. Maybe we create something
-        # like `InitState(step, diffsize, ...)` without `search_state`, use this to
-        # create `problem_1d`, and then use `problem_1d` to initialize `search_state`?
-        # search state could then be passed via `QNState`. Seems a bit hacky though.
-        #
-        f_0 = problem.fn(y, args)
-
+        f0, _ = jtu.tree_map(
+            lambda x: jnp.full(x.shape, jnp.inf), jax.eval_shape(problem.fn, y, args)
+        )
+        f0 = two_norm(f0) ** 2
+        descent_state = self.descent.init_state(problem, y, vector, operator, args, {})
+        # TODO(raderj): this needs to be handled a different way!
+        initial_search_size = jnp.array(1.0)
         return GNState(
-            step=jnp.array(0),
+            descent_state=descent_state,
+            vector=vector,
+            operator=operator,
+            diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf), y),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
             result=jnp.array(RESULTS.successful),
-            vector=vector,
-            operator=operator,
+            f_val=f0,
+            search_size_prev=initial_search_size,
             aux=aux,
-            f_i=f_0,
+            step=jnp.array(0),
         )
 
-    def step(self, problem, y, args, options, state):
-        aux = state.aux
-        descent = eqxi.Partial(
+    def step(
+        self,
+        problem: LeastSquaresProblem,
+        y: PyTree[Array],
+        args: Any,
+        options: dict[str, Any],
+        state: GNState,
+    ):
+        descent = eqx.Partial(
             self.descent,
-            problem=problem,
-            y=y,
+            descent_state=state.descent_state,
             args=args,
-            state=state,
             options=options,
-            vector=state.vector,
-            operator=state.operator,
         )
-
-        problem_1d = MinimiseProblem(
-            OneDimFunction(problem.fn, descent, y), has_aux=True
+        problem_1d = LeastSquaresProblem(
+            OneDimensionalFunction(problem, descent, y), has_aux=True
         )
-        options["vector"] = state.vector
-        options["operator"] = state.operator
-        options["f_0"] = state.f_i
+        line_search_options = {
+            "f0": state.f_val,
+            "compute_f0": (state.step == 0),
+            "vector": state.vector,
+            "operator": state.operator,
+        }
 
-        line_sol = minimise(
+        if isinstance(self.descent, AbstractProxyDescent):
+            line_search_options["predicted_reduction"] = ft.partial(
+                self.descent.predicted_reduction,
+                descent_state=state.descent_state,
+                args=args,
+                options={},
+            )
+
+        line_sol = least_squares(
             problem_1d,
             self.line_search,
-            jnp.array(1.0),
+            state.search_size_prev,
             args=args,
-            options=options,
-            max_steps=512,
+            options=line_search_options,
+            # max_steps=10,
+            # throw=False
         )
-
-        (diff, new_aux) = line_sol.aux
+        search_size = line_sol.value
+        (f_val, diff, new_aux, _) = line_sol.aux
         new_y = (ω(y) + ω(diff)).ω
-        vector, operator, _ = compute_jac_residual(problem, new_y, options, args)
+        vector, operator, _ = compute_jac_residual(problem, new_y, args)
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         diffsize = self.norm((ω(diff) / ω(scale)).ω)
+        descent_state = self.descent.update_state(
+            state.descent_state, state.diff, vector, operator
+        )
+        result = jnp.where(
+            line_sol.result == RESULTS.max_steps_reached,
+            RESULTS.successful,
+            line_sol.result,
+        )
         new_state = GNState(
-            step=state.step + 1,
-            diffsize=diffsize,
-            diffsize_prev=state.diffsize,
-            result=line_sol.result,
+            descent_state=descent_state,
             vector=vector,
             operator=operator,
+            diff=diff,
+            diffsize=diffsize,
+            diffsize_prev=state.diffsize,
+            result=result,
+            f_val=f_val,
+            search_size_prev=search_size,
             aux=new_aux,
-            f_i=line_sol.state.f_prev,
+            step=state.step + 1,
         )
-        return new_y, new_state, aux
+        # notice that this is state.aux, not new_state.aux or aux.
+        # we assume aux is the aux at f(y), but line_search returns
+        # aux at f(y_new), which is new_state.aux. So, we simply delay
+        # the return of aux for one eval
+        return new_y, new_state, state.aux
 
-    def buffers(self, state):
+    def terminate(
+        self,
+        problem: LeastSquaresProblem,
+        y: PyTree[Array],
+        args: Any,
+        options: dict[str, Any],
+        state: GNState,
+    ):
+        at_least_two = state.step >= 2
+        rate = state.diffsize / state.diffsize_prev
+        factor = state.diffsize * rate / (1 - rate)
+        small = _small(state.diffsize)
+        diverged = _diverged(rate)
+        converged = _converged(factor, self.converged_tol)
+        linsolve_fail = state.result != RESULTS.successful
+        terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
+        result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
+        result = jnp.where(linsolve_fail, state.result, result)
+        return terminate, result
+
+    def buffers(self, state: GNState):
         return ()
+
+
+class GaussNewton(AbstractGaussNewton):
+    atol: float
+    rtol: float
+    line_search: AbstractMinimiser
+    descent: AbstractDescent
+    norm: Callable = max_norm
+    converged_tol: float = 1e-2
 
 
 class LevenbergMarquardt(AbstractGaussNewton):

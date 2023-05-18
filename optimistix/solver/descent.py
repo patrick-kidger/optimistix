@@ -1,66 +1,237 @@
-from typing import ClassVar
+from typing import Any, Optional
 
+import equinox as eqx
 import jax.numpy as jnp
-import jax.tree_util as jtu
 from equinox.internal import ω
+from jaxtyping import Array, PyTree, Scalar
 
-from ..line_search import AbstractDescent
+from ..iterate import AbstractIterativeProblem
+from ..line_search import AbstractProxyDescent
+from ..linear_operator import AbstractLinearOperator
 from ..linear_solve import AutoLinearSolver, linear_solve
+from ..misc import tree_inner_prod, two_norm
+from ..solution import RESULTS
 
 
-class UnnormalizedGradient(AbstractDescent):
-    needs_gradient: ClassVar[bool] = True
-    needs_hessian: ClassVar[bool] = False
+class GradientState(eqx.Module):
+    vector: PyTree[Array]
+
+
+class NewtonState(eqx.Module):
+    vector: PyTree[Array]
+    operator: AbstractLinearOperator
+
+
+class UnnormalizedGradient(AbstractProxyDescent[GradientState]):
+    def init_state(
+        self,
+        problem: AbstractIterativeProblem,
+        y: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        args: Optional[Any] = None,
+        options: Optional[dict[str, Any]] = {},
+    ):
+        return GradientState(vector)
+
+    def update_state(
+        self,
+        descent_state: GradientState,
+        diff_prev: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        options: Optional[dict[str, Any]] = None,
+    ):
+        return GradientState(vector)
 
     def __call__(
-        self, delta, delta_args, problem, y, args, state, options, vector, operator
+        self,
+        delta: Scalar,
+        descent_state: GradientState,
+        args: Any,
+        options: dict[str, Any],
     ):
-        descent_dir = (-delta * ω(vector)).ω
-        aux = None
-        return descent_dir, aux
+        diff = (-delta * ω(descent_state.vector)).ω
+        return diff, jnp.array(RESULTS.successful)
+
+    def predicted_reduction(
+        self,
+        diff: PyTree[Array],
+        descent_state: GradientState,
+        args: PyTree,
+        options: Optional[dict[str, Any]],
+    ):
+        return tree_inner_prod(descent_state.vector, diff)
 
 
-class UnnormalizedNewton(AbstractDescent):
-    needs_gradient: ClassVar[bool] = True
-    needs_hessian: ClassVar[bool] = True
+class UnnormalizedNewton(AbstractProxyDescent[NewtonState]):
+    gauss_newton = False
+
+    def init_state(
+        self,
+        problem: AbstractIterativeProblem,
+        y: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        args: Optional[Any] = None,
+        options: Optional[dict[str, Any]] = {},
+    ):
+        return NewtonState(vector, operator)
+
+    def update_state(
+        self,
+        descent_state: NewtonState,
+        diff_prev: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        options: Optional[dict[str, Any]] = None,
+    ):
+        return NewtonState(vector, operator)
 
     def __call__(
-        self, delta, delta_args, problem, y, args, state, options, vector, operator
+        self,
+        delta: Scalar,
+        descent_state: NewtonState,
+        args: Any,
+        options: dict[str, Any],
     ):
-        descent_dir = (
+        out = (
             -delta
             * ω(
-                linear_solve(operator, vector, AutoLinearSolver(well_posed=False)).value
+                linear_solve(
+                    descent_state.operator,
+                    descent_state.vector,
+                    AutoLinearSolver(well_posed=False),
+                )
             )
         ).ω
-        aux = None
-        return descent_dir, aux
+        return out.value, jnp.array(RESULTS.successful)
+
+    def predicted_reduction(
+        self,
+        diff: PyTree[Array],
+        descent_state: NewtonState,
+        args: PyTree,
+        options: Optional[dict[str, Any]],
+    ):
+        if self.gauss_newton:
+            rtr = two_norm(descent_state.vector) ** 2
+            jacobian_term = (
+                two_norm(
+                    (ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω
+                )
+                ** 2
+            )
+            return 0.5 * (jacobian_term - rtr)
+        else:
+            operator_quadratic = 0.5 * tree_inner_prod(
+                diff, descent_state.operator.mv(diff)
+            )
+            steepest_descent = tree_inner_prod(descent_state.vector, diff)
+            return (operator_quadratic**ω + steepest_descent**ω).ω
 
 
-class NormalizedGradient(AbstractDescent):
-    needs_gradient: ClassVar[bool] = True
-    needs_hessian: ClassVar[bool] = False
+class NormalizedGradient(AbstractProxyDescent[GradientState]):
+    def init_state(
+        self,
+        problem: AbstractIterativeProblem,
+        y: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        args: Optional[Any] = None,
+        options: Optional[dict[str, Any]] = {},
+    ):
+        return GradientState(vector)
 
-    def __call__(self, delta, problem, y, args, state, options, vector, operator):
-        _sumsqr = lambda x: jnp.sum(x**2)
-        vec_norm = jtu.tree_reduce(lambda x, y: x + y, ω(vector).call(_sumsqr).ω)
-        descent_dir = (-delta * ω(vector) / vec_norm).ω
-        aux = None
-        return descent_dir, aux
-
-
-class NormalizedNewton(AbstractDescent):
-    needs_gradient: ClassVar[bool] = True
-    needs_hessian: ClassVar[bool] = False
+    def update_state(
+        self,
+        descent_state: GradientState,
+        diff_prev: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        options: Optional[dict[str, Any]] = None,
+    ):
+        return GradientState(vector)
 
     def __call__(
-        self, delta, delta_args, problem, y, args, state, options, vector, operator
+        self,
+        delta: Scalar,
+        descent_state: GradientState,
+        args: Any,
+        options: dict[str, Any],
     ):
-        newton = linear_solve(
-            operator, vector, solver=AutoLinearSolver(well_posed=False)
-        ).value
-        _sumsqr = lambda x: jnp.sum(x**2)
-        newton_norm = jtu.tree_reduce(lambda x, y: x + y, ω(newton).call(_sumsqr).ω)
-        descent_dir = ((-delta * ω(newton)).ω / newton_norm).ω
-        aux = None
-        return descent_dir, aux
+        diff = ((-delta * descent_state.vector**ω) / two_norm(descent_state.vector)).ω
+        return diff, jnp.array(RESULTS.successful)
+
+    def predicted_reduction(
+        self,
+        diff: PyTree[Array],
+        descent_state: GradientState,
+        args: PyTree,
+        options: Optional[dict[str, Any]],
+    ):
+        return tree_inner_prod(descent_state.vector, diff)
+
+
+class NormalizedNewton(AbstractProxyDescent[NewtonState]):
+    gauss_newton = False
+
+    def init_state(
+        self,
+        problem: AbstractIterativeProblem,
+        y: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        args: Optional[Any] = None,
+        options: Optional[dict[str, Any]] = {},
+    ):
+        return NewtonState(vector, operator)
+
+    def update_state(
+        self,
+        descent_state: NewtonState,
+        diff_prev: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        options: Optional[dict[str, Any]] = None,
+    ):
+        return NewtonState(vector, operator)
+
+    def __call__(
+        self,
+        delta: Scalar,
+        descent_state: NewtonState,
+        args: Any,
+        options: dict[str, Any],
+    ):
+        out = linear_solve(
+            descent_state.operator,
+            descent_state.vector,
+            solver=AutoLinearSolver(well_posed=False),
+        )
+        newton = out.value
+        diff = ((-delta * newton**ω) / two_norm(newton)).ω
+        return diff, jnp.array(RESULTS.successful)
+
+    def predicted_reduction(
+        self,
+        diff: PyTree[Array],
+        descent_state: NewtonState,
+        args: PyTree,
+        options: Optional[dict[str, Any]],
+    ):
+        if self.gauss_newton:
+            rtr = two_norm(descent_state.vector) ** 2
+            jacobian_term = (
+                two_norm(
+                    (ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω
+                )
+                ** 2
+            )
+            return 0.5 * (jacobian_term - rtr)
+        else:
+            operator_quadratic = 0.5 * tree_inner_prod(
+                diff, descent_state.operator.mv(diff)
+            )
+            steepest_descent = tree_inner_prod(descent_state.vector, diff)
+            return (operator_quadratic**ω + steepest_descent**ω).ω

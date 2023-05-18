@@ -1,5 +1,5 @@
 import math
-from typing import Callable, NewType
+from typing import Any, Callable, NewType
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -7,14 +7,49 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-from jaxtyping import Array, PyTree, Shaped
+from jaxtyping import Array, ArrayLike, Bool, Float, PyTree, Scalar, Shaped
 
+from ..least_squares import LeastSquaresProblem
 from ..linear_operator import (
     AbstractLinearOperator,
     JacobianLinearOperator,
     PyTreeLinearOperator,
 )
-from ..misc import NoneAux
+from ..minimise import MinimiseProblem
+from ..root_find import RootFindProblem
+
+
+# these are just to avoid large try-except blocks in the line search code,
+# making those algorithms easier to read
+
+
+def get_vector_operator(options):
+    try:
+        vector = options["vector"]
+    except KeyError:
+        raise ValueError("vector must be passed vector " "via `options['vector']`")
+    try:
+        operator = options["operator"]
+    except KeyError:
+        raise ValueError(
+            "operator must be passed operator " "via `options['operator']`"
+        )
+    return vector, operator
+
+
+def get_f0(
+    fn: Callable[[Scalar, Any], PyTree], options: dict[str, Any]
+) -> tuple[Float[ArrayLike, ""], Bool[Array, ""]]:
+    # WARNING: this will not work with generic fn
+    try:
+        f0 = options["f0"]
+        compute_f0 = options["compute_f0"]
+    except KeyError:
+        f0, *_ = jtu.tree_map(
+            lambda x: jnp.zeros(shape=x.shape), jax.eval_shape(fn, 0.0, None)
+        )
+        compute_f0 = jnp.array(True)
+    return f0, compute_f0
 
 
 class _NoAuxOut(eqx.Module):
@@ -25,15 +60,12 @@ class _NoAuxOut(eqx.Module):
         return f
 
 
-def compute_hess_grad(problem, y, args):
+def compute_hess_grad(
+    problem: MinimiseProblem | RootFindProblem, y: PyTree[Array], args: Any
+):
     jrev = jax.jacrev(problem.fn, has_aux=problem.has_aux)
-    grad = jrev(y, args)
-    hessian = jax.jacfwd(jrev, has_aux=problem.has_aux)(y, args)
-    if problem.has_aux:
-        (grad, aux) = grad
-        (hessian, _) = hessian
-    else:
-        aux = None
+    grad, aux = jrev(y, args)
+    hessian, _ = jax.jacfwd(jrev, has_aux=True)(y, args)
     hessian = PyTreeLinearOperator(
         hessian,
         output_structure=jax.eval_shape(lambda: grad),
@@ -41,16 +73,10 @@ def compute_hess_grad(problem, y, args):
     return grad, hessian, aux
 
 
-def compute_jac_residual(problem, y, args):
-    if problem.has_aux and not isinstance(problem.fn, NoneAux):
-        fn = problem.fn.residual_fn
-    elif isinstance(problem.fn, NoneAux):
-        fn = NoneAux(problem.fn.fn.residual_fn)
-    else:
-        fn = NoneAux(problem.fn.residual_fn)
-    residual, aux = fn(y, args)
+def compute_jac_residual(problem: LeastSquaresProblem, y: PyTree[Array], args: Any):
+    residual, aux = problem.fn(y, args)
     jacobian = JacobianLinearOperator(
-        _NoAuxOut(fn), y, args, tags=problem.tags, _has_aux=False
+        problem.fn, y, args, tags=problem.tags, _has_aux=True
     )
     return residual, jacobian, aux
 

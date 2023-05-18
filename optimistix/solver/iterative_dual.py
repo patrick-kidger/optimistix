@@ -1,5 +1,4 @@
-import functools as ft
-from typing import Callable, ClassVar, Optional
+from typing import Any, Callable, Optional
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -8,8 +7,9 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import ArrayLike, Float
+from jaxtyping import Array, ArrayLike, Float, PyTree, Scalar
 
+from ..iterate import AbstractIterativeProblem
 from ..line_search import AbstractDescent, AbstractProxyDescent
 from ..linear_operator import (
     AbstractLinearOperator,
@@ -19,10 +19,10 @@ from ..linear_operator import (
     PyTreeLinearOperator,
 )
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
-from ..linear_tags import positive_semidefinite_tag
-from ..misc import NoneAux
+from ..misc import tree_inner_prod, tree_where, two_norm
 from ..root_find import AbstractRootFinder, root_find, RootFindProblem
 from .newton_chord import Newton
+from .qr import QR
 
 
 #
@@ -35,7 +35,7 @@ from .newton_chord import Newton
 # trust region radius. It does this by solving the dual problem
 # `(B + lambda I) p = r` for `p`, where `B` is the quasi-Newton matrix,
 # lambda is the dual parameter (the dual parameterisation of the
-# trustregion radius), `I` is the identity, and `r` is the vector of residuals.
+# trust region radius), `I` is the identity, and `r` is the vector of residuals.
 #
 # Iterative dual is approached in one of two ways:
 # 1. set the trust region radius and find the Levenberg-Marquadt parameter
@@ -64,6 +64,13 @@ from .newton_chord import Newton
 #
 
 
+class IterativeDualState(eqx.Module):
+    y: PyTree[Array]
+    problem: AbstractIterativeProblem
+    vector: PyTree[Array]
+    operator: AbstractLinearOperator
+
+
 class _Damped(eqx.Module):
     fn: Callable
     damping: Float[ArrayLike, " "]
@@ -75,60 +82,101 @@ class _Damped(eqx.Module):
         return (f, damped), aux
 
 
-class DirectIterativeDual(AbstractDescent):
+class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
     gauss_newton: bool
-    solver: AbstractLinearSolver = AutoLinearSolver(well_posed=False)
     modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
-    computes_operator: bool = True
-    computes_vector: ClassVar[bool] = False
-    needs_gradient: ClassVar[bool] = True
-    needs_hessian: ClassVar[bool] = True
+
+    def init_state(
+        self,
+        problem: AbstractIterativeProblem,
+        y: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        args: Optional[Any] = None,
+        options: Optional[dict[str, Any]] = {},
+    ):
+        return IterativeDualState(y, problem, vector, operator)
+
+    def update_state(
+        self,
+        descent_state: IterativeDualState,
+        diff_prev: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        options: Optional[dict[str, Any]] = None,
+    ):
+        return IterativeDualState(
+            descent_state.y, descent_state.problem, vector, operator
+        )
 
     def __call__(
-        self, delta, delta_args, problem, y, args, state, options, vector, operator
+        self,
+        delta: Scalar,
+        descent_state: IterativeDualState,
+        args: Any,
+        options: dict[str, Any],
     ):
-        # TODO(raderj): come up with a better way of handling this! We generally avoid
-        # asking the descent to compute the operator directly and would rather be in the
-        # solver level. However, this is definitely behavior that should be in the
-        # descent. If we have a Gauss Newton method than the Jac will be passed in and
-        # we shouldn't be recomputing it from the problem function, we should just
-        # append on the sqrt(lambda) I. Same for non Gauss-Newton. How do we create
-        # this operator?
+        delta_nonzero = delta > jnp.finfo(delta.dtype).eps
         if self.gauss_newton:
-            if isinstance(problem.fn, NoneAux):
-                fn = NoneAux(problem.fn.fn.residual_fn)
-            else:
-                fn = problem.fn.residual_fn
+            vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
             operator = JacobianLinearOperator(
-                _Damped(fn, delta),
-                y,
+                _Damped(descent_state.problem.fn, jnp.where(delta_nonzero, delta, 0)),
+                descent_state.y,
                 args,
                 _has_aux=True,
             )
-            vector = (vector, ω(y).call(jnp.zeros_like).ω)
         else:
-            # TODO(raderj): handle this case via block operators
-            operator = operator + delta * IdentityLinearOperator(
-                jax.eval_shape(lambda: operator)
-            )
-            operator_mat = operator.as_matrix()
-            eye = jnp.eye(operator_mat.shape[0])
-            operator = PyTreeLinearOperator(
-                operator_mat + delta * eye,
-                positive_semidefinite_tag,
-                jax.eval_shape(lambda: vector),
-            )
+            # WARNING: this branch is yet untested.
+            vector = descent_state.vector
+            operator = descent_state.operator + jnp.where(
+                delta_nonzero, delta, 0
+            ) * IdentityLinearOperator(descent_state.operator.in_structure())
         operator = self.modify_jac(operator)
-
         eqxi.error_if(
             delta, delta < 1e-6, "The dual (LM) parameter must be >1e-6 to ensure psd"
         )
-        linear_soln = linear_solve(operator, vector, self.solver)
-        descent_dir = (-ω(linear_soln.value)).ω
-        return descent_dir, linear_soln.aux
+        linear_soln = linear_solve(operator, vector, QR(), throw=False)
+        diff = (-linear_soln.value**ω).ω
+        return diff, linear_soln.result
 
 
-class IndirectIterativeDual(AbstractProxyDescent):
+class DirectIterativeDual(_DirectIterativeDual):
+    def __call__(
+        self,
+        delta: Scalar,
+        descent_state: IterativeDualState,
+        args: Any,
+        options: dict[str, Any],
+    ):
+
+        delta_nonzero = delta > jnp.finfo(delta.dtype).eps
+        if self.gauss_newton:
+            vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
+            operator = JacobianLinearOperator(
+                _Damped(
+                    descent_state.problem.fn, jnp.where(delta_nonzero, 1 / delta, 0)
+                ),
+                descent_state.y,
+                args,
+                _has_aux=True,
+            )
+        else:
+            # WARNING: this branch is yet untested.
+            vector = descent_state.vector
+            operator = descent_state.operator + jnp.where(
+                delta_nonzero, 1 / delta, 0
+            ) * IdentityLinearOperator(descent_state.operator.in_structure())
+        operator = self.modify_jac(operator)
+        eqxi.error_if(
+            delta, delta < 1e-6, "The dual (LM) parameter must be >1e-6 to ensure psd"
+        )
+        linear_soln = linear_solve(operator, vector, QR(), throw=False)
+        no_diff = jtu.tree_map(jnp.zeros_like, linear_soln.value)
+        diff = tree_where(delta_nonzero, (-linear_soln.value**ω).ω, no_diff)
+        return diff, linear_soln.result
+
+
+class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
 
     #
     # Indirect iterative dual finds the `lambda` to match the
@@ -139,125 +187,127 @@ class IndirectIterativeDual(AbstractProxyDescent):
     # `phi(lambda) = ||p(lambda)|| - delta`
     # but found it less numerically stable
     #
-    # Moré found a clever way to compute `phi = -||q||^2/||p(lambda)||` where `q` is
+    # Moré found a clever way to compute `phi' = -||q||^2/||p(lambda)||` where `q` is
     # defined as: `q = R^(-1) p`, for `R` as in the QR decomposition of
     # `(B + lambda I)`. This can similarly be applied to the phi in Hebden with
     # `phi' = ||q||^2/||p(lambda)||^(3/2)`
     #
-    # Note, however, that we are going to totally ignore this neat trick (gasp!)
-    # We view modularity of the phi function as of greater benefit than
-    # the explicit form of `phi'`, which we compute with automatic differentiation
-    # in the Newton solve.
+    # Note, however, that we are going ignoring this neat trick (gasp!)
+    # for now.
     #
     # TODO(raderj): write a solver in root_finder which specifically assumes iterative
     # dual so we can use the trick (or at least see if it's worth doing.)
     #
-    # NOTE/WARNING: this is not using the QR method.
-    #
     gauss_newton: bool
     lambda_0: Float[ArrayLike, " "]
-    root_finder: Optional[AbstractRootFinder]
-    solver: AbstractLinearSolver
-    tr_reg: PyTreeLinearOperator
-    norm: Callable
-    modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator]
-    computes_vector: ClassVar[bool] = False
-    computes_operator: bool
-    needs_gradient: ClassVar[bool] = True
-    needs_hessian: ClassVar[bool] = True
+    root_finder: AbstractRootFinder = Newton(rtol=0.5, atol=0.5, lower=1e-6)
+    solver: AbstractLinearSolver = AutoLinearSolver(well_posed=False)
+    tr_reg: Optional[PyTreeLinearOperator] = None
+    norm: Callable = two_norm
+    modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
 
-    def __init__(
+    def init_state(
         self,
-        gauss_newton: bool,
-        lambda_0: Float[ArrayLike, " "],
-        root_finder: Optional[AbstractRootFinder] = None,
-        solver=AutoLinearSolver(well_posed=False),
-        tr_reg: Optional[PyTreeLinearOperator] = None,
-        norm: Callable = jnp.linalg.norm,
-        modify_jac: Callable[
-            [JacobianLinearOperator], AbstractLinearOperator
-        ] = linearise,
+        problem: AbstractIterativeProblem,
+        y: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        args: Optional[Any] = None,
+        options: Optional[dict[str, Any]] = {},
     ):
-        self.lambda_0 = lambda_0
-        self.norm = norm
-        self.tr_reg = tr_reg
-        self.modify_jac = modify_jac
-        self.solver = solver
-        self.gauss_newton = gauss_newton
-        # TODO(raderj): remove computes operator by implementing block operators.
-        self.computes_operator = gauss_newton
-        # the intended behavior is that the user would pass Newton(atol, rtol)
-        # themselves if they want a specific atol/rtol.
-        if root_finder is None:
-            # being super precise is not very important in the Newton step,
-            # but being lower bounded above 0 is.
-            self.root_finder = Newton(rtol=1e-1, atol=1e-2, lower=1e-6)
-        else:
-            self.root_finder = root_finder
+        return IterativeDualState(y, problem, vector, operator)
+
+    def update_state(
+        self,
+        descent_state: IterativeDualState,
+        diff_prev: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        options: Optional[dict[str, Any]] = None,
+    ):
+        return IterativeDualState(
+            descent_state.y, descent_state.problem, vector, operator
+        )
 
     def __call__(
-        self, delta, delta_args, problem, y, args, state, options, vector, operator
+        self,
+        delta: Scalar,
+        descent_state: IterativeDualState,
+        args: Any,
+        options: dict[str, Any],
     ):
-        direct_dual = DirectIterativeDual(
-            self.gauss_newton, self.solver, self.modify_jac
-        )
-        direct_dual = eqxi.Partial(
-            direct_dual,
-            delta_args=None,
-            problem=problem,
-            y=y,
-            state=state,
+        direct_dual = eqx.Partial(
+            _DirectIterativeDual(self.gauss_newton, self.modify_jac),
+            descent_state=descent_state,
             args=args,
             options=options,
-            vector=vector,
-            operator=operator,
         )
-
+        newton_soln = linear_solve(
+            descent_state.operator, descent_state.vector, self.solver
+        )
+        # NOTE: try delta = delta * self.norm(newton_step).
+        # this scales the trust and sets the natural bound `delta = 1`.
+        newton_step = (-ω(newton_soln.value)).ω
+        newton_result = newton_soln.result
         tr_reg = self.tr_reg
+
         if tr_reg is None:
-            tr_reg = IdentityLinearOperator(jax.eval_shape(lambda: y))
+            tr_reg = IdentityLinearOperator(jax.eval_shape(lambda: newton_step))
 
-        linear_soln = linear_solve(operator, vector, self.solver)
-        newton_step = (-ω(linear_soln.value)).ω
-        newton_aux = linear_soln.aux
+        def comparison_fn(
+            lambda_i: Scalar,
+            args: Any,
+        ):
+            (step, _) = direct_dual(lambda_i)
+            step_norm = self.norm(step)
+            return 1 / delta - 1 / step_norm
 
-        args = (self, delta, newton_step, problem, direct_dual, tr_reg, newton_aux)
-        dynamic_args, static_args = eqx.partition(args, eqx.is_inexact_array)
+        def accept_newton():
+            return newton_step, newton_result
 
-        def accept_newton(dynamic_args):
-            args = eqx.combine(dynamic_args, static_args)
-            self, delta, newton_step, problem, direct_dual, tr_reg, newton_aux = args
-            return newton_step, newton_aux
-
-        def reject_newton(dynamic_args):
-            args = eqx.combine(dynamic_args, static_args)
-            self, delta, newton_step, problem, direct_dual, tr_reg, newton_aux = args
-            comparison_fn = ft.partial(
-                self.comparison_fn, delta=delta, direct_dual=direct_dual, tr_reg=tr_reg
-            )
-            rf_problem = RootFindProblem(fn=comparison_fn, has_aux=False)
+        def reject_newton():
+            root_find_problem = RootFindProblem(comparison_fn, has_aux=False)
             lambda_out = root_find(
-                rf_problem, self.root_finder, self.lambda_0, args, options
+                root_find_problem,
+                self.root_finder,
+                self.lambda_0,
+                args,
+                options,
+                throw=False,
             ).value
             return direct_dual(lambda_out)
 
-        ravel_newton, _ = jax.flatten_util.ravel_pytree(tr_reg.mv(newton_step))
-        newton_norm = self.norm(ravel_newton)
-        return lax.cond(newton_norm < delta, accept_newton, reject_newton, dynamic_args)
+        newton_norm = self.norm(newton_step)
+        return lax.cond(newton_norm < delta, accept_newton, reject_newton)
 
-    def comparison_fn(self, lambda_i, lambda_i_args, delta, direct_dual, tr_reg):
-        (step, _) = direct_dual(lambda_i)
-        # TODO(raderj): should just be self.norm! But we need to ask
-        # self.norm to act on pytrees.
-        ravel_step, _ = jax.flatten_util.ravel_pytree(step)
-        step_norm = self.norm(ravel_step)
-        return 1 / delta - 1 / step_norm
-
-    def predicted_reduction(self, descent_dir, args, state, options, vector, operator):
-        ravel_vector, _ = jax.flatten_util.ravel_pytree(vector)
-        model_0 = self.norm(ravel_vector) ** 2
-        ravel_difference, _ = jax.flatten_util.ravel_pytree(
-            (ω(operator.mv(descent_dir)) - ω(vector)).ω
-        )
-        model_p = self.norm(ravel_difference) ** 2
-        return 0.5 * (model_0 - model_p)
+    def predicted_reduction(
+        self,
+        diff: PyTree[Array],
+        descent_state: IterativeDualState,
+        args: Any,
+        options: dict[str, Any],
+    ):
+        # The predicted reduction of the iterative dual. This is the model quadratic
+        # model function of classical trust region methods localized around f(x).
+        # ie. `m(p) = g^t p + 1/2 p^T B p` where `g` is the gradient, `B` the
+        # Quasi-Newton approximation to the Hessian, and `p` the
+        # descent direction (diff).
+        #
+        # in the Gauss-Newton setting we compute
+        # ```0.5 * [(Jp - r)^T (Jp - r) - r^T r]```
+        # which is equivalent when `B = J^T J` and `g = J^T r`.
+        if self.gauss_newton:
+            rtr = two_norm(descent_state.vector) ** 2
+            jacobian_term = (
+                two_norm(
+                    (ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω
+                )
+                ** 2
+            )
+            return 0.5 * (jacobian_term - rtr)
+        else:
+            operator_quadratic = 0.5 * tree_inner_prod(
+                diff, descent_state.operator.mv(diff)
+            )
+            steepest_descent = tree_inner_prod(descent_state.vector, diff)
+            return (operator_quadratic**ω + steepest_descent**ω).ω
