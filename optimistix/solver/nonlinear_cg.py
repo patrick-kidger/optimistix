@@ -42,6 +42,7 @@ class GradOnlyState(eqx.Module):
     diffsize_prev: Scalar
     result: RESULTS
     f_val: PyTree[Array]
+    next_init: Array
     aux: Any
     step: Scalar
 
@@ -94,6 +95,7 @@ class AbstractGradOnly(AbstractMinimiser):
             diffsize_prev=jnp.array(0.0),
             result=jnp.array(RESULTS.successful),
             f_val=f0,
+            next_init=jnp.array(1.0),
             aux=aux_shape,
             step=jnp.array(0),
         )
@@ -134,19 +136,25 @@ class AbstractGradOnly(AbstractMinimiser):
             line_sol = minimise(
                 problem_1d,
                 self.line_search,
-                jnp.array(2.0),
+                y0=state.next_init,
                 args=args,
                 options=line_search_options,
                 max_steps=100,
             )
-            (f_val, diff, new_aux, _) = line_sol.aux
-            return f_val, diff, new_aux, line_sol.result
+            (f_val, diff, new_aux, _, next_init) = line_sol.aux
+            return f_val, diff, new_aux, line_sol.result, next_init
 
         def first_pass(y, state):
-            return jnp.inf, ω(y).call(jnp.zeros_like).ω, state.aux, RESULTS.successful
+            return (
+                jnp.inf,
+                ω(y).call(jnp.zeros_like).ω,
+                state.aux,
+                RESULTS.successful,
+                state.next_init,
+            )
 
         # this lax.cond allows us to avoid an extra compilation of f(y) in the init.
-        f_val, diff, new_aux, result = lax.cond(
+        f_val, diff, new_aux, result, next_init = lax.cond(
             state.step == 0, first_pass, main_pass, y, state
         )
         new_y = (ω(y) + ω(diff)).ω
@@ -168,6 +176,7 @@ class AbstractGradOnly(AbstractMinimiser):
             diffsize_prev=state.diffsize,
             result=result,
             f_val=f_val,
+            next_init=next_init,
             aux=new_aux,
             step=state.step + 1,
         )

@@ -50,7 +50,7 @@ class GNState(eqx.Module):
     diffsize_prev: Scalar
     result: RESULTS
     f_val: PyTree[Array]
-    search_size_prev: Array
+    next_init: Array
     aux: Any
     step: Int[Array, ""]
 
@@ -80,7 +80,6 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         f0 = two_norm(f0) ** 2
         descent_state = self.descent.init_state(problem, y, vector, operator, args, {})
         # TODO(raderj): this needs to be handled a different way!
-        initial_search_size = jnp.array(1.0)
         return GNState(
             descent_state=descent_state,
             vector=vector,
@@ -90,7 +89,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             diffsize_prev=jnp.array(0.0),
             result=jnp.array(RESULTS.successful),
             f_val=f0,
-            search_size_prev=initial_search_size,
+            next_init=jnp.array(1.0),
             aux=aux,
             step=jnp.array(0),
         )
@@ -130,14 +129,13 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         line_sol = least_squares(
             problem_1d,
             self.line_search,
-            state.search_size_prev,
+            state.next_init,
             args=args,
             options=line_search_options,
             # max_steps=10,
             # throw=False
         )
-        search_size = line_sol.value
-        (f_val, diff, new_aux, _) = line_sol.aux
+        (f_val, diff, new_aux, _, next_init) = line_sol.aux
         new_y = (ω(y) + ω(diff)).ω
         vector, operator, _ = compute_jac_residual(problem, new_y, args)
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
@@ -159,7 +157,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             diffsize_prev=state.diffsize,
             result=result,
             f_val=f_val,
-            search_size_prev=search_size,
+            next_init=next_init,
             aux=new_aux,
             step=state.step + 1,
         )

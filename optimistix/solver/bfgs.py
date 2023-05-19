@@ -49,6 +49,7 @@ class BFGSState(eqx.Module):
     diffsize_prev: Scalar
     result: RESULTS
     f_val: PyTree[Array]
+    next_init: Array
     aux: Any
     step: Scalar
 
@@ -114,6 +115,7 @@ class BFGS(AbstractMinimiser):
             diffsize_prev=jnp.array(0.0),
             result=jnp.array(RESULTS.successful),
             f_val=f0,
+            next_init=jnp.array(1.0),
             aux=aux,
             step=jnp.array(0),
         )
@@ -154,13 +156,13 @@ class BFGS(AbstractMinimiser):
         line_sol = minimise(
             problem_1d,
             self.line_search,
-            jnp.array(4.0),
+            y0=state.next_init,
             args=args,
             options=line_search_options,
             # max_steps=10,
             # throw=False,
         )
-        (f_val, diff, new_aux, _) = line_sol.aux
+        (f_val, diff, new_aux, _, next_init) = line_sol.aux
         new_y = (ω(y) + ω(diff)).ω
         new_grad, _ = jax.jacrev(problem.fn, has_aux=problem.has_aux)(new_y, args)
         grad_diff = (ω(new_grad) - ω(state.vector)).ω
@@ -194,6 +196,7 @@ class BFGS(AbstractMinimiser):
             diffsize_prev=state.diffsize,
             result=result,
             f_val=f_val,
+            next_init=next_init,
             aux=new_aux,
             step=state.step + 1,
         )

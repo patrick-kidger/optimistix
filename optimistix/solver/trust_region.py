@@ -112,7 +112,7 @@ class ClassicalTrustRegion(AbstractMinimiser):
             result=result,
             step=state.step + 1,
         )
-        return new_y, new_state, (f_new, diff, aux, result)
+        return new_y, new_state, (f_new, diff, aux, result, new_y)
 
     def terminate(
         self,

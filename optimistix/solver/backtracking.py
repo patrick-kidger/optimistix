@@ -7,6 +7,7 @@ import jax.tree_util as jtu
 from jaxtyping import Array, Bool, Float, Int, PyTree
 
 from ..line_search import OneDimensionalFunction
+from ..linear_operator import AbstractLinearOperator
 from ..minimise import AbstractMinimiser, MinimiseProblem
 from ..misc import tree_inner_prod
 from ..solution import RESULTS
@@ -17,6 +18,7 @@ class BacktrackingState(eqx.Module):
     f_delta: Float[Array, ""]
     f0: Float[Array, ""]
     vector: PyTree[Array]
+    operator: AbstractLinearOperator
     diff: PyTree[Array]
     compute_f0: Bool[Array, ""]
     result: RESULTS
@@ -26,6 +28,16 @@ class BacktrackingState(eqx.Module):
 class BacktrackingArmijo(AbstractMinimiser):
     backtrack_slope: float
     decrease_factor: float
+    gauss_newton: bool
+
+    def search_init(
+        self,
+        problem: MinimiseProblem[OneDimensionalFunction],
+        y: Array,
+        args: Any,
+        options: dict[str, Any],
+    ):
+        return 1.0
 
     def init(
         self,
@@ -38,16 +50,19 @@ class BacktrackingArmijo(AbstractMinimiser):
             lambda x: jnp.zeros(shape=x.shape), jax.eval_shape(problem.fn, 0.0, None)
         )
         vector, operator = get_vector_operator(options)
+
         try:
             f0 = options["f0"]
             compute_f0 = options["compute_f0"]
         except KeyError:
             compute_f0 = jnp.array(True)
+
         return BacktrackingState(
             f_delta=f0,
             f0=f0,
             diff=diff,
             vector=vector,
+            operator=operator,
             compute_f0=compute_f0,
             result=jnp.array(RESULTS.successful),
             step=jnp.array(0),
@@ -66,9 +81,16 @@ class BacktrackingArmijo(AbstractMinimiser):
         (f_delta, (_, diff, aux, result)) = problem.fn(delta, args)
         f0 = jnp.where(state.compute_f0, f_delta, state.f0)
         new_state = BacktrackingState(
-            f_delta, f0, diff, state.vector, jnp.array(False), result, state.step + 1
+            f_delta,
+            f0,
+            diff,
+            state.vector,
+            state.operator,
+            jnp.array(False),
+            result,
+            state.step + 1,
         )
-        return _delta, new_state, (f_delta, diff, aux, result)
+        return _delta, new_state, (f_delta, diff, aux, result, jnp.array(1.0))
 
     def terminate(
         self,
@@ -78,21 +100,18 @@ class BacktrackingArmijo(AbstractMinimiser):
         options: dict[str, Any],
         state: BacktrackingState,
     ):
-        # TODO(raderj): patch this up.
         result = jnp.where(
             jnp.isfinite(y),
             state.result,
             RESULTS.nonlinear_divergence,  # pyright: ignore
         )
-        # vector_ravel, _ = jax.flatten_util.ravel_pytree(state.vector)
-        # diff_ravel, _ = jax.flatten_util.ravel_pytree(state.diff)
-        # predicted_reduction = jnp.sum(vector_ravel * diff_ravel)
-        predicted_reduction = tree_inner_prod(state.vector, state.diff)
+        if self.gauss_newton:
+            grad = state.operator.transpose().mv(state.vector)
+        else:
+            grad = state.vector
+        predicted_reduction = tree_inner_prod(grad, state.diff)
+        # WARNING: this is a foot gun
         predicted_reduction = jnp.minimum(predicted_reduction, 0)
-        # NOTE: this is not missing an absolute value, this is a standard Armijo
-        # condition.
-        # This is the same predicted reduction as in the trust region sense. We
-        # just predict linear decrease here.
         finished = state.f_delta < state.f0 + self.backtrack_slope * predicted_reduction
         finished = finished & (state.step > 1)
         return finished, result
