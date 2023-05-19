@@ -2,6 +2,7 @@ import abc
 from typing import Any, Callable, Dict, Generic, Optional, TypeVar
 
 import equinox as eqx
+import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar
 
@@ -93,4 +94,4 @@ class OneDimensionalFunction(eqx.Module):
     def __call__(self, delta: Float[Array, ""], args: PyTree):
         diff, result = self.descent(delta)
         fn, aux = self.fn((ω(self.y) + ω(diff)).ω, args)
-        return fn, (fn**2, diff, aux, result)
+        return fn, (fn**2, diff, aux, result, jnp.array(0.0))

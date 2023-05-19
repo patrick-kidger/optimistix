@@ -26,18 +26,9 @@ class BacktrackingState(eqx.Module):
 
 
 class BacktrackingArmijo(AbstractMinimiser):
+    gauss_newton: bool
     backtrack_slope: float
     decrease_factor: float
-    gauss_newton: bool
-
-    def search_init(
-        self,
-        problem: MinimiseProblem[OneDimensionalFunction],
-        y: Array,
-        args: Any,
-        options: dict[str, Any],
-    ):
-        return 1.0
 
     def init(
         self,
@@ -60,9 +51,9 @@ class BacktrackingArmijo(AbstractMinimiser):
         return BacktrackingState(
             f_delta=f0,
             f0=f0,
-            diff=diff,
             vector=vector,
             operator=operator,
+            diff=diff,
             compute_f0=compute_f0,
             result=jnp.array(RESULTS.successful),
             step=jnp.array(0),
@@ -78,14 +69,14 @@ class BacktrackingArmijo(AbstractMinimiser):
     ):
         _delta = y * self.decrease_factor
         delta = jnp.where(state.compute_f0, jnp.array(0.0), _delta)
-        (f_delta, (_, diff, aux, result)) = problem.fn(delta, args)
+        (f_delta, (_, diff, aux, result, _)) = problem.fn(delta, args)
         f0 = jnp.where(state.compute_f0, f_delta, state.f0)
         new_state = BacktrackingState(
             f_delta,
             f0,
-            diff,
             state.vector,
             state.operator,
+            diff,
             jnp.array(False),
             result,
             state.step + 1,

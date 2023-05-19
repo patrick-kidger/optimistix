@@ -14,7 +14,7 @@ from ..linear_operator import AbstractLinearOperator, PyTreeLinearOperator
 from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
 from ..misc import max_norm, tree_inner_prod, two_norm
 from ..solution import RESULTS
-from .descent import UnnormalizedNewton
+from .descent import UnnormalisedNewton
 from .misc import compute_hess_grad
 
 
@@ -72,7 +72,7 @@ class BFGS(AbstractMinimiser):
         atol: float,
         rtol: float,
         line_search: AbstractMinimiser,
-        descent: AbstractDescent = UnnormalizedNewton(),
+        descent: AbstractDescent = UnnormalisedNewton(),
         norm: Callable = max_norm,
         converged_tol: float = 1e-2,
     ):

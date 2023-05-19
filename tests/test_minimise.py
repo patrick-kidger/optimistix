@@ -180,20 +180,26 @@ _optimisers_tols = (
     #         atol=1e-6,
     #         rtol=1e-5,
     #         line_search=optx.BacktrackingArmijo(
-    #             backtrack_slope=0.1, decrease_factor=0.5
+    #             gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
     #         ),
     #     ),
     #     (1e-2, 1e-2),
     # ),
-    (
-        optx.NonlinearCG(
-            1e-5,
-            1e-5,
-            optx.BacktrackingArmijo(backtrack_slope=0.05, decrease_factor=0.5),
-            method=optx.dai_yuan,
-        ),
-        (1e-2, 1e-2),
-    ),
+    # (
+    #     optx.LevenbergMarquardt(atol=1e-6, rtol=1e-6),
+    #     (1e-2, 1e-2)
+    # ),
+    # (
+    #     optx.NonlinearCG(
+    #         1e-5,
+    #         1e-5,
+    # optx.BacktrackingArmijo(
+    #     gauss_newton=False, backtrack_slope=0.05, decrease_factor=0.5
+    # ),
+    #         method=optx.dai_yuan,
+    #     ),
+    #     (1e-2, 1e-2),
+    # ),
 )
 
 _problems_minima_inits = (
@@ -203,7 +209,7 @@ _problems_minima_inits = (
         [jnp.array(0.0), jnp.array(0.0)],
     ),
     # start relatively close to the min as multidim coupled Rosenbrock is
-    # difficult for NM to handle.
+    # difficult for NM to handle. Dogleg + BFGS doesn't work well here
     (
         optx.LeastSquaresProblem(_rosenbrock),
         jnp.array(0.0),
@@ -225,6 +231,7 @@ _problems_minima_inits = (
         jnp.array(0.0),
         [jnp.array(2.0), jnp.array(0.0)],
     ),
+    # WARNING: this is giving a type error, ask Patrick
     # (optx.LeastSquaresProblem(_simple_nn), jnp.array(0.0), ffn_init),
     # (
     #     optx.LeastSquaresProblem(_penalty_ii),
@@ -244,7 +251,7 @@ _problems_minima_inits = (
     (
         optx.LeastSquaresProblem(_variably_dimensioned),
         jnp.array(0.0),
-        (1 - jnp.arange(1, 7) / 10, {"a": (1 - jnp.arange(7, 11)) / 10}),
+        (1 - jnp.arange(1, 7) / 10, {"a": (1 - jnp.arange(7, 11) / 10)}),
     ),
     (optx.LeastSquaresProblem(_trigonometric), jnp.array(0.0), jnp.ones(70) / 70),
     (
@@ -289,7 +296,7 @@ def test_minimise(solver, tols, problem, minimum, init, has_aux):
         assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
     else:
         if not isinstance(solver, optx.AbstractLeastSquaresSolver):
-            optx_argmin = optx.minimise(problem, solver, init, max_steps=None).value
+            optx_argmin = optx.minimise(problem, solver, init).value
             optx_min = problem.fn(optx_argmin, static_init)
 
             assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)

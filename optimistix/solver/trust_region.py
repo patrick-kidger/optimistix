@@ -79,7 +79,7 @@ class ClassicalTrustRegion(AbstractMinimiser):
         options: dict[str, Any],
         state: TRState,
     ):
-        (f_new, (_, diff, aux, result)) = problem.fn(y, args)
+        (f_new, (_, diff, aux, result, _)) = problem.fn(y, args)
         # Q: cann I just pass this via state?
         predicted_reduction = _get_predicted_reduction(options, diff)
         # predicted_reduction should be < 0, this is a safety measure.

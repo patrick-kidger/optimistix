@@ -22,7 +22,7 @@ class NewtonState(eqx.Module):
     operator: AbstractLinearOperator
 
 
-class UnnormalizedGradient(AbstractProxyDescent[GradientState]):
+class UnnormalisedGradient(AbstractProxyDescent[GradientState]):
     def init_state(
         self,
         problem: AbstractIterativeProblem,
@@ -64,8 +64,8 @@ class UnnormalizedGradient(AbstractProxyDescent[GradientState]):
         return tree_inner_prod(descent_state.vector, diff)
 
 
-class UnnormalizedNewton(AbstractProxyDescent[NewtonState]):
-    gauss_newton = False
+class UnnormalisedNewton(AbstractProxyDescent[NewtonState]):
+    gauss_newton: bool = False
 
     def init_state(
         self,
@@ -131,7 +131,7 @@ class UnnormalizedNewton(AbstractProxyDescent[NewtonState]):
             return (operator_quadratic**ω + steepest_descent**ω).ω
 
 
-class NormalizedGradient(AbstractProxyDescent[GradientState]):
+class NormalisedGradient(AbstractProxyDescent[GradientState]):
     def init_state(
         self,
         problem: AbstractIterativeProblem,
@@ -173,8 +173,8 @@ class NormalizedGradient(AbstractProxyDescent[GradientState]):
         return tree_inner_prod(descent_state.vector, diff)
 
 
-class NormalizedNewton(AbstractProxyDescent[NewtonState]):
-    gauss_newton = False
+class NormalisedNewton(AbstractProxyDescent[NewtonState]):
+    gauss_newton: bool = False
 
     def init_state(
         self,

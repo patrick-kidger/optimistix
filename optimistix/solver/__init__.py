@@ -4,12 +4,13 @@ from .bisection import Bisection
 from .cg import CG
 from .cholesky import Cholesky
 from .descent import (
-    NormalizedGradient,
-    NormalizedNewton,
-    UnnormalizedGradient,
-    UnnormalizedNewton,
+    NormalisedGradient,
+    NormalisedNewton,
+    UnnormalisedGradient,
+    UnnormalisedNewton,
 )
 from .diagonal import Diagonal
+from .dogleg import Dogleg
 from .fixed_point import FixedPointIteration
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .levenberg_marquardt_gauss_newton import (

@@ -61,6 +61,7 @@ from .solver import (
     Diagonal,
     DirectIterativeDual,
     DirectLevenbergMarquardt,
+    Dogleg,
     FixedPointIteration,
     fletcher_reeves,
     GaussNewton,
@@ -73,15 +74,15 @@ from .solver import (
     Newton,
     NonlinearCG,
     NonlinearCGDescent,
-    NormalizedGradient,
-    NormalizedNewton,
+    NormalisedGradient,
+    NormalisedNewton,
     polak_ribiere,
     QR,
     SVD,
     Triangular,
     Tridiagonal,
-    UnnormalizedGradient,
-    UnnormalizedNewton,
+    UnnormalisedGradient,
+    UnnormalisedNewton,
 )
 
 

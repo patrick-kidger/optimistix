@@ -243,7 +243,7 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
             options=options,
         )
         newton_soln = linear_solve(
-            descent_state.operator, descent_state.vector, self.solver
+            descent_state.operator, (-descent_state.vector**ω).ω, self.solver
         )
         # NOTE: try delta = delta * self.norm(newton_step).
         # this scales the trust and sets the natural bound `delta = 1`.
