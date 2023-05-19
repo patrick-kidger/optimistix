@@ -173,34 +173,7 @@ def get_weights(model):
 
 ffn_init = eqx.tree_at(get_weights, ffn_init, (weight1, bias1, weight2, bias2))
 
-_optimisers_tols = (
-    # (optx.NelderMead(1e-5, 1e-6), (1e-2, 1e-2)),
-    # (
-    #     optx.BFGS(
-    #         atol=1e-6,
-    #         rtol=1e-5,
-    #         line_search=optx.BacktrackingArmijo(
-    #             gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
-    #         ),
-    #     ),
-    #     (1e-2, 1e-2),
-    # ),
-    # (
-    #     optx.LevenbergMarquardt(atol=1e-6, rtol=1e-6),
-    #     (1e-2, 1e-2)
-    # ),
-    # (
-    #     optx.NonlinearCG(
-    #         1e-5,
-    #         1e-5,
-    # optx.BacktrackingArmijo(
-    #     gauss_newton=False, backtrack_slope=0.05, decrease_factor=0.5
-    # ),
-    #         method=optx.dai_yuan,
-    #     ),
-    #     (1e-2, 1e-2),
-    # ),
-)
+_optimisers_tols = ((optx.LevenbergMarquardt(atol=1e-6, rtol=1e-6), (1e-2, 1e-2)),)
 
 _problems_minima_inits = (
     (
@@ -208,14 +181,12 @@ _problems_minima_inits = (
         jnp.array(0.0),
         [jnp.array(0.0), jnp.array(0.0)],
     ),
-    # start relatively close to the min as multidim coupled Rosenbrock is
-    # difficult for NM to handle. Dogleg + BFGS doesn't work well here
+    #     # start relatively close to the min for this one
     (
         optx.LeastSquaresProblem(_rosenbrock),
         jnp.array(0.0),
         (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
     ),
-    # the init seems to be finickey here? this is strange.
     (
         optx.MinimiseProblem(_himmelblau),
         jnp.array(0.0),
@@ -231,7 +202,7 @@ _problems_minima_inits = (
         jnp.array(0.0),
         [jnp.array(2.0), jnp.array(0.0)],
     ),
-    # WARNING: this is giving a type error, ask Patrick
+    # WARNING: this is giving a type error still
     # (optx.LeastSquaresProblem(_simple_nn), jnp.array(0.0), ffn_init),
     # (
     #     optx.LeastSquaresProblem(_penalty_ii),
@@ -289,16 +260,25 @@ def test_minimise(solver, tols, problem, minimum, init, has_aux):
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
 
     if isinstance(problem, optx.LeastSquaresProblem):
-        optx_argmin = optx.least_squares(problem, solver, init, max_steps=None).value
+        optx_argmin = optx.least_squares(
+            problem,
+            solver,
+            dynamic_init,
+            args=static_init,
+            max_steps=10_000,
+            throw=False,
+        ).value
         out = problem.fn(optx_argmin, static_init)
         out_ravel, _ = jax.flatten_util.ravel_pytree(out)
         optx_min = jnp.sum(out_ravel**2)
         assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
     else:
         if not isinstance(solver, optx.AbstractLeastSquaresSolver):
-            optx_argmin = optx.minimise(problem, solver, init).value
+            breakpoint()
+            optx_argmin = optx.minimise(
+                problem, solver, init, max_steps=10_000, throw=False
+            ).value
             optx_min = problem.fn(optx_argmin, static_init)
-
             assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
 

@@ -142,7 +142,8 @@ def _iterate(inputs, closure, while_loop):
     )
 
     final_y, num_steps, final_state, aux = final_carry
-    terminate, result = solver.terminate(problem, final_y, args, options, final_state)
+    _final_state = eqx.combine(static_state, final_state)
+    terminate, result = solver.terminate(problem, final_y, args, options, _final_state)
     result = jnp.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
         RESULTS.max_steps_reached,

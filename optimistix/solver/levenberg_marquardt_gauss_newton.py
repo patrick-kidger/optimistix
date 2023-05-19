@@ -19,7 +19,6 @@ from ..linear_operator import AbstractLinearOperator
 from ..minimise import AbstractMinimiser
 from ..misc import max_norm, two_norm
 from ..solution import RESULTS
-from .backtracking import BacktrackingArmijo
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .misc import compute_jac_residual
 from .newton_chord import Newton
@@ -132,8 +131,8 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             state.next_init,
             args=args,
             options=line_search_options,
-            # max_steps=10,
-            # throw=False
+            max_steps=10_000,
+            throw=False,
         )
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
         new_y = (ω(y) + ω(diff)).ω
@@ -143,11 +142,6 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         descent_state = self.descent.update_state(
             state.descent_state, state.diff, vector, operator
         )
-        result = jnp.where(
-            line_sol.result == RESULTS.max_steps_reached,
-            RESULTS.successful,
-            line_sol.result,
-        )
         new_state = GNState(
             descent_state=descent_state,
             vector=vector,
@@ -155,7 +149,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             diff=diff,
             diffsize=diffsize,
             diffsize_prev=state.diffsize,
-            result=result,
+            result=jnp.array(RESULTS.successful),
             f_val=f_val,
             next_init=next_init,
             aux=new_aux,
@@ -200,7 +194,7 @@ class GaussNewton(AbstractGaussNewton):
     converged_tol: float = 1e-2
 
 
-class LevenbergMarquardt(AbstractGaussNewton):
+class IndirectLevenbergMarquardt(AbstractGaussNewton):
     line_search: AbstractMinimiser
     descent: AbstractDescent
     converged_tol: float
@@ -213,9 +207,6 @@ class LevenbergMarquardt(AbstractGaussNewton):
         converged_tol: float = 1e-2,
         lambda_0: Float[ArrayLike, ""] = 1e-3,
     ):
-        # WARNING: atol and rtol are being used both for
-        # IndirectIterativeDual and for self! This may be bad
-        # practice.
         self.atol = atol
         self.rtol = rtol
         self.norm = norm
@@ -224,11 +215,11 @@ class LevenbergMarquardt(AbstractGaussNewton):
         self.descent = IndirectIterativeDual(
             gauss_newton=True,
             lambda_0=lambda_0,
-            root_finder=Newton(rtol, atol, lower=1e-6),
+            root_finder=Newton(1e-2, 1e-2, lower=1e-6),
         )
 
 
-class DirectLevenbergMarquardt(AbstractGaussNewton):
+class LevenbergMarquardt(AbstractGaussNewton):
     converged_tol: float
 
     def __init__(
@@ -245,7 +236,4 @@ class DirectLevenbergMarquardt(AbstractGaussNewton):
         self.norm = norm
         self.converged_tol = converged_tol
         self.descent = DirectIterativeDual(gauss_newton=True)
-        # TODO(raderj): should use a slightly different backtracking algo
-        self.line_search = BacktrackingArmijo(
-            backtrack_slope=backtrack_slope, decrease_factor=decrease_factor
-        )
+        self.line_search = ClassicalTrustRegion()

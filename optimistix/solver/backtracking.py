@@ -101,7 +101,6 @@ class BacktrackingArmijo(AbstractMinimiser):
         else:
             grad = state.vector
         predicted_reduction = tree_inner_prod(grad, state.diff)
-        # WARNING: this is a foot gun
         predicted_reduction = jnp.minimum(predicted_reduction, 0)
         finished = state.f_delta < state.f0 + self.backtrack_slope * predicted_reduction
         finished = finished & (state.step > 1)

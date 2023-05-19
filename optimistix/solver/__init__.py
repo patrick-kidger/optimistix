@@ -15,8 +15,8 @@ from .fixed_point import FixedPointIteration
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .levenberg_marquardt_gauss_newton import (
     AbstractGaussNewton,
-    DirectLevenbergMarquardt,
     GaussNewton,
+    IndirectLevenbergMarquardt,
     LevenbergMarquardt,
 )
 from .lu import LU

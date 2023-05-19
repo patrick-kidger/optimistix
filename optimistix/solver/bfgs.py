@@ -66,6 +66,7 @@ class BFGS(AbstractMinimiser):
     descent: AbstractDescent
     norm: Callable
     converged_tol: float
+    use_inverse: bool
 
     def __init__(
         self,
@@ -75,6 +76,7 @@ class BFGS(AbstractMinimiser):
         descent: AbstractDescent = UnnormalisedNewton(),
         norm: Callable = max_norm,
         converged_tol: float = 1e-2,
+        use_inverse: bool = True,
     ):
 
         self.atol = atol
@@ -83,6 +85,7 @@ class BFGS(AbstractMinimiser):
         self.descent = descent
         self.norm = norm
         self.converged_tol = converged_tol
+        self.use_inverse = use_inverse
 
     def init(
         self,
@@ -94,16 +97,10 @@ class BFGS(AbstractMinimiser):
         f0, aux = jtu.tree_map(
             lambda x: jnp.full(x.shape, jnp.inf), jax.eval_shape(problem.fn, y, args)
         )
-        try:
-            # Either the user passes both or they pass neither. I anticipate only
-            # sufficiently advanced users would want to pass these via options
-            # anyway
-            vector = options["vector"]
-            operator = options["operator"]
-        except KeyError:
-            # an extra eval of problem.fn is needed for BFGS since we need to compute
-            # the Hessian exactly on the first pass.
-            vector, operator, aux = compute_hess_grad(problem, y, args)
+        # TODO(raderj): remove this and replace with vector and Identity.
+        # Note however the downstream we need operator.pytree, which the
+        # IdentityLinearOperator does not have.
+        vector, operator, aux = compute_hess_grad(problem, y, args)
         descent_state = self.descent.init_state(problem, y, vector, operator, args, {})
 
         return BFGSState(
@@ -159,6 +156,8 @@ class BFGS(AbstractMinimiser):
             y0=state.next_init,
             args=args,
             options=line_search_options,
+            max_steps=1000,
+            throw=False,
             # max_steps=10,
             # throw=False,
         )

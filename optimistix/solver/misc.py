@@ -75,6 +75,7 @@ def compute_hess_grad(
 
 def compute_jac_residual(problem: LeastSquaresProblem, y: PyTree[Array], args: Any):
     residual, aux = problem.fn(y, args)
+    problem.tags
     jacobian = JacobianLinearOperator(
         problem.fn, y, args, tags=problem.tags, _has_aux=True
     )

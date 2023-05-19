@@ -10,7 +10,7 @@ from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Float, PyTree, Scalar
 
 from ..iterate import AbstractIterativeProblem
-from ..line_search import AbstractDescent, AbstractProxyDescent
+from ..line_search import AbstractProxyDescent
 from ..linear_operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,
@@ -82,7 +82,38 @@ class _Damped(eqx.Module):
         return (f, damped), aux
 
 
-class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
+def _predicted_reduction(
+    gauss_newton: bool,
+    diff: PyTree[Array],
+    descent_state: IterativeDualState,
+    args: Any,
+    options: dict[str, Any],
+):
+    # The predicted reduction of the iterative dual. This is the model quadratic
+    # model function of classical trust region methods localized around f(x).
+    # ie. `m(p) = g^t p + 1/2 p^T B p` where `g` is the gradient, `B` the
+    # Quasi-Newton approximation to the Hessian, and `p` the
+    # descent direction (diff).
+    #
+    # in the Gauss-Newton setting we compute
+    # ```0.5 * [(Jp - r)^T (Jp - r) - r^T r]```
+    # which is equivalent when `B = J^T J` and `g = J^T r`.
+    if gauss_newton:
+        rtr = two_norm(descent_state.vector) ** 2
+        jacobian_term = (
+            two_norm((ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω)
+            ** 2
+        )
+        return 0.5 * (jacobian_term - rtr)
+    else:
+        operator_quadratic = 0.5 * tree_inner_prod(
+            diff, descent_state.operator.mv(diff)
+        )
+        steepest_descent = tree_inner_prod(descent_state.vector, diff)
+        return (operator_quadratic**ω + steepest_descent**ω).ω
+
+
+class _DirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
     gauss_newton: bool
     modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
 
@@ -138,6 +169,17 @@ class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
         linear_soln = linear_solve(operator, vector, QR(), throw=False)
         diff = (-linear_soln.value**ω).ω
         return diff, linear_soln.result
+
+    def predicted_reduction(
+        self,
+        diff: PyTree[Array],
+        descent_state: IterativeDualState,
+        args: Any,
+        options: dict[str, Any],
+    ):
+        return _predicted_reduction(
+            self.gauss_newton, diff, descent_state, args, options
+        )
 
 
 class DirectIterativeDual(_DirectIterativeDual):
@@ -287,27 +329,6 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         args: Any,
         options: dict[str, Any],
     ):
-        # The predicted reduction of the iterative dual. This is the model quadratic
-        # model function of classical trust region methods localized around f(x).
-        # ie. `m(p) = g^t p + 1/2 p^T B p` where `g` is the gradient, `B` the
-        # Quasi-Newton approximation to the Hessian, and `p` the
-        # descent direction (diff).
-        #
-        # in the Gauss-Newton setting we compute
-        # ```0.5 * [(Jp - r)^T (Jp - r) - r^T r]```
-        # which is equivalent when `B = J^T J` and `g = J^T r`.
-        if self.gauss_newton:
-            rtr = two_norm(descent_state.vector) ** 2
-            jacobian_term = (
-                two_norm(
-                    (ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω
-                )
-                ** 2
-            )
-            return 0.5 * (jacobian_term - rtr)
-        else:
-            operator_quadratic = 0.5 * tree_inner_prod(
-                diff, descent_state.operator.mv(diff)
-            )
-            steepest_descent = tree_inner_prod(descent_state.vector, diff)
-            return (operator_quadratic**ω + steepest_descent**ω).ω
+        return _predicted_reduction(
+            self.gauss_newton, diff, descent_state, args, options
+        )
