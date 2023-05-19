@@ -131,7 +131,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             state.next_init,
             args=args,
             options=line_search_options,
-            max_steps=10_000,
+            max_steps=1000,
             throw=False,
         )
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
