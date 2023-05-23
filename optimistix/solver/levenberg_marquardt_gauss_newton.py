@@ -21,7 +21,6 @@ from ..misc import max_norm, two_norm
 from ..solution import RESULTS
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .misc import compute_jac_residual
-from .newton_chord import Newton
 from .trust_region import ClassicalTrustRegion
 
 
@@ -131,7 +130,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             state.next_init,
             args=args,
             options=line_search_options,
-            max_steps=1000,
+            max_steps=100,
             throw=False,
         )
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
@@ -215,7 +214,6 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton):
         self.descent = IndirectIterativeDual(
             gauss_newton=True,
             lambda_0=lambda_0,
-            root_finder=Newton(1e-2, 1e-2, lower=1e-6),
         )
 
 

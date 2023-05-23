@@ -173,7 +173,27 @@ def get_weights(model):
 
 ffn_init = eqx.tree_at(get_weights, ffn_init, (weight1, bias1, weight2, bias2))
 
-_optimisers_tols = ((optx.LevenbergMarquardt(atol=1e-6, rtol=1e-6), (1e-2, 1e-2)),)
+_optimisers_tols = (
+    # (
+    #     optx.BFGS(atol=1e-5,
+    #     rtol=1e-5,
+    #     line_search=optx.BacktrackingArmijo(False, 0.05, 0.5),
+    #     descent=optx.DirectIterativeDual(gauss_newton=False),
+    #     use_inverse=False),
+    #     (1e-2, 1e-2),
+    # ),
+    (
+        optx.IndirectLevenbergMarquardt(atol=1e-14, rtol=1e-14),
+        (1e-2, 1e-2),
+    ),
+    # (
+    #     optx.GaussNewton(atol=1e-5,
+    #     rtol=1e-5,
+    #     line_search=optx.BacktrackingArmijo(True, 0.05, 0.5),
+    #     descent=optx.IndirectIterativeDual(gauss_newton=True, lambda_0=0.5)),
+    #     (1e-2, 1e-2),
+    # ),
+)
 
 _problems_minima_inits = (
     (
@@ -265,7 +285,7 @@ def test_minimise(solver, tols, problem, minimum, init, has_aux):
             solver,
             dynamic_init,
             args=static_init,
-            max_steps=10_000,
+            max_steps=1000,
             throw=False,
         ).value
         out = problem.fn(optx_argmin, static_init)
@@ -274,9 +294,8 @@ def test_minimise(solver, tols, problem, minimum, init, has_aux):
         assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
     else:
         if not isinstance(solver, optx.AbstractLeastSquaresSolver):
-            breakpoint()
             optx_argmin = optx.minimise(
-                problem, solver, init, max_steps=10_000, throw=False
+                problem, solver, init, max_steps=1000, throw=False
             ).value
             optx_min = problem.fn(optx_argmin, static_init)
             assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)

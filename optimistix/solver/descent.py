@@ -6,7 +6,7 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
 from ..iterate import AbstractIterativeProblem
-from ..line_search import AbstractProxyDescent
+from ..line_search import AbstractDescent, AbstractProxyDescent
 from ..linear_operator import AbstractLinearOperator
 from ..linear_solve import AutoLinearSolver, linear_solve
 from ..misc import tree_inner_prod, two_norm
@@ -131,6 +131,39 @@ class UnnormalisedNewton(AbstractProxyDescent[NewtonState]):
             return (operator_quadratic**ω + steepest_descent**ω).ω
 
 
+class UnnormalisedNewtonInverse(AbstractDescent[NewtonState]):
+    def init_state(
+        self,
+        problem: AbstractIterativeProblem,
+        y: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        args: Optional[Any] = None,
+        options: Optional[dict[str, Any]] = {},
+    ):
+        return NewtonState(vector, operator)
+
+    def update_state(
+        self,
+        descent_state: NewtonState,
+        diff_prev: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        options: Optional[dict[str, Any]] = None,
+    ):
+        return NewtonState(vector, operator)
+
+    def __call__(
+        self,
+        delta: Scalar,
+        descent_state: NewtonState,
+        args: Any,
+        options: dict[str, Any],
+    ):
+        diff = (-delta * descent_state.operator.mv(descent_state.vector) ** ω).ω
+        return diff, jnp.array(RESULTS.successful)
+
+
 class NormalisedGradient(AbstractProxyDescent[GradientState]):
     def init_state(
         self,
@@ -235,3 +268,37 @@ class NormalisedNewton(AbstractProxyDescent[NewtonState]):
             )
             steepest_descent = tree_inner_prod(descent_state.vector, diff)
             return (operator_quadratic**ω + steepest_descent**ω).ω
+
+
+class NormalisedNewtonInverse(AbstractDescent[NewtonState]):
+    def init_state(
+        self,
+        problem: AbstractIterativeProblem,
+        y: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        args: Optional[Any] = None,
+        options: Optional[dict[str, Any]] = {},
+    ):
+        return NewtonState(vector, operator)
+
+    def update_state(
+        self,
+        descent_state: NewtonState,
+        diff_prev: PyTree[Array],
+        vector: PyTree[Array],
+        operator: AbstractLinearOperator,
+        options: Optional[dict[str, Any]] = None,
+    ):
+        return NewtonState(vector, operator)
+
+    def __call__(
+        self,
+        delta: Scalar,
+        descent_state: NewtonState,
+        args: Any,
+        options: dict[str, Any],
+    ):
+        newton = (-delta * descent_state.operator.mv(descent_state.vector) ** ω).ω
+        diff = ((-delta * newton**ω) / two_norm(newton)).ω
+        return diff, jnp.array(RESULTS.successful)

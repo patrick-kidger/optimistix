@@ -7,8 +7,9 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Float, PyTree, Scalar
+from jaxtyping import Array, Bool, Float, Int, PyTree, Scalar
 
+from ..custom_types import sentinel
 from ..iterate import AbstractIterativeProblem
 from ..line_search import AbstractProxyDescent
 from ..linear_operator import (
@@ -21,7 +22,7 @@ from ..linear_operator import (
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import tree_inner_prod, tree_where, two_norm
 from ..root_find import AbstractRootFinder, root_find, RootFindProblem
-from .newton_chord import Newton
+from ..solution import RESULTS
 from .qr import QR
 
 
@@ -62,6 +63,145 @@ from .qr import QR
 # classical implementation of the algorithm as well (see Moré, "The Levenberg-Marquardt
 # Algorithm: Implementation and Theory.")
 #
+def _small(diffsize: Scalar) -> Bool[Array, " "]:
+    # TODO(kidger): make a more careful choice here -- the existence of this
+    # function is pretty ad-hoc.
+    resolution = 10 ** (2 - jnp.finfo(diffsize.dtype).precision)
+    return diffsize < resolution
+
+
+def _diverged(rate: Scalar) -> Bool[Array, " "]:
+    return jnp.invert(jnp.isfinite(rate)) | (rate > 2)
+
+
+def _converged(factor: Scalar, tol: Scalar) -> Bool[Array, " "]:
+    return (factor > 0) & (factor < tol)
+
+
+class _IndirectDualState(eqx.Module):
+    delta: Scalar
+    diffsize: Scalar
+    diffsize_prev: Scalar
+    lower_bound: Scalar
+    upper_bound: Scalar
+    result: RESULTS
+    step: Int[Array, ""]
+
+
+class _IndirectDualRootFind(AbstractRootFinder):
+    gauss_newton: bool
+    converged_tol: float
+
+    def init(
+        self, problem: RootFindProblem, y: Array, args: Any, options: dict[str, Any]
+    ):
+        try:
+            delta = options["delta"]
+        except KeyError:
+            raise ValueError(
+                "The indirect iterative dual root find needs delta "
+                "(trust region radius) passed via `options['delta']`"
+            )
+
+        if self.gauss_newton:
+            try:
+                vector = options["vector"]
+                operator = options["operator"]
+            except KeyError:
+                raise ValueError(
+                    "The indirect iterative dual root find with "
+                    "`gauss_newton=True` needs the operator and vector passed via "
+                    "`options['operator']` and `options['vector']`."
+                )
+            grad = operator.transpose().mv(vector)
+        else:
+            try:
+                grad = options["vector"]
+            except KeyError:
+                raise ValueError(
+                    "The indirect iterative dual root find with "
+                    "`gauss_newton=False` needs the vector passed via "
+                    "`options['vector']`."
+                )
+
+        upper_bound = two_norm(grad) / delta
+        return _IndirectDualState(
+            delta=delta,
+            diffsize=jnp.array(0.0),
+            diffsize_prev=jnp.array(0.0),
+            lower_bound=jnp.array(-jnp.inf),
+            upper_bound=upper_bound,
+            result=jnp.array(RESULTS.successful),
+            step=jnp.array(0),
+        )
+
+    def step(
+        self,
+        problem: RootFindProblem,
+        y: Array,
+        args: Any,
+        options: dict[str, Any],
+        state: _IndirectDualState,
+    ):
+        # avoid an extra compilation of problem.fn in the init.
+        _y = jnp.where(state.step == 0, 0, y)
+        lambda_in_bounds = (state.lower_bound < y) & (y < state.upper_bound)
+        new_y = jnp.where(
+            lambda_in_bounds,
+            _y,
+            jnp.maximum(
+                1e-3 * state.upper_bound,
+                jnp.sqrt(state.upper_bound * state.lower_bound),
+            ),
+        )
+        f_val, aux = problem.fn(_y, args)
+        f_grad, _ = jax.jacfwd(problem.fn)(_y, args)
+        factor = f_val / f_grad
+        upper_bound = jnp.where(f_val < 0, y, state.upper_bound)
+        lower_bound = jnp.maximum(state.lower_bound, y - factor)
+        diff = -((f_val - state.delta) / state.delta) * factor
+        new_y = y + diff
+        new_y = jnp.where(state.step == 0, y, new_y)
+        upper_bound = jnp.where(state.step == 0, state.upper_bound, upper_bound)
+        # this case handling is to avoid an extra compilation of problem.fn in the init
+        # to compute the first lower bound.
+        lower_bound = jnp.where(state.step == 0, -factor, lower_bound)
+        new_state = _IndirectDualState(
+            state.delta,
+            diff,
+            state.diffsize,
+            lower_bound,
+            upper_bound,
+            jnp.array(RESULTS.successful),
+            state.step + 1,
+        )
+        return new_y, new_state, aux
+
+    def terminate(
+        self,
+        problem: RootFindProblem,
+        y: Array,
+        args: Any,
+        options: dict[str, Any],
+        state: _IndirectDualState,
+    ):
+        del problem, y, args, options
+        at_least_two = state.step >= 2
+        rate = state.diffsize / state.diffsize_prev
+        factor = state.diffsize * rate / (1 - rate)
+        small = _small(state.diffsize)
+        diverged = _diverged(rate)
+        converged = _converged(factor, self.converged_tol)
+        linsolve_fail = state.result != RESULTS.successful  # pyright: ignore
+        terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
+        result = jnp.where(
+            diverged, RESULTS.nonlinear_divergence, RESULTS.successful
+        )  # pyright: ignore
+        result = jnp.where(linsolve_fail, state.result, result)  # pyright: ignore
+        return terminate, result
+
+    def buffers(self, state: _IndirectDualState):
+        return ()
 
 
 class IterativeDualState(eqx.Module):
@@ -73,7 +213,7 @@ class IterativeDualState(eqx.Module):
 
 class _Damped(eqx.Module):
     fn: Callable
-    damping: Float[ArrayLike, " "]
+    damping: Float[Array, " "]
 
     def __call__(self, y, args):
         damping = jnp.sqrt(self.damping)
@@ -157,7 +297,6 @@ class _DirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
                 _has_aux=True,
             )
         else:
-            # WARNING: this branch is yet untested.
             vector = descent_state.vector
             operator = descent_state.operator + jnp.where(
                 delta_nonzero, delta, 0
@@ -196,7 +335,8 @@ class DirectIterativeDual(_DirectIterativeDual):
             vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
             operator = JacobianLinearOperator(
                 _Damped(
-                    descent_state.problem.fn, jnp.where(delta_nonzero, 1 / delta, 0)
+                    descent_state.problem.fn,
+                    jnp.where(delta_nonzero, 1 / delta, jnp.inf),
                 ),
                 descent_state.y,
                 args,
@@ -206,7 +346,7 @@ class DirectIterativeDual(_DirectIterativeDual):
             # WARNING: this branch is yet untested.
             vector = descent_state.vector
             operator = descent_state.operator + jnp.where(
-                delta_nonzero, 1 / delta, 0
+                delta_nonzero, 1 / delta, jnp.inf
             ) * IdentityLinearOperator(descent_state.operator.in_structure())
         operator = self.modify_jac(operator)
         eqxi.error_if(
@@ -234,19 +374,40 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
     # `(B + lambda I)`. This can similarly be applied to the phi in Hebden with
     # `phi' = ||q||^2/||p(lambda)||^(3/2)`
     #
-    # Note, however, that we are going ignoring this neat trick (gasp!)
-    # for now.
-    #
     # TODO(raderj): write a solver in root_finder which specifically assumes iterative
     # dual so we can use the trick (or at least see if it's worth doing.)
+    # TODO(raderj): Use Householder + Givens method.
     #
     gauss_newton: bool
-    lambda_0: Float[ArrayLike, " "]
-    root_finder: AbstractRootFinder = Newton(rtol=0.5, atol=0.5, lower=1e-6)
-    solver: AbstractLinearSolver = AutoLinearSolver(well_posed=False)
-    tr_reg: Optional[PyTreeLinearOperator] = None
-    norm: Callable = two_norm
-    modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
+    lambda_0: Float[Array, ""]
+    root_finder: AbstractRootFinder
+    solver: AbstractLinearSolver
+    tr_reg: Optional[PyTreeLinearOperator]
+    norm: Callable
+    modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator]
+
+    def __init__(
+        self,
+        gauss_newton: bool,
+        lambda_0: float,
+        root_finder: AbstractRootFinder = sentinel,
+        solver: AbstractLinearSolver = AutoLinearSolver(well_posed=False),
+        tr_reg: Optional[PyTreeLinearOperator] = None,
+        norm: Callable = two_norm,
+        modify_jac: Callable[
+            [JacobianLinearOperator], AbstractLinearOperator
+        ] = linearise,
+    ):
+        self.gauss_newton = gauss_newton
+        self.lambda_0 = jnp.array(lambda_0)
+        if root_finder == sentinel:
+            self.root_finder = _IndirectDualRootFind(self.gauss_newton, 1e-3)
+        else:
+            self.root_finder = root_finder
+        self.solver = solver
+        self.tr_reg = tr_reg
+        self.norm = norm
+        self.modify_jac = modify_jac
 
     def init_state(
         self,
@@ -302,19 +463,26 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         ):
             (step, _) = direct_dual(lambda_i)
             step_norm = self.norm(step)
-            return 1 / delta - 1 / step_norm
+            return step_norm - delta
 
         def accept_newton():
             return newton_step, newton_result
 
         def reject_newton():
             root_find_problem = RootFindProblem(comparison_fn, has_aux=False)
+            root_find_options = {
+                "vector": descent_state.vector,
+                "operator": descent_state.operator,
+                "delta": delta,
+            }
+            # I don't love the max_steps here.
             lambda_out = root_find(
                 root_find_problem,
                 self.root_finder,
                 self.lambda_0,
                 args,
-                options,
+                root_find_options,
+                max_steps=32,
                 throw=False,
             ).value
             return direct_dual(lambda_out)

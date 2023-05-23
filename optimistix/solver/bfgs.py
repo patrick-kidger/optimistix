@@ -8,21 +8,35 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree
 
-from ..custom_types import Scalar
+from ..custom_types import Scalar, sentinel
 from ..line_search import AbstractDescent, AbstractProxyDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator, PyTreeLinearOperator
 from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
-from ..misc import max_norm, tree_inner_prod, two_norm
+from ..misc import max_norm, tree_inner_prod
 from ..solution import RESULTS
-from .descent import UnnormalisedNewton
-from .misc import compute_hess_grad
+from .descent import UnnormalisedNewton, UnnormalisedNewtonInverse
 
 
-def _outer(tree):
+def _outer(tree1, tree2):
     def leaf_fn(x):
-        return jtu.tree_map(lambda leaf2: jnp.tensordot(x, leaf2, axes=0), tree)
+        return jtu.tree_map(lambda leaf: jnp.tensordot(x, leaf, axes=0), tree2)
 
-    return jtu.tree_map(leaf_fn, tree)
+    return jtu.tree_map(leaf_fn, tree1)
+
+
+def _std_basis(pytree):
+    leaves, structure = jtu.tree_flatten(pytree)
+    eye_structure = structure.compose(structure)
+    eye_leaves = []
+    for i1, l1 in enumerate(leaves):
+        for i2, l2 in enumerate(leaves):
+            if i1 == i2:
+                eye_leaves.append(
+                    jnp.eye(jnp.size(l1)).reshape(jnp.shape(l1) + jnp.shape(l2))
+                )
+            else:
+                eye_leaves.append(jnp.zeros(l1.shape + l2.shape))
+    return jtu.tree_unflatten(eye_structure, eye_leaves)
 
 
 def _small(diffsize: Scalar) -> Bool[ArrayLike, " "]:
@@ -73,11 +87,19 @@ class BFGS(AbstractMinimiser):
         atol: float,
         rtol: float,
         line_search: AbstractMinimiser,
-        descent: AbstractDescent = UnnormalisedNewton(),
+        descent: AbstractDescent = sentinel,
         norm: Callable = max_norm,
         converged_tol: float = 1e-2,
         use_inverse: bool = True,
     ):
+
+        # # WARNING: if the user passes in a solver not compatible with use_inverse,
+        # # then they will get very strange results and not a warning!
+        if descent == sentinel:
+            if use_inverse:
+                descent = UnnormalisedNewtonInverse()
+            else:
+                descent = UnnormalisedNewton(gauss_newton=False)
 
         self.atol = atol
         self.rtol = rtol
@@ -86,6 +108,7 @@ class BFGS(AbstractMinimiser):
         self.norm = norm
         self.converged_tol = converged_tol
         self.use_inverse = use_inverse
+        self.descent = descent
 
     def init(
         self,
@@ -97,12 +120,14 @@ class BFGS(AbstractMinimiser):
         f0, aux = jtu.tree_map(
             lambda x: jnp.full(x.shape, jnp.inf), jax.eval_shape(problem.fn, y, args)
         )
-        # TODO(raderj): remove this and replace with vector and Identity.
-        # Note however the downstream we need operator.pytree, which the
-        # IdentityLinearOperator does not have.
-        vector, operator, aux = compute_hess_grad(problem, y, args)
+        jrev = jax.jacrev(problem.fn, has_aux=problem.has_aux)
+        vector, aux = jrev(y, args)
+        # create an identity operator which we can update with BFGS
+        # update/Woodbury identity
+        operator = PyTreeLinearOperator(
+            _std_basis(vector), output_structure=jax.eval_shape(lambda: vector)
+        )
         descent_state = self.descent.init_state(problem, y, vector, operator, args, {})
-
         return BFGSState(
             descent_state=descent_state,
             vector=vector,
@@ -158,20 +183,28 @@ class BFGS(AbstractMinimiser):
             options=line_search_options,
             max_steps=1000,
             throw=False,
-            # max_steps=10,
-            # throw=False,
         )
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
         new_y = (ω(y) + ω(diff)).ω
         new_grad, _ = jax.jacrev(problem.fn, has_aux=problem.has_aux)(new_y, args)
         grad_diff = (ω(new_grad) - ω(state.vector)).ω
-        hess_mv = state.operator.mv(diff)
-        diff_outer = _outer(grad_diff)
-        diff_inner = two_norm(grad_diff) ** 2
-        hess_outer = _outer(hess_mv)
-        hess_inner = tree_inner_prod(diff, hess_mv)
-        term1 = (ω(diff_outer) / diff_inner).ω
-        term2 = (ω(hess_outer) / hess_inner).ω
+        inner = tree_inner_prod(grad_diff, diff)
+        if self.use_inverse:
+            # some complicated looking stuff, but it's just the application of
+            # Woodbury identity to rank-1 update of approximate Hessian.
+            operator_ip = tree_inner_prod(grad_diff, state.operator.mv(grad_diff))
+            diff_outer = _outer(diff, diff)
+            outer1 = _outer(state.operator.mv(grad_diff), diff)
+            outer2 = _outer(diff, state.operator.transpose().mv(grad_diff))
+            term1 = (((inner + operator_ip) * (diff_outer**ω)) / (inner**2)).ω
+            term2 = ((outer1**ω + outer2**ω) / inner).ω
+        else:
+            diff_outer = _outer(grad_diff, grad_diff)
+            hess_mv = state.operator.mv(diff)
+            hess_outer = _outer(hess_mv, hess_mv)
+            operator_ip = tree_inner_prod(diff, state.operator.mv(diff))
+            term1 = (diff_outer**ω / inner).ω
+            term2 = (hess_outer**ω / operator_ip).ω
         new_hess = PyTreeLinearOperator(
             (state.operator.pytree**ω + term1**ω - term2**ω).ω,
             state.operator.out_structure(),
@@ -186,6 +219,7 @@ class BFGS(AbstractMinimiser):
             RESULTS.successful,
             line_sol.result,
         )
+        jax.debug.print("f_val: {}", f_val)
         new_state = BFGSState(
             descent_state=descent_state,
             vector=new_grad,
@@ -214,16 +248,25 @@ class BFGS(AbstractMinimiser):
         options: dict[str, Any],
         state: BFGSState,
     ):
-        at_least_two = state.step >= 2
+        # WARNING: this is terminating 1 step too early on VariablyDimensioned
+        # problem
+        at_least_two = state.step >= 4
         rate = state.diffsize / state.diffsize_prev
         factor = state.diffsize * rate / (1 - rate)
+        jax.debug.print("diffsize: {}", state.diffsize)
+        jax.debug.print("diffsize_prev: {}", state.diffsize_prev)
+        jax.debug.print("grad: {}", state.vector)
         small = _small(state.diffsize)
         diverged = _diverged(rate)
         converged = _converged(factor, self.converged_tol)
+        jax.debug.print("small: {}", small)
+        jax.debug.print("converged: {}", converged)
         linsolve_fail = state.result != RESULTS.successful
         terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
         result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
         result = jnp.where(linsolve_fail, state.result, result)
+        jax.debug.print("terminate: {}", terminate)
+        jax.debug.print("steps: {}", state.step)
         return terminate, result
 
     def buffers(self, state: BFGSState):

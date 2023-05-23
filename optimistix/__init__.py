@@ -76,6 +76,7 @@ from .solver import (
     NonlinearCGDescent,
     NormalisedGradient,
     NormalisedNewton,
+    NormalisedNewtonInverse,
     polak_ribiere,
     QR,
     SVD,
@@ -83,6 +84,7 @@ from .solver import (
     Tridiagonal,
     UnnormalisedGradient,
     UnnormalisedNewton,
+    UnnormalisedNewtonInverse,
 )
 
 
