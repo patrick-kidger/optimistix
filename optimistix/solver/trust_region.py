@@ -7,7 +7,6 @@ from jaxtyping import Array, Bool, Int, PyTree
 from ..line_search import OneDimensionalFunction
 from ..minimise import AbstractMinimiser, MinimiseProblem
 from ..solution import RESULTS
-from .misc import get_f0
 
 
 class TRState(eqx.Module):
@@ -24,17 +23,16 @@ def _get_predicted_reduction(options, diff):
     try:
         predicted_reduction_fn = options["predicted_reduction"]
         if predicted_reduction_fn is None:
-            # valueerror? also maybe change the error message
             raise ValueError(
                 "Expected a predicted reduction, got `None`. "
-                "This is likely because a Descent without a predicted reduction "
+                "This is likely because a descent without a predicted reduction "
                 "was passed."
             )
         else:
             predicted_reduction = predicted_reduction_fn(diff)
     except KeyError:
         raise ValueError(
-            "the predicted reduction function must be passed to the "
+            "The predicted reduction function must be passed to the "
             "classical trust region line search via `options['predicted_reduction']`"
         )
     return predicted_reduction
@@ -61,7 +59,13 @@ class ClassicalTrustRegion(AbstractMinimiser):
         args: Any,
         options: dict[str, Any],
     ):
-        f0, compute_f0 = get_f0(problem.fn, options)
+        try:
+            f0 = options["f0"]
+            compute_f0 = options["compute_f0"]
+        except KeyError:
+            f0 = jnp.array(jnp.inf)
+            compute_f0 = jnp.array(True)
+
         state = TRState(
             f_val=f0,
             finished=jnp.array(False),
@@ -80,7 +84,7 @@ class ClassicalTrustRegion(AbstractMinimiser):
         state: TRState,
     ):
         (f_new, (_, diff, aux, result, _)) = problem.fn(y, args)
-        # Q: cann I just pass this via state?
+        # Q: Can I just pass this via state?
         predicted_reduction = _get_predicted_reduction(options, diff)
         # predicted_reduction should be < 0, this is a safety measure.
         f_prev = jnp.where(state.compute_f0, -jnp.inf, state.f_val)

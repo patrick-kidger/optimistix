@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union
+from typing import Any, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -55,5 +55,5 @@ class Solution(eqx.Module):
     value: PyTree[Array]
     result: RESULTS
     aux: PyTree[Array]
-    stats: Dict[str, PyTree[Union[Array, int]]]
+    stats: dict[str, PyTree[Union[Array, int]]]
     state: PyTree[Any]

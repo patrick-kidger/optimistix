@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, FrozenSet, Optional, TypeVar, Union
+from typing import Any, Callable, FrozenSet, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -55,7 +55,7 @@ def least_squares(
     solver: Union[AbstractLeastSquaresSolver, AbstractMinimiser],
     y0: PyTree[Array],
     args: PyTree = None,
-    options: Optional[Dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
     *,
     max_steps: Optional[int] = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),

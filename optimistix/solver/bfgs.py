@@ -6,9 +6,9 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, PyTree
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
-from ..custom_types import Scalar, sentinel
+from ..custom_types import sentinel
 from ..line_search import AbstractDescent, AbstractProxyDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator, PyTreeLinearOperator
 from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
@@ -118,9 +118,10 @@ class BFGS(AbstractMinimiser):
         options: dict[str, Any],
     ):
         f0, aux = jtu.tree_map(
-            lambda x: jnp.full(x.shape, jnp.inf), jax.eval_shape(problem.fn, y, args)
+            lambda x: jnp.full(x.shape, jnp.inf, x.dtype),
+            jax.eval_shape(problem.fn, y, args),
         )
-        jrev = jax.jacrev(problem.fn, has_aux=problem.has_aux)
+        jrev = jax.jacrev(problem.fn, has_aux=True)
         vector, aux = jrev(y, args)
         # create an identity operator which we can update with BFGS
         # update/Woodbury identity
@@ -132,7 +133,7 @@ class BFGS(AbstractMinimiser):
             descent_state=descent_state,
             vector=vector,
             operator=operator,
-            diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf), y),
+            diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf, dtype=x.dtype), y),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
             result=jnp.array(RESULTS.successful),
@@ -159,12 +160,12 @@ class BFGS(AbstractMinimiser):
         problem_1d = MinimiseProblem(
             OneDimensionalFunction(problem, descent, y), has_aux=True
         )
-        # TODO(raderj): pass f0
         line_search_options = {
             "f0": state.f_val,
             "compute_f0": (state.step == 0),
             "vector": state.vector,
             "operator": state.operator,
+            "diff": state.diff,
         }
 
         if isinstance(self.descent, AbstractProxyDescent):
@@ -186,7 +187,7 @@ class BFGS(AbstractMinimiser):
         )
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
         new_y = (ω(y) + ω(diff)).ω
-        new_grad, _ = jax.jacrev(problem.fn, has_aux=problem.has_aux)(new_y, args)
+        new_grad, _ = jax.jacrev(problem.fn)(new_y, args)
         grad_diff = (ω(new_grad) - ω(state.vector)).ω
         inner = tree_inner_prod(grad_diff, diff)
         if self.use_inverse:
@@ -219,7 +220,6 @@ class BFGS(AbstractMinimiser):
             RESULTS.successful,
             line_sol.result,
         )
-        jax.debug.print("f_val: {}", f_val)
         new_state = BFGSState(
             descent_state=descent_state,
             vector=new_grad,
@@ -253,20 +253,13 @@ class BFGS(AbstractMinimiser):
         at_least_two = state.step >= 4
         rate = state.diffsize / state.diffsize_prev
         factor = state.diffsize * rate / (1 - rate)
-        jax.debug.print("diffsize: {}", state.diffsize)
-        jax.debug.print("diffsize_prev: {}", state.diffsize_prev)
-        jax.debug.print("grad: {}", state.vector)
         small = _small(state.diffsize)
         diverged = _diverged(rate)
         converged = _converged(factor, self.converged_tol)
-        jax.debug.print("small: {}", small)
-        jax.debug.print("converged: {}", converged)
         linsolve_fail = state.result != RESULTS.successful
         terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
         result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
         result = jnp.where(linsolve_fail, state.result, result)
-        jax.debug.print("terminate: {}", terminate)
-        jax.debug.print("steps: {}", state.step)
         return terminate, result
 
     def buffers(self, state: BFGSState):

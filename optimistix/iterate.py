@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Callable, Dict, FrozenSet, Generic, Optional, Tuple, TypeVar
+from typing import Any, Callable, FrozenSet, Generic, Optional, Tuple, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -26,11 +26,11 @@ def _is_array_or_jaxpr(x):
     return _is_jaxpr(x) or eqx.is_array(x)
 
 
-IterativeFunction = TypeVar("IterativeFunction")
+_F = TypeVar("_F")
 
 
-class AbstractIterativeProblem(eqx.Module, Generic[IterativeFunction]):
-    fn: IterativeFunction
+class AbstractIterativeProblem(eqx.Module, Generic[_F]):
+    fn: _F
     has_aux: bool = False
 
 
@@ -41,7 +41,7 @@ class AbstractIterativeSolver(eqx.Module):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         args: PyTree,
-        options: Dict[str, Any],
+        options: dict[str, Any],
     ) -> _SolverState:
         ...
 
@@ -51,7 +51,7 @@ class AbstractIterativeSolver(eqx.Module):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         args: PyTree,
-        options: Dict[str, Any],
+        options: dict[str, Any],
         state: _SolverState,
     ) -> Tuple[PyTree[Array], _SolverState, _Aux]:
         ...
@@ -62,7 +62,7 @@ class AbstractIterativeSolver(eqx.Module):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         args: PyTree,
-        options: Dict[str, Any],
+        options: dict[str, Any],
         state: _SolverState,
     ) -> bool:
         ...
@@ -100,7 +100,7 @@ def _iterate(inputs, closure, while_loop):
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
 
     if problem.has_aux:
-        if aux_struct == sentinel:
+        if aux_struct is sentinel:
 
             def _aux(_solver, _problem, _y, _args, _options, _state):
                 _, _, _aux = _solver.step(_problem, _y, _args, _options, _state)
@@ -157,7 +157,7 @@ def iterative_solve(
     solver: AbstractIterativeSolver,
     y0: PyTree[Array],
     args: PyTree = None,
-    options: Optional[Dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
     *,
     rewrite_fn: Callable,
     max_steps: Optional[int],

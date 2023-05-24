@@ -5,8 +5,8 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
+from jaxtyping import Scalar
 
-from ..custom_types import Scalar
 from ..least_squares import AbstractLeastSquaresSolver
 from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator, linearise
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve

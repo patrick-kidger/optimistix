@@ -1,5 +1,6 @@
 from . import internal
 from .fixed_point import AbstractFixedPointSolver, fixed_point, FixedPointProblem
+from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
 from .least_squares import (
     AbstractLeastSquaresSolver,
     least_squares,

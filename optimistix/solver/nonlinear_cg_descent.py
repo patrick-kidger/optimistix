@@ -5,9 +5,8 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, PyTree
+from jaxtyping import Array, PyTree, Scalar
 
-from ..custom_types import Scalar
 from ..iterate import AbstractIterativeProblem
 from ..line_search import AbstractDescent
 from ..linear_operator import AbstractLinearOperator
@@ -24,28 +23,37 @@ def _gradient_step(vector, vector_prev, diff_prev):
 
 
 def fletcher_reeves(vector, vector_prev, diff_prev):
+    numerator = two_norm(vector) ** 2
     denominator = two_norm(vector_prev) ** 2
-    return two_norm(vector) ** 2 / denominator
+    pred = denominator > jnp.finfo(denominator.dtype).eps
+    safe_denom = jnp.where(pred, denominator, 1)
+    return jnp.where(pred, numerator / safe_denom, jnp.inf)
 
 
 def polak_ribiere(vector, vector_prev, diff_prev):
     numerator = tree_inner_prod(vector, (vector**ω - vector_prev**ω).ω)
     denominator = two_norm(vector_prev) ** 2
-    beta = numerator / denominator
-    return jnp.clip(beta, a_min=0, a_max=100)
+    pred = denominator > jnp.finfo(denominator.dtype).eps
+    safe_denom = jnp.where(pred, denominator, 1)
+    beta = jnp.where(pred, jnp.clip(numerator / safe_denom, a_min=0), jnp.inf)
+    return beta
 
 
 def hestenes_stiefel(vector, vector_prev, diff_prev):
     grad_diff = (vector**ω - vector_prev**ω).ω
     numerator = tree_inner_prod(vector, grad_diff)
     denominator = tree_inner_prod(diff_prev, grad_diff)
-    beta = numerator / denominator
-    return jnp.clip(beta, a_min=0)
+    pred = denominator > jnp.finfo(denominator.dtype).eps
+    safe_denom = jnp.where(pred, denominator, 1)
+    return jnp.where(pred, numerator / safe_denom, jnp.inf)
 
 
 def dai_yuan(vector, vector_prev, diff_prev):
+    numerator = two_norm(vector) ** 2
     denominator = tree_inner_prod(diff_prev, (vector**ω - vector_prev**ω).ω)
-    return two_norm(vector) ** 2 / denominator
+    pred = denominator > jnp.finfo(denominator.dtype).eps
+    safe_denom = jnp.where(pred, denominator, 1)
+    return jnp.where(pred, numerator / safe_denom, jnp.inf)
 
 
 class NonlinearCGState(eqx.Module):
@@ -79,7 +87,7 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
     ):
         # not sure of a better way to do this at the moment
         beta = lax.cond(
-            descent_state.step > 3,
+            descent_state.step > 1,
             self.method,
             _gradient_step,
             descent_state.vector,
@@ -99,7 +107,7 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         options: dict[str, Any],
     ):
         beta = lax.cond(
-            descent_state.step > 3,
+            descent_state.step > 1,
             self.method,
             _gradient_step,
             descent_state.vector,

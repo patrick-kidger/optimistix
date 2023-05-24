@@ -7,9 +7,8 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jax import lax
-from jaxtyping import Array, ArrayLike, Bool, PyTree
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
-from ..custom_types import Scalar
 from ..line_search import AbstractDescent, AbstractProxyDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator
 from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
@@ -47,8 +46,11 @@ class GradOnlyState(eqx.Module):
     step: Scalar
 
 
-# note that this is GradOnly and not VecOnly. It doesn't make sense to use this
-# in the least squares setting where `vector` is the residual vector.
+# note that this is called "GradOnly" and not "VecOnly," despite us often referring
+# to the gradient and residual vectors by the name `vector`.
+# This is because it doesn't make sense to use this in the least squares setting
+# where `vector` is the residual vector, so we know we are always dealing with
+# gradients.
 class AbstractGradOnly(AbstractMinimiser):
     atol: float
     rtol: float
@@ -123,6 +125,7 @@ class AbstractGradOnly(AbstractMinimiser):
                 "compute_f0": (state.step == 0),
                 "vector": state.vector,
                 "operator": state.operator,
+                "diff": state.diff,
             }
 
             if isinstance(self.descent, AbstractProxyDescent):
@@ -157,8 +160,8 @@ class AbstractGradOnly(AbstractMinimiser):
         f_val, diff, new_aux, result, next_init = lax.cond(
             state.step == 0, first_pass, main_pass, y, state
         )
-        new_y = (ω(y) + ω(diff)).ω
-        new_grad, _ = jax.jacrev(problem.fn, has_aux=problem.has_aux)(new_y, args)
+        new_y = (y**ω + diff**ω).ω
+        new_grad, _ = jax.jacrev(problem.fn, has_aux=True)(new_y, args)
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         diffsize = self.norm((ω(diff) / ω(scale)).ω)
         descent_state = self.descent.update_state(
@@ -210,7 +213,7 @@ class GradOnly(AbstractGradOnly):
     ...
 
 
-class NonlinearCG(GradOnly):
+class NonlinearCG(AbstractGradOnly):
     def __init__(
         self,
         atol: float,

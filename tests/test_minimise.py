@@ -5,6 +5,7 @@ import jax.random as jr
 import jax.tree_util as jtu
 import numpy as np
 import pytest
+import scipy
 from equinox.internal import ω
 
 import optimistix as optx
@@ -182,17 +183,18 @@ _optimisers_tols = (
     #     use_inverse=False),
     #     (1e-2, 1e-2),
     # ),
-    (
-        optx.IndirectLevenbergMarquardt(atol=1e-14, rtol=1e-14),
-        (1e-2, 1e-2),
-    ),
     # (
-    #     optx.GaussNewton(atol=1e-5,
-    #     rtol=1e-5,
-    #     line_search=optx.BacktrackingArmijo(True, 0.05, 0.5),
-    #     descent=optx.IndirectIterativeDual(gauss_newton=True, lambda_0=0.5)),
+    #     optx.IndirectLevenbergMarquardt(atol=1e-5, rtol=1e-5),
     #     (1e-2, 1e-2),
     # ),
+    # (
+    #     optx.LevenbergMarquardt(1e-5, 1e-5),
+    #     (1e-2, 1e-2),
+    # ),
+    (
+        optx.NonlinearCG(1e-5, 1e-5, optx.BacktrackingArmijo(False, 0.1, 0.5)),
+        (1e-2, 1e-2),
+    ),
 )
 
 _problems_minima_inits = (
@@ -251,9 +253,6 @@ _problems_minima_inits = (
         ((jnp.ones(40) / 70, (), {"a": jnp.ones(20) / 70}), jnp.ones(10) / 70),
     ),
 )
-
-
-import scipy
 
 
 @pytest.mark.parametrize("problem, minimum, init", _problems_minima_inits)

@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Callable, Dict, Generic, Optional, TypeVar
+from typing import Any, Callable, Generic, Optional, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -23,8 +23,8 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         y: PyTree[Array],
         vector: PyTree[Array],
         operator: AbstractLinearOperator,
-        args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        args: Optional[Any],
+        options: Optional[dict[str, Any]],
     ):
         ...
 
@@ -35,7 +35,7 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         prev_diff: Optional[PyTree[Array]],
         vector: Optional[PyTree[Array]],
         operator: Optional[AbstractLinearOperator],
-        options: Optional[dict[str, Any]] = None,
+        options: Optional[dict[str, Any]],
     ):
         ...
 
@@ -45,7 +45,7 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         delta: Scalar,
         descent_state: _DescentState,
         args: PyTree,
-        options: Optional[Dict[str, Any]],
+        options: Optional[dict[str, Any]],
     ):
         ...
 
@@ -57,7 +57,7 @@ class AbstractProxyDescent(AbstractDescent[_DescentState]):
         diff: PyTree[Array],
         descent_state: _DescentState,
         args: PyTree,
-        options: Optional[Dict[str, Any]],
+        options: Optional[dict[str, Any]],
     ) -> PyTree[Array]:
         ...
 
@@ -93,5 +93,5 @@ class OneDimensionalFunction(eqx.Module):
 
     def __call__(self, delta: Float[Array, ""], args: PyTree):
         diff, result = self.descent(delta)
-        fn, aux = self.fn((ω(self.y) + ω(diff)).ω, args)
+        fn, aux = self.fn((self.y**ω + diff**ω).ω, args)
         return fn, (fn**2, diff, aux, result, jnp.array(0.0))

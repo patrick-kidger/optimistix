@@ -2,9 +2,8 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool
+from jaxtyping import Array, Bool, Scalar
 
-from ..custom_types import Scalar
 from ..root_find import AbstractRootFinder
 from ..solution import RESULTS
 

@@ -2,13 +2,11 @@ import functools as ft
 from typing import Any, Callable
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, Float, Int, PyTree
+from jaxtyping import Array, ArrayLike, Bool, Float, Int, PyTree, Scalar
 
-from ..custom_types import Scalar
 from ..least_squares import (
     AbstractLeastSquaresSolver,
     least_squares,
@@ -17,7 +15,7 @@ from ..least_squares import (
 from ..line_search import AbstractDescent, AbstractProxyDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator
 from ..minimise import AbstractMinimiser
-from ..misc import max_norm, two_norm
+from ..misc import max_norm
 from ..solution import RESULTS
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .misc import compute_jac_residual
@@ -71,18 +69,15 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         # TODO(raderj): add flags for when these things need to be
         # computed. for current implementation of LM this computation
         # of the operator is unnecessary.
+        f0 = jnp.array(jnp.inf)
         vector, operator, aux = compute_jac_residual(problem, y, args)
-        f0, _ = jtu.tree_map(
-            lambda x: jnp.full(x.shape, jnp.inf), jax.eval_shape(problem.fn, y, args)
-        )
-        f0 = two_norm(f0) ** 2
         descent_state = self.descent.init_state(problem, y, vector, operator, args, {})
         # TODO(raderj): this needs to be handled a different way!
         return GNState(
             descent_state=descent_state,
             vector=vector,
             operator=operator,
-            diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf), y),
+            diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf, x.dtype), y),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
             result=jnp.array(RESULTS.successful),
@@ -114,6 +109,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             "compute_f0": (state.step == 0),
             "vector": state.vector,
             "operator": state.operator,
+            "diff": state.diff,
         }
 
         if isinstance(self.descent, AbstractProxyDescent):
@@ -139,7 +135,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         diffsize = self.norm((ω(diff) / ω(scale)).ω)
         descent_state = self.descent.update_state(
-            state.descent_state, state.diff, vector, operator
+            state.descent_state, state.diff, vector, operator, options
         )
         new_state = GNState(
             descent_state=descent_state,

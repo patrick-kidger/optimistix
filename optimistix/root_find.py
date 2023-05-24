@@ -1,4 +1,4 @@
-from typing import Any, Dict, FrozenSet, Optional, TypeVar
+from typing import Any, FrozenSet, Optional, TypeVar
 
 import equinox as eqx
 from jaxtyping import Array, PyTree
@@ -31,7 +31,7 @@ def root_find(
     solver: AbstractRootFinder,
     y0: PyTree[Array],
     args: PyTree = None,
-    options: Optional[Dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
     *,
     max_steps: Optional[int] = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),

@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Callable, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -46,7 +46,7 @@ def fixed_point(
     solver: Union[AbstractFixedPointSolver, AbstractRootFinder],
     y0: PyTree[Array],
     args: PyTree = None,
-    options: Optional[Dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
     *,
     max_steps: Optional[int] = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),

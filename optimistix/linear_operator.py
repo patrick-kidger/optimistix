@@ -11,9 +11,8 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Float, PyTree, Shaped
+from jaxtyping import Array, ArrayLike, Float, PyTree, Scalar, Shaped
 
-from .custom_types import Scalar
 from .linear_tags import (
     diagonal_tag,
     lower_triangular_tag,

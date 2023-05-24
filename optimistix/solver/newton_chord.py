@@ -4,9 +4,8 @@ from typing import Callable, Optional
 import equinox as eqx
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import ArrayLike, Bool, PyTree
+from jaxtyping import ArrayLike, Bool, PyTree, Scalar
 
-from ..custom_types import Scalar
 from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator, linearise
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import max_norm

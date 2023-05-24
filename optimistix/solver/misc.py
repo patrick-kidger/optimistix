@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-from jaxtyping import Array, ArrayLike, Bool, Float, PyTree, Scalar, Shaped
+from jaxtyping import Array, PyTree, Shaped
 
 from ..least_squares import LeastSquaresProblem
 from ..linear_operator import (
@@ -37,21 +37,6 @@ def get_vector_operator(options):
     return vector, operator
 
 
-def get_f0(
-    fn: Callable[[Scalar, Any], PyTree], options: dict[str, Any]
-) -> tuple[Float[ArrayLike, ""], Bool[Array, ""]]:
-    # WARNING: this will not work with generic fn
-    try:
-        f0 = options["f0"]
-        compute_f0 = options["compute_f0"]
-    except KeyError:
-        f0, *_ = jtu.tree_map(
-            lambda x: jnp.zeros(shape=x.shape), jax.eval_shape(fn, 0.0, None)
-        )
-        compute_f0 = jnp.array(True)
-    return f0, compute_f0
-
-
 class _NoAuxOut(eqx.Module):
     fn: Callable
 
@@ -63,7 +48,7 @@ class _NoAuxOut(eqx.Module):
 def compute_hess_grad(
     problem: MinimiseProblem | RootFindProblem, y: PyTree[Array], args: Any
 ):
-    jrev = jax.jacrev(problem.fn, has_aux=problem.has_aux)
+    jrev = jax.jacrev(problem.fn, has_aux=True)
     grad, aux = jrev(y, args)
     hessian, _ = jax.jacfwd(jrev, has_aux=True)(y, args)
     hessian = PyTreeLinearOperator(

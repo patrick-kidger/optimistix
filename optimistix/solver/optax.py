@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Tuple
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -13,7 +13,7 @@ OptaxClass: TypeAlias = Any
 class OptaxMinimiser(AbstractMinimiser):
     optax_cls: OptaxClass
     args: Tuple[Any, ...]
-    kwargs: Dict[str, Any]
+    kwargs: dict[str, Any]
     max_steps: int
 
     def __init__(self, optax_cls, *args, max_steps, **kwargs):

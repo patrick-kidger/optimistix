@@ -6,9 +6,8 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, PyTree
+from jaxtyping import Array, PyTree, Scalar
 
-from ..custom_types import Scalar
 from ..linear_operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,

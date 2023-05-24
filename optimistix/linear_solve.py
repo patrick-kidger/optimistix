@@ -1,6 +1,6 @@
 import abc
 import functools as ft
-from typing import Any, Dict, Optional, Tuple, TypeVar
+from typing import Any, Optional, Tuple, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -260,7 +260,7 @@ class AbstractLinearSolver(eqx.Module):
 
     @abc.abstractmethod
     def init(
-        self, operator: AbstractLinearOperator, options: Dict[str, Any]
+        self, operator: AbstractLinearOperator, options: dict[str, Any]
     ) -> _SolverState:
         """Do any initial computation on just the `operator`.
 
@@ -297,8 +297,8 @@ class AbstractLinearSolver(eqx.Module):
 
     @abc.abstractmethod
     def compute(
-        self, state: _SolverState, vector: PyTree[Array], options: Dict[str, Any]
-    ) -> Tuple[PyTree[Array], RESULTS, Dict[str, Any]]:
+        self, state: _SolverState, vector: PyTree[Array], options: dict[str, Any]
+    ) -> Tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         """Solves a linear system.
 
         **Arguments:**
@@ -372,8 +372,8 @@ class AbstractLinearSolver(eqx.Module):
 
     @abc.abstractmethod
     def transpose(
-        self, state: _SolverState, options: Dict[str, Any]
-    ) -> Tuple[_SolverState, Dict[str, Any]]:
+        self, state: _SolverState, options: dict[str, Any]
+    ) -> Tuple[_SolverState, dict[str, Any]]:
         """Transposes the result of [`optimistix.AbstractLinearSolver.init`][].
 
         That is, it should be the case that
@@ -539,7 +539,7 @@ def linear_solve(
     vector: PyTree[ArrayLike],
     solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
     *,
-    options: Optional[Dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
     state: PyTree[Any] = sentinel,
     throw: bool = True,
 ) -> Solution:

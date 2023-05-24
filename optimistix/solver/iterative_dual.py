@@ -1,7 +1,6 @@
-from typing import Any, Callable, Optional
+from typing import Any, Callable, cast, Optional
 
 import equinox as eqx
-import equinox.internal as eqxi
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
@@ -123,13 +122,14 @@ class _IndirectDualRootFind(AbstractRootFinder):
                     "`gauss_newton=False` needs the vector passed via "
                     "`options['vector']`."
                 )
-
-        upper_bound = two_norm(grad) / delta
+        delta_nonzero = delta > jnp.finfo(delta.dtype).eps
+        safe_delta = jnp.where(delta_nonzero, delta, 1)
+        upper_bound = jnp.where(delta_nonzero, two_norm(grad) / safe_delta, jnp.inf)
         return _IndirectDualState(
             delta=delta,
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
-            lower_bound=jnp.array(-jnp.inf),
+            lower_bound=jnp.array(0.0),
             upper_bound=upper_bound,
             result=jnp.array(RESULTS.successful),
             step=jnp.array(0),
@@ -154,18 +154,21 @@ class _IndirectDualRootFind(AbstractRootFinder):
                 jnp.sqrt(state.upper_bound * state.lower_bound),
             ),
         )
+        # TODO(raderj): track down a link to reference for this.
         f_val, aux = problem.fn(_y, args)
-        f_grad, _ = jax.jacfwd(problem.fn)(_y, args)
-        factor = f_val / f_grad
+        f_grad, _ = jax.grad(problem.fn, has_aux=True)(_y, args)
+        grad_nonzero = f_grad < jnp.finfo(f_grad.dtype).eps
+        safe_grad = jnp.where(grad_nonzero, f_grad, 1)
+        factor = cast(
+            Array, jnp.where(grad_nonzero, f_val / safe_grad, jnp.array(jnp.inf))
+        )
         upper_bound = jnp.where(f_val < 0, y, state.upper_bound)
         lower_bound = jnp.maximum(state.lower_bound, y - factor)
         diff = -((f_val - state.delta) / state.delta) * factor
         new_y = y + diff
         new_y = jnp.where(state.step == 0, y, new_y)
         upper_bound = jnp.where(state.step == 0, state.upper_bound, upper_bound)
-        # this case handling is to avoid an extra compilation of problem.fn in the init
-        # to compute the first lower bound.
-        lower_bound = jnp.where(state.step == 0, -factor, lower_bound)
+        lower_bound = jnp.where((state.step == 0) & grad_nonzero, -factor, lower_bound)
         new_state = _IndirectDualState(
             state.delta,
             diff,
@@ -175,7 +178,7 @@ class _IndirectDualRootFind(AbstractRootFinder):
             jnp.array(RESULTS.successful),
             state.step + 1,
         )
-        return new_y, new_state, aux
+        return jnp.clip(new_y, a_min=0), new_state, aux
 
     def terminate(
         self,
@@ -185,19 +188,24 @@ class _IndirectDualRootFind(AbstractRootFinder):
         options: dict[str, Any],
         state: _IndirectDualState,
     ):
-        del problem, y, args, options
+        del problem, args, options
+        y_zero = jnp.abs(y) < jnp.finfo(y.dtype).eps
         at_least_two = state.step >= 2
         rate = state.diffsize / state.diffsize_prev
         factor = state.diffsize * rate / (1 - rate)
         small = _small(state.diffsize)
         diverged = _diverged(rate)
         converged = _converged(factor, self.converged_tol)
-        linsolve_fail = state.result != RESULTS.successful  # pyright: ignore
+        linsolve_fail = state.result != RESULTS.successful
         terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
+        in_bounds = (y > state.lower_bound) & (y < state.upper_bound)
+        terminate = terminate & in_bounds
+        terminate = terminate | y_zero
         result = jnp.where(
             diverged, RESULTS.nonlinear_divergence, RESULTS.successful
         )  # pyright: ignore
-        result = jnp.where(linsolve_fail, state.result, result)  # pyright: ignore
+        result = jnp.where(y_zero, RESULTS.successful, result)
+        result = jnp.where(linsolve_fail, state.result, result)
         return terminate, result
 
     def buffers(self, state: _IndirectDualState):
@@ -264,7 +272,7 @@ class _DirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         vector: PyTree[Array],
         operator: AbstractLinearOperator,
         args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        options: Optional[dict[str, Any]] = None,
     ):
         return IterativeDualState(y, problem, vector, operator)
 
@@ -287,24 +295,20 @@ class _DirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         args: Any,
         options: dict[str, Any],
     ):
-        delta_nonzero = delta > jnp.finfo(delta.dtype).eps
         if self.gauss_newton:
             vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
             operator = JacobianLinearOperator(
-                _Damped(descent_state.problem.fn, jnp.where(delta_nonzero, delta, 0)),
+                _Damped(descent_state.problem.fn, delta),
                 descent_state.y,
                 args,
                 _has_aux=True,
             )
         else:
             vector = descent_state.vector
-            operator = descent_state.operator + jnp.where(
-                delta_nonzero, delta, 0
-            ) * IdentityLinearOperator(descent_state.operator.in_structure())
+            operator = descent_state.operator + delta * IdentityLinearOperator(
+                descent_state.operator.in_structure()
+            )
         operator = self.modify_jac(operator)
-        eqxi.error_if(
-            delta, delta < 1e-6, "The dual (LM) parameter must be >1e-6 to ensure psd"
-        )
         linear_soln = linear_solve(operator, vector, QR(), throw=False)
         diff = (-linear_soln.value**ω).ω
         return diff, linear_soln.result
@@ -349,9 +353,6 @@ class DirectIterativeDual(_DirectIterativeDual):
                 delta_nonzero, 1 / delta, jnp.inf
             ) * IdentityLinearOperator(descent_state.operator.in_structure())
         operator = self.modify_jac(operator)
-        eqxi.error_if(
-            delta, delta < 1e-6, "The dual (LM) parameter must be >1e-6 to ensure psd"
-        )
         linear_soln = linear_solve(operator, vector, QR(), throw=False)
         no_diff = jtu.tree_map(jnp.zeros_like, linear_soln.value)
         diff = tree_where(delta_nonzero, (-linear_soln.value**ω).ω, no_diff)
@@ -361,18 +362,14 @@ class DirectIterativeDual(_DirectIterativeDual):
 class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
 
     #
-    # Indirect iterative dual finds the `lambda` to match the
+    # Indirect iterative dual finds the `λ` to match the
     # trust region radius by applying Newton's root finding method to
-    # `phi.alt = 1/||p(lambda)|| - 1/delta`
-    # As reccomended by [Hebden 1973 p. 8] and later [Nocedal Wright].
-    # We could also use
-    # `phi(lambda) = ||p(lambda)|| - delta`
-    # but found it less numerically stable
+    # `φ(p) = ||p(λ)|| - δ`
+    # where `δ` is the trust region radius.
     #
-    # Moré found a clever way to compute `phi' = -||q||^2/||p(lambda)||` where `q` is
+    # Moré found a clever way to compute `dφ/dλ = -||q||^2/||p(λ)||` where `q` is
     # defined as: `q = R^(-1) p`, for `R` as in the QR decomposition of
-    # `(B + lambda I)`. This can similarly be applied to the phi in Hebden with
-    # `phi' = ||q||^2/||p(lambda)||^(3/2)`
+    # `(B + λ I)`.
     #
     # TODO(raderj): write a solver in root_finder which specifically assumes iterative
     # dual so we can use the trick (or at least see if it's worth doing.)
@@ -400,7 +397,7 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
     ):
         self.gauss_newton = gauss_newton
         self.lambda_0 = jnp.array(lambda_0)
-        if root_finder == sentinel:
+        if root_finder is sentinel:
             self.root_finder = _IndirectDualRootFind(self.gauss_newton, 1e-3)
         else:
             self.root_finder = root_finder
@@ -416,7 +413,7 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         vector: PyTree[Array],
         operator: AbstractLinearOperator,
         args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        options: Optional[dict[str, Any]] = None,
     ):
         return IterativeDualState(y, problem, vector, operator)
 

@@ -30,7 +30,7 @@ class UnnormalisedGradient(AbstractProxyDescent[GradientState]):
         vector: PyTree[Array],
         operator: AbstractLinearOperator,
         args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        options: Optional[dict[str, Any]] = None,
     ):
         return GradientState(vector)
 
@@ -65,8 +65,6 @@ class UnnormalisedGradient(AbstractProxyDescent[GradientState]):
 
 
 class UnnormalisedNewton(AbstractProxyDescent[NewtonState]):
-    gauss_newton: bool = False
-
     def init_state(
         self,
         problem: AbstractIterativeProblem,
@@ -74,7 +72,7 @@ class UnnormalisedNewton(AbstractProxyDescent[NewtonState]):
         vector: PyTree[Array],
         operator: AbstractLinearOperator,
         args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        options: Optional[dict[str, Any]] = None,
     ):
         return NewtonState(vector, operator)
 
@@ -95,17 +93,13 @@ class UnnormalisedNewton(AbstractProxyDescent[NewtonState]):
         args: Any,
         options: dict[str, Any],
     ):
-        out = (
-            -delta
-            * ω(
-                linear_solve(
-                    descent_state.operator,
-                    descent_state.vector,
-                    AutoLinearSolver(well_posed=False),
-                )
-            )
-        ).ω
-        return out.value, jnp.array(RESULTS.successful)
+        out = linear_solve(
+            descent_state.operator,
+            descent_state.vector,
+            AutoLinearSolver(well_posed=False),
+        )
+        diff = (-delta * out.value**ω).ω
+        return diff, out.result
 
     def predicted_reduction(
         self,
@@ -114,21 +108,11 @@ class UnnormalisedNewton(AbstractProxyDescent[NewtonState]):
         args: PyTree,
         options: Optional[dict[str, Any]],
     ):
-        if self.gauss_newton:
-            rtr = two_norm(descent_state.vector) ** 2
-            jacobian_term = (
-                two_norm(
-                    (ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω
-                )
-                ** 2
-            )
-            return 0.5 * (jacobian_term - rtr)
-        else:
-            operator_quadratic = 0.5 * tree_inner_prod(
-                diff, descent_state.operator.mv(diff)
-            )
-            steepest_descent = tree_inner_prod(descent_state.vector, diff)
-            return (operator_quadratic**ω + steepest_descent**ω).ω
+        operator_quadratic = 0.5 * tree_inner_prod(
+            diff, descent_state.operator.mv(diff)
+        )
+        steepest_descent = tree_inner_prod(descent_state.vector, diff)
+        return (operator_quadratic**ω + steepest_descent**ω).ω
 
 
 class UnnormalisedNewtonInverse(AbstractDescent[NewtonState]):
@@ -139,7 +123,7 @@ class UnnormalisedNewtonInverse(AbstractDescent[NewtonState]):
         vector: PyTree[Array],
         operator: AbstractLinearOperator,
         args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        options: Optional[dict[str, Any]] = None,
     ):
         return NewtonState(vector, operator)
 
@@ -172,7 +156,7 @@ class NormalisedGradient(AbstractProxyDescent[GradientState]):
         vector: PyTree[Array],
         operator: AbstractLinearOperator,
         args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        options: Optional[dict[str, Any]] = None,
     ):
         return GradientState(vector)
 
@@ -207,8 +191,6 @@ class NormalisedGradient(AbstractProxyDescent[GradientState]):
 
 
 class NormalisedNewton(AbstractProxyDescent[NewtonState]):
-    gauss_newton: bool = False
-
     def init_state(
         self,
         problem: AbstractIterativeProblem,
@@ -216,7 +198,7 @@ class NormalisedNewton(AbstractProxyDescent[NewtonState]):
         vector: PyTree[Array],
         operator: AbstractLinearOperator,
         args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        options: Optional[dict[str, Any]] = None,
     ):
         return NewtonState(vector, operator)
 
@@ -244,7 +226,7 @@ class NormalisedNewton(AbstractProxyDescent[NewtonState]):
         )
         newton = out.value
         diff = ((-delta * newton**ω) / two_norm(newton)).ω
-        return diff, jnp.array(RESULTS.successful)
+        return diff, out.result
 
     def predicted_reduction(
         self,
@@ -253,21 +235,11 @@ class NormalisedNewton(AbstractProxyDescent[NewtonState]):
         args: PyTree,
         options: Optional[dict[str, Any]],
     ):
-        if self.gauss_newton:
-            rtr = two_norm(descent_state.vector) ** 2
-            jacobian_term = (
-                two_norm(
-                    (ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω
-                )
-                ** 2
-            )
-            return 0.5 * (jacobian_term - rtr)
-        else:
-            operator_quadratic = 0.5 * tree_inner_prod(
-                diff, descent_state.operator.mv(diff)
-            )
-            steepest_descent = tree_inner_prod(descent_state.vector, diff)
-            return (operator_quadratic**ω + steepest_descent**ω).ω
+        operator_quadratic = 0.5 * tree_inner_prod(
+            diff, descent_state.operator.mv(diff)
+        )
+        steepest_descent = tree_inner_prod(descent_state.vector, diff)
+        return (operator_quadratic**ω + steepest_descent**ω).ω
 
 
 class NormalisedNewtonInverse(AbstractDescent[NewtonState]):
@@ -278,7 +250,7 @@ class NormalisedNewtonInverse(AbstractDescent[NewtonState]):
         vector: PyTree[Array],
         operator: AbstractLinearOperator,
         args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        options: Optional[dict[str, Any]] = None,
     ):
         return NewtonState(vector, operator)
 

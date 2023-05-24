@@ -2,8 +2,8 @@ from typing import Callable
 
 import jax.numpy as jnp
 from equinox.internal import ω
+from jaxtyping import Scalar
 
-from ..custom_types import Scalar
 from ..fixed_point import AbstractFixedPointSolver
 from ..misc import max_norm
 from ..solution import RESULTS

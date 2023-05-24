@@ -6,9 +6,8 @@ import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import Array, ArrayLike, Bool, PyTree
-
-from .custom_types import Scalar
+from equinox.internal import ω
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
 
 def two_norm(x: PyTree) -> Scalar:
@@ -64,9 +63,8 @@ def _rms_norm_jvp(x, tx):
 
 
 def tree_inner_prod(tree1, tree2):
-    tree1_ravel, _ = jax.flatten_util.ravel_pytree(tree1)
-    tree2_ravel, _ = jax.flatten_util.ravel_pytree(tree2)
-    return tree1_ravel.T @ tree2_ravel
+    prod = (tree1**ω * tree2**ω).call(jnp.sum).ω
+    return jtu.tree_reduce(lambda x, y: x + y, prod)
 
 
 def tree_where(

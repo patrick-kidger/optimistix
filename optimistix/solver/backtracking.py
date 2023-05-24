@@ -1,7 +1,6 @@
 from typing import Any
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, Bool, Float, Int, PyTree
@@ -37,9 +36,7 @@ class BacktrackingArmijo(AbstractMinimiser):
         args: Any,
         options: dict[str, Any],
     ):
-        f0, (_, diff, *_) = jtu.tree_map(
-            lambda x: jnp.zeros(shape=x.shape), jax.eval_shape(problem.fn, 0.0, None)
-        )
+        f0 = jnp.array(jnp.inf)
         vector, operator = get_vector_operator(options)
 
         try:
@@ -47,6 +44,13 @@ class BacktrackingArmijo(AbstractMinimiser):
             compute_f0 = options["compute_f0"]
         except KeyError:
             compute_f0 = jnp.array(True)
+        try:
+            diff = jtu.tree_map(jnp.zeros_like, options["diff"])
+        except KeyError:
+            raise ValueError(
+                "`diff` or something of shape `y` must be passed to "
+                "line search via `options['diff']`"
+            )
 
         return BacktrackingState(
             f_delta=f0,
@@ -67,8 +71,7 @@ class BacktrackingArmijo(AbstractMinimiser):
         options: dict[str, Any],
         state: BacktrackingState,
     ):
-        _delta = y * self.decrease_factor
-        delta = jnp.where(state.compute_f0, jnp.array(0.0), _delta)
+        delta = jnp.where(state.compute_f0, jnp.array(0.0), y)
         (f_delta, (_, diff, aux, result, _)) = problem.fn(delta, args)
         f0 = jnp.where(state.compute_f0, f_delta, state.f0)
         new_state = BacktrackingState(
@@ -81,7 +84,8 @@ class BacktrackingArmijo(AbstractMinimiser):
             result,
             state.step + 1,
         )
-        return _delta, new_state, (f_delta, diff, aux, result, jnp.array(1.0))
+        new_y = self.decrease_factor * y
+        return new_y, new_state, (f_delta, diff, aux, result, jnp.array(1.0))
 
     def terminate(
         self,
