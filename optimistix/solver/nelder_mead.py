@@ -101,7 +101,7 @@ class NelderMead(AbstractMinimiser):
     rdelta: float = 5e-2
     adelta: float = 2.5e-4
 
-    def init(self, problem, y, args, options):
+    def init(self, problem, y, args, options, aux_struct, f_struct):
         try:
             y0_simplex = options["y0_simplex"]
         except KeyError:

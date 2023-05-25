@@ -19,9 +19,10 @@ from ..linear_operator import (
     PyTreeLinearOperator,
 )
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
-from ..misc import tree_inner_prod, tree_where, two_norm
+from ..misc import tree_where, two_norm
 from ..root_find import AbstractRootFinder, root_find, RootFindProblem
 from ..solution import RESULTS
+from .misc import quadratic_predicted_reduction
 from .qr import QR
 
 
@@ -92,8 +93,15 @@ class _IndirectDualRootFind(AbstractRootFinder):
     converged_tol: float
 
     def init(
-        self, problem: RootFindProblem, y: Array, args: Any, options: dict[str, Any]
+        self,
+        problem: RootFindProblem,
+        y: Array,
+        args: Any,
+        options: dict[str, Any],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
+        del aux_struct, f_struct
         try:
             delta = options["delta"]
         except KeyError:
@@ -201,9 +209,7 @@ class _IndirectDualRootFind(AbstractRootFinder):
         in_bounds = (y > state.lower_bound) & (y < state.upper_bound)
         terminate = terminate & in_bounds
         terminate = terminate | y_zero
-        result = jnp.where(
-            diverged, RESULTS.nonlinear_divergence, RESULTS.successful
-        )  # pyright: ignore
+        result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
         result = jnp.where(y_zero, RESULTS.successful, result)
         result = jnp.where(linsolve_fail, state.result, result)
         return terminate, result
@@ -230,37 +236,6 @@ class _Damped(eqx.Module):
         return (f, damped), aux
 
 
-def _predicted_reduction(
-    gauss_newton: bool,
-    diff: PyTree[Array],
-    descent_state: IterativeDualState,
-    args: Any,
-    options: dict[str, Any],
-):
-    # The predicted reduction of the iterative dual. This is the model quadratic
-    # model function of classical trust region methods localized around f(x).
-    # ie. `m(p) = g^t p + 1/2 p^T B p` where `g` is the gradient, `B` the
-    # Quasi-Newton approximation to the Hessian, and `p` the
-    # descent direction (diff).
-    #
-    # in the Gauss-Newton setting we compute
-    # ```0.5 * [(Jp - r)^T (Jp - r) - r^T r]```
-    # which is equivalent when `B = J^T J` and `g = J^T r`.
-    if gauss_newton:
-        rtr = two_norm(descent_state.vector) ** 2
-        jacobian_term = (
-            two_norm((ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω)
-            ** 2
-        )
-        return 0.5 * (jacobian_term - rtr)
-    else:
-        operator_quadratic = 0.5 * tree_inner_prod(
-            diff, descent_state.operator.mv(diff)
-        )
-        steepest_descent = tree_inner_prod(descent_state.vector, diff)
-        return (operator_quadratic**ω + steepest_descent**ω).ω
-
-
 class _DirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
     gauss_newton: bool
     modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
@@ -270,10 +245,13 @@ class _DirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: AbstractLinearOperator,
+        operator: Optional[AbstractLinearOperator] = None,
+        operator_inv: Optional[AbstractLinearOperator] = None,
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
+        if operator is None:
+            assert False
         return IterativeDualState(y, problem, vector, operator)
 
     def update_state(
@@ -281,7 +259,8 @@ class _DirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         descent_state: IterativeDualState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: AbstractLinearOperator,
+        operator: Optional[AbstractLinearOperator],
+        operator_inv: Optional[AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
         return IterativeDualState(
@@ -320,7 +299,7 @@ class _DirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         args: Any,
         options: dict[str, Any],
     ):
-        return _predicted_reduction(
+        return quadratic_predicted_reduction(
             self.gauss_newton, diff, descent_state, args, options
         )
 
@@ -333,6 +312,11 @@ class DirectIterativeDual(_DirectIterativeDual):
         args: Any,
         options: dict[str, Any],
     ):
+        if descent_state.operator is None:
+            raise ValueError(
+                "`operator` must be passed to `DirectIterativeDual`. "
+                "Note that `operator_inv` is not currently supported for this descent."
+            )
 
         delta_nonzero = delta > jnp.finfo(delta.dtype).eps
         if self.gauss_newton:
@@ -411,10 +395,13 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: AbstractLinearOperator,
+        operator: Optional[AbstractLinearOperator],
+        operator_inv: Optional[AbstractLinearOperator],
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
+        if operator is None:
+            assert False
         return IterativeDualState(y, problem, vector, operator)
 
     def update_state(
@@ -422,7 +409,8 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         descent_state: IterativeDualState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: AbstractLinearOperator,
+        operator: Optional[AbstractLinearOperator],
+        operator_inv: Optional[AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
         return IterativeDualState(
@@ -436,6 +424,13 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         args: Any,
         options: dict[str, Any],
     ):
+        if descent_state.operator is None:
+            raise ValueError(
+                "`operator` must be passed to "
+                " `IndirectDirectIterativeDual`. Note that `operator_inv` is "
+                "not currently supported for this descent."
+            )
+
         direct_dual = eqx.Partial(
             _DirectIterativeDual(self.gauss_newton, self.modify_jac),
             descent_state=descent_state,
@@ -494,6 +489,6 @@ class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
         args: Any,
         options: dict[str, Any],
     ):
-        return _predicted_reduction(
+        return quadratic_predicted_reduction(
             self.gauss_newton, diff, descent_state, args, options
         )

@@ -1,11 +1,13 @@
 from typing import Any, cast
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Int, PyTree
 
 from ..line_search import OneDimensionalFunction
 from ..minimise import AbstractMinimiser, MinimiseProblem
+from ..misc import tree_full
 from ..solution import RESULTS
 
 
@@ -58,12 +60,14 @@ class ClassicalTrustRegion(AbstractMinimiser):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         try:
             f0 = options["f0"]
             compute_f0 = options["compute_f0"]
         except KeyError:
-            f0 = jnp.array(jnp.inf)
+            f0 = tree_full(f_struct, jnp.inf)
             compute_f0 = jnp.array(True)
 
         state = TRState(

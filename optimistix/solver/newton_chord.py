@@ -37,8 +37,8 @@ class _NewtonChordState(eqx.Module):
 
 
 class _NewtonChord(AbstractRootFinder):
-    rtol: float
     atol: float
+    rtol: float
     kappa: float = 1e-2
     norm: Callable = max_norm
     linear_solver: AbstractLinearSolver = AutoLinearSolver(well_posed=None)
@@ -51,8 +51,8 @@ class _NewtonChord(AbstractRootFinder):
     def _is_newton(self) -> bool:
         ...
 
-    def init(self, problem, y, args, options):
-        del options
+    def init(self, problem, y, args, options, aux_struct, f_struct):
+        del options, aux_struct, f_struct
         if self._is_newton:
             linear_state = None
         else:

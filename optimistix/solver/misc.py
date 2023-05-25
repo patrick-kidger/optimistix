@@ -1,5 +1,5 @@
 import math
-from typing import Any, Callable, NewType
+from typing import Any, Callable, NewType, Optional
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
+from equinox.internal import ω
 from jaxtyping import Array, PyTree, Shaped
 
 from ..least_squares import LeastSquaresProblem
@@ -16,11 +17,49 @@ from ..linear_operator import (
     PyTreeLinearOperator,
 )
 from ..minimise import MinimiseProblem
+from ..misc import tree_inner_prod, two_norm
 from ..root_find import RootFindProblem
 
 
 # these are just to avoid large try-except blocks in the line search code,
 # making those algorithms easier to read
+
+
+def quadratic_predicted_reduction(
+    gauss_newton: bool,
+    diff: PyTree[Array],
+    descent_state: PyTree,
+    args: Any,
+    options: Optional[dict[str, Any]],
+):
+    # The predicted reduction of a quadratic model function.
+    # This is the model quadratic model function of classical trust region
+    # methods localized around f(x). ie. `m(p) = g^t p + 1/2 p^T B p`
+    # where `g` is the gradient, `B` the Quasi-Newton approximation to the
+    # Hessian, and `p` the descent direction (diff).
+    #
+    # in the Gauss-Newton setting we compute
+    # ```0.5 * [(Jp - r)^T (Jp - r) - r^T r]```
+    # which is equivalent when `B = J^T J` and `g = J^T r`.
+    if descent_state.operator is None:
+        raise ValueError(
+            "Cannot get predicted reduction without `operator`. "
+            "`operator_inv` cannot be used with predicted_reduction."
+        )
+    if gauss_newton:
+        rtr = two_norm(descent_state.vector) ** 2
+        jacobian_term = (
+            two_norm((ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω)
+            ** 2
+        )
+        reduction = 0.5 * (jacobian_term - rtr)
+    else:
+        operator_quadratic = 0.5 * tree_inner_prod(
+            diff, descent_state.operator.mv(diff)
+        )
+        steepest_descent = tree_inner_prod(descent_state.vector, diff)
+        reduction = (operator_quadratic**ω + steepest_descent**ω).ω
+    return reduction
 
 
 def get_vector_operator(options):

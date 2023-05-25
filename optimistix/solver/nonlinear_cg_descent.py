@@ -71,7 +71,8 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: AbstractLinearOperator,
+        operator: Optional[AbstractLinearOperator],
+        operator_inv: Optional[AbstractLinearOperator],
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = {},
     ):
@@ -82,7 +83,8 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         descent_state: NonlinearCGState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: AbstractLinearOperator,
+        operator: Optional[AbstractLinearOperator],
+        operator_inv: Optional[AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
         # not sure of a better way to do this at the moment
@@ -117,3 +119,12 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         return (
             delta * (-ω(descent_state.vector) + beta * ω(descent_state.diff_prev))
         ).ω, jnp.array(RESULTS.successful)
+
+    def predicted_reduction(
+        self,
+        diff: PyTree[Array],
+        descent_state: NonlinearCGState,
+        args: Any,
+        options: dict[str, Any],
+    ):
+        assert False

@@ -10,11 +10,11 @@ from ..solution import RESULTS
 
 
 class FixedPointIteration(AbstractFixedPointSolver):
-    rtol: float
     atol: float
+    rtol: float
     norm: Callable = max_norm
 
-    def init(self, fixed_point_prob, y, args, options) -> Scalar:
+    def init(self, fixed_point_prob, y, args, options, aux_struct, f_struct) -> Scalar:
         del fixed_point_prob, y, args, options
         return jnp.array(jnp.inf)
 

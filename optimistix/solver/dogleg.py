@@ -33,10 +33,13 @@ class Dogleg(AbstractProxyDescent):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: AbstractLinearOperator,
+        operator: Optional[AbstractLinearOperator],
+        operator_inv: Optional[AbstractLinearOperator],
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = {},
     ):
+        if operator is None:
+            assert False
         return DoglegState(vector, operator)
 
     def update_state(
@@ -44,7 +47,8 @@ class Dogleg(AbstractProxyDescent):
         descent_state: DoglegState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: AbstractLinearOperator,
+        operator: Optional[AbstractLinearOperator],
+        operator_inv: Optional[AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
         return DoglegState(vector, operator)

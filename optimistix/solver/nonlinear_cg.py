@@ -9,10 +9,10 @@ from equinox.internal import ω
 from jax import lax
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
-from ..line_search import AbstractDescent, AbstractProxyDescent, OneDimensionalFunction
+from ..line_search import AbstractDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator
 from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
-from ..misc import max_norm
+from ..misc import max_norm, tree_full, tree_zeros_like
 from ..solution import RESULTS
 from .nonlinear_cg_descent import hestenes_stiefel, NonlinearCGDescent
 
@@ -81,16 +81,19 @@ class AbstractGradOnly(AbstractMinimiser):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
-        f0, aux_shape = jtu.tree_map(
-            lambda x: jnp.full(x.shape, jnp.inf), jax.eval_shape(problem.fn, y, args)
-        )
-        y_shaped_empty = ω(y).call(jnp.zeros_like).ω
+        f0 = tree_full(f_struct, jnp.inf)
+        aux = tree_zeros_like(aux_struct)
+        y_zeros = tree_zeros_like(y)
         operator = IdentityLinearOperator(jax.eval_shape(lambda: y))
-        descent_state = self.descent.init_state(problem, y, y_shaped_empty, operator)
+        descent_state = self.descent.init_state(
+            problem, y, y_zeros, operator, None, args, {}
+        )
         return GradOnlyState(
             descent_state=descent_state,
-            vector=y_shaped_empty,
+            vector=y_zeros,
             operator=operator,
             diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf), y),
             diffsize=jnp.array(0.0),
@@ -98,7 +101,7 @@ class AbstractGradOnly(AbstractMinimiser):
             result=jnp.array(RESULTS.successful),
             f_val=f0,
             next_init=jnp.array(1.0),
-            aux=aux_shape,
+            aux=aux,
             step=jnp.array(0),
         )
 
@@ -125,16 +128,14 @@ class AbstractGradOnly(AbstractMinimiser):
                 "compute_f0": (state.step == 0),
                 "vector": state.vector,
                 "operator": state.operator,
-                "diff": state.diff,
             }
 
-            if isinstance(self.descent, AbstractProxyDescent):
-                line_search_options["predicted_reduction"] = ft.partial(
-                    self.descent.predicted_reduction,
-                    descent_state=state.descent_state,
-                    args=args,
-                    options={},
-                )
+            line_search_options["predicted_reduction"] = ft.partial(
+                self.descent.predicted_reduction,
+                descent_state=state.descent_state,
+                args=args,
+                options={},
+            )
 
             line_sol = minimise(
                 problem_1d,
@@ -210,7 +211,7 @@ class AbstractGradOnly(AbstractMinimiser):
 
 
 class GradOnly(AbstractGradOnly):
-    ...
+    pass
 
 
 class NonlinearCG(AbstractGradOnly):

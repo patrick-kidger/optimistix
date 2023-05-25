@@ -2,8 +2,8 @@ import functools as ft
 from typing import Any, Callable
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Float, Int, PyTree, Scalar
 
@@ -12,10 +12,10 @@ from ..least_squares import (
     least_squares,
     LeastSquaresProblem,
 )
-from ..line_search import AbstractDescent, AbstractProxyDescent, OneDimensionalFunction
+from ..line_search import AbstractDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator
 from ..minimise import AbstractMinimiser
-from ..misc import max_norm
+from ..misc import max_norm, tree_zeros_like
 from ..solution import RESULTS
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .misc import compute_jac_residual
@@ -65,19 +65,19 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
-        # TODO(raderj): add flags for when these things need to be
-        # computed. for current implementation of LM this computation
-        # of the operator is unnecessary.
         f0 = jnp.array(jnp.inf)
         vector, operator, aux = compute_jac_residual(problem, y, args)
-        descent_state = self.descent.init_state(problem, y, vector, operator, args, {})
-        # TODO(raderj): this needs to be handled a different way!
+        descent_state = self.descent.init_state(
+            problem, y, vector, operator, None, args, {}
+        )
         return GNState(
             descent_state=descent_state,
             vector=vector,
             operator=operator,
-            diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf, x.dtype), y),
+            diff=tree_zeros_like(y),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
             result=jnp.array(RESULTS.successful),
@@ -109,16 +109,14 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             "compute_f0": (state.step == 0),
             "vector": state.vector,
             "operator": state.operator,
-            "diff": state.diff,
         }
 
-        if isinstance(self.descent, AbstractProxyDescent):
-            line_search_options["predicted_reduction"] = ft.partial(
-                self.descent.predicted_reduction,
-                descent_state=state.descent_state,
-                args=args,
-                options={},
-            )
+        line_search_options["predicted_reduction"] = ft.partial(
+            self.descent.predicted_reduction,
+            descent_state=state.descent_state,
+            args=args,
+            options={},
+        )
 
         line_sol = least_squares(
             problem_1d,

@@ -1,6 +1,7 @@
 from typing import Any
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
@@ -27,12 +28,16 @@ class RunningMinMinimiser(AbstractMinimiser):
         y: PyTree[Array],
         args: PyTree,
         options: dict[str, Any],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         auxmented = eqx.Partial(_auxmented, problem.fn, problem.has_aux)
         pipethrough_problem = MinimiseProblem(
             auxmented, has_aux=True, tags=problem.tags
         )
-        return self.minimiser.init(pipethrough_problem, y, args, options)
+        return self.minimiser.init(
+            pipethrough_problem, y, args, options, aux_struct, f_struct
+        )
 
     def step(
         self,

@@ -22,7 +22,8 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: AbstractLinearOperator,
+        operator: Optional[AbstractLinearOperator],
+        operator_inv: Optional[AbstractLinearOperator],
         args: Optional[Any],
         options: Optional[dict[str, Any]],
     ):
@@ -35,6 +36,7 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         prev_diff: Optional[PyTree[Array]],
         vector: Optional[PyTree[Array]],
         operator: Optional[AbstractLinearOperator],
+        operator_inv: Optional[AbstractLinearOperator],
         options: Optional[dict[str, Any]],
     ):
         ...
@@ -49,8 +51,6 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
     ):
         ...
 
-
-class AbstractProxyDescent(AbstractDescent[_DescentState]):
     @abc.abstractmethod
     def predicted_reduction(
         self,

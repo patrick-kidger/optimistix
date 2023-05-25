@@ -8,13 +8,12 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
-from ..custom_types import sentinel
-from ..line_search import AbstractDescent, AbstractProxyDescent, OneDimensionalFunction
+from ..line_search import AbstractDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator, PyTreeLinearOperator
 from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
-from ..misc import max_norm, tree_inner_prod
+from ..misc import max_norm, tree_full, tree_inner_prod, tree_zeros
 from ..solution import RESULTS
-from .descent import UnnormalisedNewton, UnnormalisedNewtonInverse
+from .descent import UnnormalisedNewton
 
 
 def _outer(tree1, tree2):
@@ -77,38 +76,10 @@ class BFGS(AbstractMinimiser):
     atol: float
     rtol: float
     line_search: AbstractMinimiser
-    descent: AbstractDescent
-    norm: Callable
-    converged_tol: float
-    use_inverse: bool
-
-    def __init__(
-        self,
-        atol: float,
-        rtol: float,
-        line_search: AbstractMinimiser,
-        descent: AbstractDescent = sentinel,
-        norm: Callable = max_norm,
-        converged_tol: float = 1e-2,
-        use_inverse: bool = True,
-    ):
-
-        # # WARNING: if the user passes in a solver not compatible with use_inverse,
-        # # then they will get very strange results and not a warning!
-        if descent == sentinel:
-            if use_inverse:
-                descent = UnnormalisedNewtonInverse()
-            else:
-                descent = UnnormalisedNewton(gauss_newton=False)
-
-        self.atol = atol
-        self.rtol = rtol
-        self.line_search = line_search
-        self.descent = descent
-        self.norm = norm
-        self.converged_tol = converged_tol
-        self.use_inverse = use_inverse
-        self.descent = descent
+    descent: AbstractDescent = UnnormalisedNewton(gauss_newton=False)
+    norm: Callable = max_norm
+    converged_tol: float = 1e-3
+    use_inverse: bool = False
 
     def init(
         self,
@@ -116,11 +87,12 @@ class BFGS(AbstractMinimiser):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
-        f0, aux = jtu.tree_map(
-            lambda x: jnp.full(x.shape, jnp.inf, x.dtype),
-            jax.eval_shape(problem.fn, y, args),
-        )
+        f0 = tree_full(f_struct, jnp.inf)
+        aux = tree_zeros(aux_struct)
+        # can this be removed?
         jrev = jax.jacrev(problem.fn, has_aux=True)
         vector, aux = jrev(y, args)
         # create an identity operator which we can update with BFGS
@@ -128,7 +100,15 @@ class BFGS(AbstractMinimiser):
         operator = PyTreeLinearOperator(
             _std_basis(vector), output_structure=jax.eval_shape(lambda: vector)
         )
-        descent_state = self.descent.init_state(problem, y, vector, operator, args, {})
+        if self.use_inverse:
+            descent_state = self.descent.init_state(
+                problem, y, vector, None, operator, args, {}
+            )
+        else:
+            descent_state = self.descent.init_state(
+                problem, y, vector, operator, None, args, {}
+            )
+
         return BFGSState(
             descent_state=descent_state,
             vector=vector,
@@ -165,16 +145,14 @@ class BFGS(AbstractMinimiser):
             "compute_f0": (state.step == 0),
             "vector": state.vector,
             "operator": state.operator,
-            "diff": state.diff,
         }
 
-        if isinstance(self.descent, AbstractProxyDescent):
-            line_search_options["predicted_reduction"] = ft.partial(
-                self.descent.predicted_reduction,
-                descent_state=state.descent_state,
-                args=args,
-                options={},
-            )
+        line_search_options["predicted_reduction"] = ft.partial(
+            self.descent.predicted_reduction,
+            descent_state=state.descent_state,
+            args=args,
+            options={},
+        )
 
         line_sol = minimise(
             problem_1d,

@@ -14,6 +14,13 @@ from .misc import NoneAux
 from .solution import RESULTS, Solution
 
 
+class _AuxError:
+    def __bool__(self):
+        raise ValueError("")
+
+
+aux_error = _AuxError()
+
 _SolverState = TypeVar("_SolverState")
 _Aux = TypeVar("_Aux")
 
@@ -42,6 +49,8 @@ class AbstractIterativeSolver(eqx.Module):
         y: PyTree[Array],
         args: PyTree,
         options: dict[str, Any],
+        aux_struc: PyTree[jax.ShapeDtypeStruct],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
     ) -> _SolverState:
         ...
 
@@ -84,7 +93,7 @@ def _zero(x):
 
 def _iterate(inputs, closure, while_loop):
     problem, args = inputs
-    solver, y0, options, max_steps, aux_struct = closure
+    solver, y0, options, max_steps, aux_struct, f_struct = closure
     del inputs, closure
 
     if options is None:
@@ -92,25 +101,28 @@ def _iterate(inputs, closure, while_loop):
 
     if not problem.has_aux:
         problem = eqx.tree_at(lambda p: p.fn, problem, NoneAux(problem.fn))
-        init_aux = None
+        problem = eqx.tree_at(lambda p: p.has_aux, aux_error)
 
-    init_state = solver.init(problem, y0, args, options)
     # We need to filter non-JAX-arrays, as our linear solvers use Python bools in their
     # state.
+
+    if aux_struct is sentinel:
+
+        # def _aux(_solver, _problem, _y, _args, _options, _state):
+        #     _, _, _aux = _solver.step(_problem, _y, _args, _options, _state)
+        #     return _aux
+
+        # aux_struct = eqx.filter_eval_shape(
+        #     _aux, solver, problem, y0, args, options, init_state
+        # )
+
+        f_struct, aux_struct = eqx.filter_eval_shape(problem.fn, y0, args)
+    else:
+        init_aux = aux_struct
+    init_aux = jtu.tree_map(_zero, aux_struct)
+
+    init_state = solver.init(problem, y0, args, options, aux_struct, f_struct)
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
-
-    if problem.has_aux:
-        if aux_struct is sentinel:
-
-            def _aux(_solver, _problem, _y, _args, _options, _state):
-                _, _, _aux = _solver.step(_problem, _y, _args, _options, _state)
-                return _aux
-
-            aux_struct = eqx.filter_eval_shape(
-                _aux, solver, problem, y0, args, options, init_state
-            )
-
-        init_aux = jtu.tree_map(_zero, aux_struct)
 
     init_carry = (y0, 0, dynamic_init_state, init_aux)
 
@@ -164,10 +176,11 @@ def iterative_solve(
     adjoint: AbstractAdjoint,
     throw: bool,
     tags: FrozenSet[object],
-    aux_struct: PyTree[jax.ShapeDtypeStruct] = sentinel
+    aux_struct: PyTree[jax.ShapeDtypeStruct] = sentinel,
+    f_struct: PyTree[jax.ShapeDtypeStruct] = sentinel
 ) -> Solution:
     inputs = problem, args
-    closure = solver, y0, options, max_steps, aux_struct
+    closure = solver, y0, options, max_steps, aux_struct, f_struct
     out, (num_steps, result, final_state, aux) = adjoint.apply(
         _iterate, rewrite_fn, inputs, closure, tags
     )

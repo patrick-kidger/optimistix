@@ -1,14 +1,14 @@
 from typing import Any
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 from jaxtyping import Array, Bool, Float, Int, PyTree
 
 from ..line_search import OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator
 from ..minimise import AbstractMinimiser, MinimiseProblem
-from ..misc import tree_inner_prod
+from ..misc import tree_full, tree_inner_prod, tree_zeros_like
 from ..solution import RESULTS
 from .misc import get_vector_operator
 
@@ -35,8 +35,11 @@ class BacktrackingArmijo(AbstractMinimiser):
         y: Array,
         args: Any,
         options: dict[str, Any],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
-        f0 = jnp.array(jnp.inf)
+        f0 = tree_full(f_struct, jnp.inf)
+        diff = tree_zeros_like(problem.fn.y)
         vector, operator = get_vector_operator(options)
 
         try:
@@ -44,13 +47,6 @@ class BacktrackingArmijo(AbstractMinimiser):
             compute_f0 = options["compute_f0"]
         except KeyError:
             compute_f0 = jnp.array(True)
-        try:
-            diff = jtu.tree_map(jnp.zeros_like, options["diff"])
-        except KeyError:
-            raise ValueError(
-                "`diff` or something of shape `y` must be passed to "
-                "line search via `options['diff']`"
-            )
 
         return BacktrackingState(
             f_delta=f0,

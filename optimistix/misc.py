@@ -1,5 +1,5 @@
 import functools as ft
-from typing import Callable
+from typing import Callable, cast
 
 import equinox as eqx
 import jax
@@ -53,6 +53,8 @@ def _rms_norm(x):
 def _rms_norm_jvp(x, tx):
     (x,) = x
     (tx,) = tx
+    x = cast(Array, x)
+    tx = cast(Array, x)
     out = _rms_norm(x)
     # Get zero gradient, rather than NaN gradient, in these cases
     pred = (out == 0) | jnp.isinf(out)
@@ -60,6 +62,18 @@ def _rms_norm_jvp(x, tx):
     denominator = jnp.where(pred, 1, out * x.size)
     t_out = jnp.dot(numerator / denominator, tx)
     return out, t_out
+
+
+def tree_full(struct: jax.ShapeDtypeStruct, fill_value: ArrayLike):
+    return jtu.tree_map(lambda x: jnp.full(x.shape, fill_value, x.dtype), struct)
+
+
+def tree_zeros(struct: jax.ShapeDtypeStruct):
+    return jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), struct)
+
+
+def tree_zeros_like(tree: PyTree[Array]):
+    return jtu.tree_map(jnp.zeros_like, tree)
 
 
 def tree_inner_prod(tree1, tree2):

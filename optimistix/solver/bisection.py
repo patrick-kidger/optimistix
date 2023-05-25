@@ -16,10 +16,10 @@ class _BisectionState(eqx.Module):
 
 
 class Bisection(AbstractRootFinder):
-    rtol: float
     atol: float
+    rtol: float
 
-    def init(self, root_prob, y: Scalar, args, options):
+    def init(self, root_prob, y: Scalar, args, options, aux_struct, f_struct):
         upper = options["upper"]
         lower = options["lower"]
         if jnp.shape(y) != () or jnp.shape(lower) != () or jnp.shape(upper) != ():
