@@ -49,7 +49,7 @@ def _diverged(rate: Scalar) -> Bool[ArrayLike, " "]:
     return jnp.invert(jnp.isfinite(rate))
 
 
-def _converged(factor: Scalar, tol: Scalar) -> Bool[ArrayLike, " "]:
+def _converged(factor: Scalar, tol: float) -> Bool[ArrayLike, " "]:
     return (factor > 0) & (factor < tol)
 
 
@@ -73,8 +73,8 @@ class BFGSState(eqx.Module):
 # `p = Binv_k g` is just the matrix vector product.
 #
 class BFGS(AbstractMinimiser):
-    atol: float
     rtol: float
+    atol: float
     line_search: AbstractMinimiser
     descent: AbstractDescent = UnnormalisedNewton(gauss_newton=False)
     norm: Callable = max_norm
@@ -87,7 +87,7 @@ class BFGS(AbstractMinimiser):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         f0 = tree_full(f_struct, jnp.inf)
@@ -138,7 +138,7 @@ class BFGS(AbstractMinimiser):
             options=options,
         )
         problem_1d = MinimiseProblem(
-            OneDimensionalFunction(problem, descent, y), has_aux=True
+            OneDimensionalFunction(problem.fn, descent, y), has_aux=True
         )
         line_search_options = {
             "f0": state.f_val,
@@ -146,18 +146,24 @@ class BFGS(AbstractMinimiser):
             "vector": state.vector,
             "operator": state.operator,
         }
-
         line_search_options["predicted_reduction"] = ft.partial(
             self.descent.predicted_reduction,
             descent_state=state.descent_state,
             args=args,
             options={},
         )
-
+        # Note that `options` at the solver level is passed to line_search init!
+        # we anticipate a user may want to pass `options['init_line_search']` from
+        # outside the solver.
+        init = jnp.where(
+            state.step == 0,
+            self.line_search.first_init(state.vector, state.operator, options),
+            state.next_init,
+        )
         line_sol = minimise(
             problem_1d,
             self.line_search,
-            y0=state.next_init,
+            y0=init,
             args=args,
             options=line_search_options,
             max_steps=1000,
@@ -190,9 +196,14 @@ class BFGS(AbstractMinimiser):
         )
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         diffsize = self.norm((ω(diff) / ω(scale)).ω)
-        descent_state = self.descent.update_state(
-            state.descent_state, diff, new_grad, new_hess, {}
-        )
+        if self.use_inverse:
+            descent_state = self.descent.update_state(
+                state.descent_state, diff, new_grad, None, new_hess, {}
+            )
+        else:
+            descent_state = self.descent.update_state(
+                state.descent_state, diff, new_grad, new_hess, None, {}
+            )
         result = jnp.where(
             line_sol.result == RESULTS.max_steps_reached,
             RESULTS.successful,

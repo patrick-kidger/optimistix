@@ -6,10 +6,8 @@ from .cholesky import Cholesky
 from .descent import (
     NormalisedGradient,
     NormalisedNewton,
-    NormalisedNewtonInverse,
     UnnormalisedGradient,
     UnnormalisedNewton,
-    UnnormalisedNewtonInverse,
 )
 from .diagonal import Diagonal
 from .dogleg import Dogleg

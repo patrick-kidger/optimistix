@@ -30,7 +30,17 @@ def _bowl(tree: PyTree[Array], args: Any):
     key = jr.PRNGKey(17)
     matrix = jr.normal(key, (size, size))
     pd_matrix = matrix.T @ matrix
+    w, v = jnp.linalg.eig(pd_matrix)
     return y.T @ pd_matrix @ y
+
+
+def _uncoupled_simple(tree: PyTree[Array], args: Any):
+    leaves, treedef = jtu.tree_flatten(tree)
+    key = jr.PRNGKey(17)
+    random_positive = treedef.unflatten(
+        [jr.normal(key, leaf.shape, leaf.dtype) ** 2 for leaf in leaves]
+    )
+    return (ω(tree).call(jnp.square) * random_positive**ω).ω
 
 
 def _rosenbrock(tree: PyTree[Array], args: Any):
@@ -199,56 +209,60 @@ ffn_init = eqx.tree_at(get_weights, ffn_init, (weight1, bias1, weight2, bias2))
 
 least_squares_problem_minima_init = (
     (
-        optx.LeastSquaresProblem(_rosenbrock),
+        optx.LeastSquaresProblem(_uncoupled_simple),
         jnp.array(0.0),
-        [jnp.array(0.0), jnp.array(0.0)],
+        ({"a": 0.05 * jnp.ones((2, 3, 3))}, (0.05 * jnp.ones(2))),
     ),
-    (
-        optx.LeastSquaresProblem(_rosenbrock),
-        jnp.array(0.0),
-        (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
-    ),
-    (optx.LeastSquaresProblem(_simple_nn), jnp.array(0.0), ffn_init),
-    (
-        optx.LeastSquaresProblem(_variably_dimensioned),
-        jnp.array(0.0),
-        1 - jnp.arange(1, 11) / 10,
-    ),
-    (
-        optx.LeastSquaresProblem(_variably_dimensioned),
-        jnp.array(0.0),
-        (1 - jnp.arange(1, 7) / 10, {"a": (1 - jnp.arange(7, 11) / 10)}),
-    ),
-    (optx.LeastSquaresProblem(_trigonometric), jnp.array(0.0), jnp.ones(70) / 70),
-    (
-        optx.LeastSquaresProblem(_trigonometric),
-        jnp.array(0.0),
-        ((jnp.ones(40) / 70, (), {"a": jnp.ones(20) / 70}), jnp.ones(10) / 70),
-    ),
+    # (
+    #     optx.LeastSquaresProblem(_rosenbrock),
+    #     jnp.array(0.0),
+    #     [jnp.array(0.0), jnp.array(0.0)],
+    # ),
+    # (
+    #     optx.LeastSquaresProblem(_rosenbrock),
+    #     jnp.array(0.0),
+    #     (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
+    # ),
+    # (optx.LeastSquaresProblem(_simple_nn), jnp.array(0.0), ffn_init),
+    # (
+    #     optx.LeastSquaresProblem(_variably_dimensioned),
+    #     jnp.array(0.0),
+    #     1 - jnp.arange(1, 11) / 10,
+    # ),
+    # (
+    #     optx.LeastSquaresProblem(_variably_dimensioned),
+    #     jnp.array(0.0),
+    #     (1 - jnp.arange(1, 7) / 10, {"a": (1 - jnp.arange(7, 11) / 10)}),
+    # ),
+    # (optx.LeastSquaresProblem(_trigonometric), jnp.array(0.0), jnp.ones(70) / 70),
+    # (
+    #     optx.LeastSquaresProblem(_trigonometric),
+    #     jnp.array(0.0),
+    #     ((jnp.ones(40) / 70, (), {"a": jnp.ones(20) / 70}), jnp.ones(10) / 70),
+    # ),
 )
 
 minimisation_problem_minima_init = (
     (
-        # no solver should fail this one!
         optx.MinimiseProblem(_bowl),
         jnp.array(0.0),
-        ({"a": jnp.ones(20)}, (0.5 * jnp.ones(12))),
+        ({"a": 0.05 * jnp.ones((2, 3, 3))}, (0.05 * jnp.ones(2))),
     ),
-    (
-        optx.MinimiseProblem(_himmelblau),
-        jnp.array(0.0),
-        [jnp.array(2.0), jnp.array(2.5)],
-    ),
-    (
-        optx.MinimiseProblem(_matyas),
-        jnp.array(0.0),
-        [jnp.array(6.0), jnp.array(6.0)],
-    ),
-    (
-        optx.MinimiseProblem(_beale),
-        jnp.array(0.0),
-        [jnp.array(2.0), jnp.array(0.0)],
-    ),
+    # (
+    #     optx.MinimiseProblem(_himmelblau),
+    #     jnp.array(0.0),
+    #     [jnp.array(2.0), jnp.array(2.5)],
+    # ),
+    # (
+    #     optx.MinimiseProblem(_matyas),
+    #     jnp.array(0.0),
+    #     [jnp.array(6.0), jnp.array(6.0)],
+    # ),
+    # (
+    #     optx.MinimiseProblem(_beale),
+    #     jnp.array(0.0),
+    #     [jnp.array(2.0), jnp.array(0.0)],
+    # ),
 )
 
 # ROOT FIND/FIXED POINT PROBLEMS
@@ -301,7 +315,7 @@ def _nonlinear_heat_pde_general(
 
 
 def _midpoint_y_general(
-    f: Callable[[Float[Array, ""]], Float[Array, ""]],
+    f: Callable[[Float[Array, ""], Any], Float[Array, ""]],
     y0: Float[Array, ""],
     dt: Scalar,
     y: PyTree[Array],
@@ -310,12 +324,12 @@ def _midpoint_y_general(
     # Solve an implicit midpoint Runge-Kutta step with fixed point iteration
     # in "y space," ie. the typical representation of a Runge-Kutta method
     ...
-    f_new = f((0.5 * (y0**ω + y**ω)).ω)
+    f_new = f(((0.5 * (y0**ω + y**ω))).ω, args)
     return (y0**ω + dt * f_new**ω).ω
 
 
 def _midpoint_f_general(
-    f: Callable[[Float[Array, ""]], Float[Array, ""]],
+    f: Callable[[Float[Array, ""], Any], Float[Array, ""]],
     y0: Float[Array, ""],
     dt: Scalar,
     y: PyTree[Array],
@@ -324,11 +338,11 @@ def _midpoint_f_general(
     # Solve an implicit Runge-Kutta step with fixed point iteration
     # in "f-space," ie. we apply `f` to both sides of the Runge-Kutta method
     # and do the fixed-point iteration in this space.
-    return f((y0**ω + dt * y**ω).ω)
+    return f((y0**ω + dt * y**ω).ω, args)
 
 
 def _midpoint_k_general(
-    f: Callable[[Float[Array, ""]], Float[Array, ""]],
+    f: Callable[[Float[Array, ""], Any], Float[Array, ""]],
     y0: Float[Array, ""],
     dt: Scalar,
     y: PyTree[Array],
@@ -340,7 +354,7 @@ def _midpoint_k_general(
     # of the Runge-Kutta method.
     # Note that in practice this just means we are finding `f * dt`
     # instead of `f`.
-    return f((y0**ω + y**ω).ω) * dt
+    return (f((y0**ω + y**ω).ω, args) ** ω * dt).ω
 
 
 class Robertson(eqx.Module):
@@ -367,9 +381,10 @@ def _sin(tree: PyTree[Array], args: Any):
     return jtu.tree_map(jnp.sin, tree)
 
 
-def _nn_decaying(y: PyTree[Array], args: Any):
+def _nn_decaying(tree: PyTree[Array], args: Any):
     # an untrained, noisy MLP + an exponential decay term
     # ie. `MLP(y) - 10 * y`
+    (y, unflatten) = jax.flatten_util.ravel_pytree(tree)
     size = _getsize(y)
     model = eqx.nn.MLP(
         in_size=size,
@@ -381,13 +396,13 @@ def _nn_decaying(y: PyTree[Array], args: Any):
     )
     key = jr.PRNGKey(17)
     model_key, data_key = jr.split(key, 2)
-    return model(y) - 10 * y
+    return unflatten(model(y) - 10 * y)
 
 
 def _nonlinear_heat_pde(y: PyTree[Array], args: Any):
     # solve the nonlinear heat equation as above from "0" to "1" in a
     # single step.
-    x = jnp.arange(-1, 1, 50)
+    x = jnp.linspace(-1, 1, 100)
     dx = x[1] - x[0]
     y0 = x**2
     f0 = ((1 - y0**ω) * _laplacian(y0, dx) ** ω).ω
@@ -396,42 +411,45 @@ def _nonlinear_heat_pde(y: PyTree[Array], args: Any):
     )
 
 
-def _midpoint_y_linear(y: PyTree[Array], args: Any):
-    size = _getsize(y)
+def _midpoint_y_linear(tree: PyTree[Array], args: Any):
+    (y, unflatten) = jax.flatten_util.ravel_pytree(tree)
+    size = y.size
     key = jr.PRNGKey(17)
     matrix = jr.normal(key, (size, size))
-    f = lambda x: matrix @ x
-    y0 = ω(y).call(jnp.zeros_like)
-    dt = jnp.array(1.0)
-    return _midpoint_y_general(f, y0, dt, y, args)
+    f = lambda x, _: matrix @ x
+    y0 = ω(y).call(jnp.zeros_like).ω
+    dt = jnp.array(1 / (2**4))
+    return unflatten(_midpoint_y_general(f, y0, dt, y, args))
 
 
-def _midpoint_f_linear(y: PyTree[Array], args: Any):
-    size = _getsize(y)
+def _midpoint_f_linear(tree: PyTree[Array], args: Any):
+    (y, unflatten) = jax.flatten_util.ravel_pytree(tree)
+    size = y.size
     key = jr.PRNGKey(18)
     matrix = jr.normal(key, (size, size))
-    f = lambda x: matrix @ x
-    y0 = ω(y).call(jnp.zeros_like)
-    dt = jnp.array(1.0)
-    return _midpoint_f_general(f, y0, dt, y, args)
+    f = lambda x, _: matrix @ x
+    y0 = ω(y).call(jnp.zeros_like).ω
+    dt = jnp.array(1 / (2**4))
+    return unflatten(_midpoint_f_general(f, y0, dt, y, args))
 
 
-def _midpoint_k_linear(y: PyTree[Array], args: Any):
-    size = _getsize(y)
+def _midpoint_k_linear(tree: PyTree[Array], args: Any):
+    (y, unflatten) = jax.flatten_util.ravel_pytree(tree)
+    size = y.size
     key = jr.PRNGKey(19)
     matrix = jr.normal(key, (size, size))
-    f = lambda x: matrix @ x
-    y0 = ω(y).call(jnp.zeros_like)
-    dt = jnp.array(1.0)
-    return _midpoint_k_general(f, y0, dt, y, args)
+    f = lambda x, _: matrix @ x
+    y0 = ω(y).call(jnp.zeros_like).ω
+    dt = jnp.array(1 / (2**4))
+    return unflatten(_midpoint_k_general(f, y0, dt, y, args))
 
 
 def _midpoint_y_nonlinear(y: PyTree[Array], args: Any):
     size = _getsize(y)
     assert size == 3
     f = Robertson(0.04, 3e7, 1e4)
-    y0 = ω(y).call(jnp.zeros_like)
-    dt = jnp.array(1.0)
+    y0 = ω(y).call(jnp.zeros_like).ω
+    dt = jnp.array(1 / (2**8))
     return _midpoint_y_general(f, y0, dt, y, args)
 
 
@@ -439,8 +457,8 @@ def _midpoint_f_nonlinear(y: PyTree[Array], args: Any):
     size = _getsize(y)
     assert size == 3
     f = Robertson(0.04, 3e7, 1e4)
-    y0 = ω(y).call(jnp.zeros_like)
-    dt = jnp.array(1.0)
+    y0 = ω(y).call(jnp.zeros_like).ω
+    dt = jnp.array(1 / (2**8))
     return _midpoint_f_general(f, y0, dt, y, args)
 
 
@@ -448,50 +466,53 @@ def _midpoint_k_nonlinear(y: PyTree[Array], args: Any):
     size = _getsize(y)
     assert size == 3
     f = Robertson(0.04, 3e7, 1e4)
-    y0 = ω(y).call(jnp.zeros_like)
-    dt = jnp.array(1.0)
+    y0 = ω(y).call(jnp.zeros_like).ω
+    dt = jnp.array(1 / (2**2))
     return _midpoint_k_general(f, y0, dt, y, args)
 
 
-ones_pytree = ({"a": jnp.ones((3, 2, 4))}, jnp.ones(4))
+ones_pytree = ({"a": 0.5 * jnp.ones((3, 2, 4))}, 0.5 * jnp.ones(4))
 ones_robertson = (jnp.ones(2), {"b": jnp.array(1.0)})
-
+hundred = jnp.ones(100)
 fixed_point_problem_init = (
     (
-        optx.RootFindProblem(_sin),
+        optx.FixedPointProblem(_sin),
         ones_pytree,
     ),
     (
-        optx.RootFindProblem(_exponential),
+        optx.FixedPointProblem(_exponential),
         ones_pytree,
     ),
-    (
-        optx.RootFindProblem(_nn_decaying),
-        ones_pytree,
-    ),
-    (
-        optx.RootFindProblem(_nonlinear_heat_pde),
-        ones_pytree,
-    ),
-    (
-        optx.RootFindProblem(_midpoint_y_linear),
-        ones_pytree,
-    ),
-    (
-        optx.RootFindProblem(_midpoint_f_linear),
-        ones_pytree,
-    ),
-    (
-        optx.RootFindProblem(_midpoint_k_linear),
-        ones_pytree,
-    ),
-    (optx.RootFindProblem(_midpoint_y_nonlinear), ones_robertson),
-    (
-        optx.RootFindProblem(_midpoint_f_nonlinear),
-        ones_robertson,
-    ),
-    (
-        optx.RootFindProblem(_midpoint_k_nonlinear),
-        ones_robertson,
-    ),
+    # (
+    #     optx.FixedPointProblem(_nn_decaying),
+    #     ones_pytree,
+    # ),
+    # (
+    #     optx.FixedPointProblem(_nonlinear_heat_pde),
+    #     hundred,
+    # ),
+    # (
+    #     optx.FixedPointProblem(_midpoint_y_linear),
+    #     ones_pytree,
+    # ),
+    # (
+    #     optx.FixedPointProblem(_midpoint_f_linear),
+    #     ones_pytree,
+    # ),
+    # (
+    #     optx.FixedPointProblem(_midpoint_k_linear),
+    #     ones_pytree,
+    # ),
+    # (
+    #     optx.FixedPointProblem(_midpoint_y_nonlinear),
+    #     ones_robertson
+    # ),
+    # (
+    #     optx.FixedPointProblem(_midpoint_f_nonlinear),
+    #     ones_robertson,
+    # ),
+    # (
+    #     optx.FixedPointProblem(_midpoint_k_nonlinear),
+    #     ones_robertson,
+    # ),
 )

@@ -28,7 +28,7 @@ class RunningMinMinimiser(AbstractMinimiser):
         y: PyTree[Array],
         args: PyTree,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         auxmented = eqx.Partial(_auxmented, problem.fn, problem.has_aux)

@@ -64,12 +64,24 @@ def _rms_norm_jvp(x, tx):
     return out, t_out
 
 
-def tree_full(struct: jax.ShapeDtypeStruct, fill_value: ArrayLike):
-    return jtu.tree_map(lambda x: jnp.full(x.shape, fill_value, x.dtype), struct)
+def tree_full(struct: jax.ShapeDtypeStruct | None, fill_value: ArrayLike):
+    if struct is None:
+        filled = None
+    else:
+        filled = jtu.tree_map(lambda x: jnp.full(x.shape, fill_value, x.dtype), struct)
+    return filled
 
 
-def tree_zeros(struct: jax.ShapeDtypeStruct):
-    return jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), struct)
+def tree_full_like(tree: PyTree[Array], fill_value: ArrayLike):
+    return jtu.tree_map(lambda x: jnp.full_like(x, fill_value), tree)
+
+
+def tree_zeros(struct: jax.ShapeDtypeStruct | None):
+    if struct is None:
+        zeros = None
+    else:
+        zeros = jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), struct)
+    return zeros
 
 
 def tree_zeros_like(tree: PyTree[Array]):

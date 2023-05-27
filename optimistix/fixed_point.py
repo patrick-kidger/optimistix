@@ -83,4 +83,5 @@ def fixed_point(
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
+            tags=frozenset(),
         )

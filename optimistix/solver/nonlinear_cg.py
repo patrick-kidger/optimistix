@@ -28,7 +28,7 @@ def _diverged(rate: Scalar) -> Bool[ArrayLike, " "]:
     return jnp.invert(jnp.isfinite(rate))
 
 
-def _converged(factor: Scalar, tol: Scalar) -> Bool[ArrayLike, " "]:
+def _converged(factor: Scalar, tol: float) -> Bool[ArrayLike, " "]:
     return (factor > 0) & (factor < tol)
 
 
@@ -52,8 +52,8 @@ class GradOnlyState(eqx.Module):
 # where `vector` is the residual vector, so we know we are always dealing with
 # gradients.
 class AbstractGradOnly(AbstractMinimiser):
-    atol: float
     rtol: float
+    atol: float
     line_search: AbstractMinimiser
     descent: AbstractDescent
     norm: Callable
@@ -61,15 +61,15 @@ class AbstractGradOnly(AbstractMinimiser):
 
     def __init__(
         self,
-        atol: float,
         rtol: float,
+        atol: float,
         line_search: AbstractMinimiser,
         descent: AbstractDescent,
         norm: Callable = max_norm,
         converged_tol: float = 1e-2,
     ):
-        self.atol = atol
         self.rtol = rtol
+        self.atol = atol
         self.line_search = line_search
         self.descent = descent
         self.norm = norm
@@ -81,7 +81,7 @@ class AbstractGradOnly(AbstractMinimiser):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         f0 = tree_full(f_struct, jnp.inf)
@@ -121,7 +121,7 @@ class AbstractGradOnly(AbstractMinimiser):
                 options=options,
             )
             problem_1d = MinimiseProblem(
-                OneDimensionalFunction(problem, descent, y), has_aux=True
+                OneDimensionalFunction(problem.fn, descent, y), has_aux=True
             )
             line_search_options = {
                 "f0": state.f_val,
@@ -136,11 +136,15 @@ class AbstractGradOnly(AbstractMinimiser):
                 args=args,
                 options={},
             )
-
+            init = jnp.where(
+                state.step == 0,
+                self.line_search.first_init(state.vector, state.operator, options),
+                state.next_init,
+            )
             line_sol = minimise(
                 problem_1d,
                 self.line_search,
-                y0=state.next_init,
+                y0=init,
                 args=args,
                 options=line_search_options,
                 max_steps=100,
@@ -166,7 +170,7 @@ class AbstractGradOnly(AbstractMinimiser):
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         diffsize = self.norm((ω(diff) / ω(scale)).ω)
         descent_state = self.descent.update_state(
-            state.descent_state, diff, new_grad, state.operator, {}
+            state.descent_state, diff, new_grad, state.operator, None, {}
         )
         result = jnp.where(
             result == RESULTS.max_steps_reached, RESULTS.successful, result
@@ -217,15 +221,15 @@ class GradOnly(AbstractGradOnly):
 class NonlinearCG(AbstractGradOnly):
     def __init__(
         self,
-        atol: float,
         rtol: float,
+        atol: float,
         line_search: AbstractMinimiser,
         norm: Callable = max_norm,
         converged_tol: float = 1e-2,
         method: Callable = hestenes_stiefel,
     ):
-        self.atol = atol
         self.rtol = rtol
+        self.atol = atol
         self.line_search = line_search
         self.norm = norm
         self.converged_tol = converged_tol

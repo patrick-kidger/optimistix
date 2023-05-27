@@ -49,7 +49,7 @@ class AbstractIterativeSolver(eqx.Module):
         y: PyTree[Array],
         args: PyTree,
         options: dict[str, Any],
-        aux_struc: PyTree[jax.ShapeDtypeStruct],
+        aux_struc: PyTree[jax.ShapeDtypeStruct] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ) -> _SolverState:
         ...
@@ -101,24 +101,14 @@ def _iterate(inputs, closure, while_loop):
 
     if not problem.has_aux:
         problem = eqx.tree_at(lambda p: p.fn, problem, NoneAux(problem.fn))
-        problem = eqx.tree_at(lambda p: p.has_aux, aux_error)
+        problem = eqx.tree_at(lambda p: p.has_aux, problem, aux_error)
 
     # We need to filter non-JAX-arrays, as our linear solvers use Python bools in their
     # state.
 
     if aux_struct is sentinel:
-
-        # def _aux(_solver, _problem, _y, _args, _options, _state):
-        #     _, _, _aux = _solver.step(_problem, _y, _args, _options, _state)
-        #     return _aux
-
-        # aux_struct = eqx.filter_eval_shape(
-        #     _aux, solver, problem, y0, args, options, init_state
-        # )
-
         f_struct, aux_struct = eqx.filter_eval_shape(problem.fn, y0, args)
-    else:
-        init_aux = aux_struct
+
     init_aux = jtu.tree_map(_zero, aux_struct)
 
     init_state = solver.init(problem, y0, args, options, aux_struct, f_struct)

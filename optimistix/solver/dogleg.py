@@ -6,16 +6,18 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
 from ..iterate import AbstractIterativeProblem
-from ..line_search import AbstractProxyDescent
+from ..line_search import AbstractDescent
 from ..linear_operator import AbstractLinearOperator
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
-from ..misc import tree_inner_prod, tree_where, two_norm
+from ..misc import tree_full_like, tree_inner_prod, tree_where, two_norm
 
 
 def _quadratic_solve(a, b, c):
-    # oh yeah, we're doing this :)
     discriminant = jnp.sqrt(b**2 - 4 * a * c)
-    return 0.5 * (-b + discriminant) / a
+    # if the output is >2 then we should be accepting the Newton step
+    # regardless, so this clip is just a safeguard keeping us in the theoretical
+    # bounds.
+    return jnp.clip(0.5 * (-b + discriminant) / a, a_min=1, a_max=2)
 
 
 class DoglegState(eqx.Module):
@@ -23,7 +25,7 @@ class DoglegState(eqx.Module):
     operator: AbstractLinearOperator
 
 
-class Dogleg(AbstractProxyDescent):
+class Dogleg(AbstractDescent):
     gauss_newton: bool
     norm: Callable = two_norm
     solver: AbstractLinearSolver = AutoLinearSolver(well_posed=False)
@@ -95,12 +97,18 @@ class Dogleg(AbstractProxyDescent):
         # scalar for this by solving a quadratic equation. See section 4.1 of
         # Nocedal Wright "Numerical Optimization" for details.
         a = two_norm((newton**ω - cauchy**ω).ω) ** 2
-        b_ = tree_inner_prod(cauchy, (newton**ω - cauchy**ω).ω)
-        b = 2 * b_
-        c = cauchy_norm - b_ - a
+        b = 2 * tree_inner_prod(cauchy, (newton**ω - cauchy**ω).ω)
+        c = cauchy_norm**2 - b - a - delta**2
         linear_interp = _quadratic_solve(a, b, c)
         dogleg = (cauchy**ω + (linear_interp - 1) * (newton**ω - cauchy**ω)).ω
-        diff = tree_where(below_cauchy, ((cauchy**ω / cauchy_norm) * delta).ω, newton)
+        norm_nonzero = cauchy_norm > jnp.finfo(cauchy_norm.dtype).eps
+        safe_norm = jnp.where(norm_nonzero, cauchy_norm, 1)
+        normalised_cauchy = tree_where(
+            norm_nonzero,
+            ((cauchy**ω / safe_norm) * delta).ω,
+            tree_full_like(cauchy, jnp.inf),
+        )
+        diff = tree_where(below_cauchy, normalised_cauchy, newton)
         diff = tree_where(between_choices, dogleg, diff)
         diff = tree_where(accept_newton, newton, diff)
         return diff, newton_soln.result

@@ -16,8 +16,8 @@ class _BisectionState(eqx.Module):
 
 
 class Bisection(AbstractRootFinder):
-    atol: float
     rtol: float
+    atol: float
 
     def init(self, root_prob, y: Scalar, args, options, aux_struct, f_struct):
         upper = options["upper"]
@@ -60,3 +60,6 @@ class Bisection(AbstractRootFinder):
         del root_prob, args, options
         scale = self.atol + self.rtol * jnp.abs(y)
         return jnp.abs(state.error) < scale, RESULTS.successful
+
+    def buffers(self, state: _BisectionState):
+        return ()

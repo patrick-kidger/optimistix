@@ -64,4 +64,5 @@ def minimise(
         throw=throw,
         tags=problem.tags,
         aux_struct=aux_struct,
+        f_struct=struct,
     )

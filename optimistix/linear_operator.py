@@ -413,12 +413,21 @@ class PyTreeLinearOperator(AbstractLinearOperator):
     def transpose(self):
         if symmetric_tag in self.tags:
             return self
+
+        def _transpose(struct, subtree):
+            def _transpose_impl(leaf):
+                return jnp.moveaxis(leaf, source, dest)
+
+            source = list(range(struct.ndim))
+            dest = list(range(-struct.ndim, 0))
+            return jtu.tree_map(_transpose_impl, subtree)
+
+        pytree_transpose = jtu.tree_map(_transpose, self.out_structure(), self.pytree)
         pytree_transpose = jtu.tree_transpose(
             jtu.tree_structure(self.out_structure()),
             jtu.tree_structure(self.in_structure()),
-            self.pytree,
+            pytree_transpose,
         )
-        pytree_transpose = jtu.tree_map(jnp.transpose, pytree_transpose)
         return PyTreeLinearOperator(
             pytree_transpose, self.in_structure(), transpose_tags(self.tags)
         )

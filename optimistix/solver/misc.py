@@ -39,7 +39,7 @@ def quadratic_predicted_reduction(
     # Hessian, and `p` the descent direction (diff).
     #
     # in the Gauss-Newton setting we compute
-    # ```0.5 * [(Jp - r)^T (Jp - r) - r^T r]```
+    # ```0.5 * [(Jp + r)^T (Jp + r) - r^T r]```
     # which is equivalent when `B = J^T J` and `g = J^T r`.
     if descent_state.operator is None:
         raise ValueError(
@@ -49,7 +49,7 @@ def quadratic_predicted_reduction(
     if gauss_newton:
         rtr = two_norm(descent_state.vector) ** 2
         jacobian_term = (
-            two_norm((ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω)
+            two_norm((ω(descent_state.operator.mv(diff)) + ω(descent_state.vector)).ω)
             ** 2
         )
         reduction = 0.5 * (jacobian_term - rtr)

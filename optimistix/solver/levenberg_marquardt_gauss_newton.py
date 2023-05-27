@@ -15,10 +15,10 @@ from ..least_squares import (
 from ..line_search import AbstractDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator
 from ..minimise import AbstractMinimiser
-from ..misc import max_norm, tree_zeros_like
+from ..misc import max_norm, tree_full_like
 from ..solution import RESULTS
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
-from .misc import compute_jac_residual
+from .misc import compute_jac_residual, two_norm
 from .trust_region import ClassicalTrustRegion
 
 
@@ -33,7 +33,7 @@ def _diverged(rate: Scalar) -> Bool[ArrayLike, " "]:
     return jnp.invert(jnp.isfinite(rate))
 
 
-def _converged(factor: Scalar, tol: Scalar) -> Bool[ArrayLike, " "]:
+def _converged(factor: Scalar, tol: float) -> Bool[ArrayLike, " "]:
     return (factor > 0) & (factor < tol)
 
 
@@ -52,8 +52,8 @@ class GNState(eqx.Module):
 
 
 class AbstractGaussNewton(AbstractLeastSquaresSolver):
-    atol: float
     rtol: float
+    atol: float
     line_search: AbstractMinimiser
     descent: AbstractDescent
     norm: Callable
@@ -65,7 +65,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         f0 = jnp.array(jnp.inf)
@@ -77,7 +77,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             descent_state=descent_state,
             vector=vector,
             operator=operator,
-            diff=tree_zeros_like(y),
+            diff=tree_full_like(y, jnp.inf),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
             result=jnp.array(RESULTS.successful),
@@ -101,8 +101,13 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             args=args,
             options=options,
         )
+
+        def line_search_problem(x, args):
+            residual, aux = problem.fn(x, args)
+            return two_norm(residual), aux
+
         problem_1d = LeastSquaresProblem(
-            OneDimensionalFunction(problem, descent, y), has_aux=True
+            OneDimensionalFunction(line_search_problem, descent, y), has_aux=True
         )
         line_search_options = {
             "f0": state.f_val,
@@ -118,10 +123,15 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             options={},
         )
 
+        init = jnp.where(
+            state.step == 0,
+            self.line_search.first_init(state.vector, state.operator, options),
+            state.next_init,
+        )
         line_sol = least_squares(
             problem_1d,
             self.line_search,
-            state.next_init,
+            init,
             args=args,
             options=line_search_options,
             max_steps=100,
@@ -133,8 +143,9 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         diffsize = self.norm((ω(diff) / ω(scale)).ω)
         descent_state = self.descent.update_state(
-            state.descent_state, state.diff, vector, operator, options
+            state.descent_state, state.diff, vector, operator, None, options
         )
+        jax.debug.print("f_val: {}", f_val)
         new_state = GNState(
             descent_state=descent_state,
             vector=vector,
@@ -179,8 +190,8 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
 
 
 class GaussNewton(AbstractGaussNewton):
-    atol: float
     rtol: float
+    atol: float
     line_search: AbstractMinimiser
     descent: AbstractDescent
     norm: Callable = max_norm
@@ -194,14 +205,14 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton):
 
     def __init__(
         self,
-        atol: float,
         rtol: float,
+        atol: float,
         norm=max_norm,
         converged_tol: float = 1e-2,
         lambda_0: Float[ArrayLike, ""] = 1e-3,
     ):
-        self.atol = atol
         self.rtol = rtol
+        self.atol = atol
         self.norm = norm
         self.converged_tol = converged_tol
         self.line_search = ClassicalTrustRegion()
@@ -216,15 +227,15 @@ class LevenbergMarquardt(AbstractGaussNewton):
 
     def __init__(
         self,
-        atol: float,
         rtol: float,
+        atol: float,
         norm=max_norm,
         converged_tol: float = 1e-2,
         backtrack_slope: float = 0.1,
         decrease_factor: float = 0.5,
     ):
-        self.atol = atol
         self.rtol = rtol
+        self.atol = atol
         self.norm = norm
         self.converged_tol = converged_tol
         self.descent = DirectIterativeDual(gauss_newton=True)

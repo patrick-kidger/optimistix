@@ -29,18 +29,32 @@ class BacktrackingArmijo(AbstractMinimiser):
     backtrack_slope: float
     decrease_factor: float
 
+    def first_init(self, vector, operator, options):
+        try:
+            init_size = options["init_line_search"]
+        except KeyError:
+            if jax.config.jax_enable_x64:
+                eps = jnp.finfo(jnp.float64).eps
+            else:
+                eps = jnp.finfo(jnp.float64).eps
+            if self.decrease_factor < eps:
+                raise ValueError("The decrease factor of linesearch must be nonzero!")
+            init_size = 1 / self.decrease_factor
+        return init_size
+        ...
+
     def init(
         self,
         problem: MinimiseProblem[OneDimensionalFunction],
         y: Array,
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         f0 = tree_full(f_struct, jnp.inf)
-        diff = tree_zeros_like(problem.fn.y)
         vector, operator = get_vector_operator(options)
+        diff = tree_zeros_like(vector)
 
         try:
             f0 = options["f0"]

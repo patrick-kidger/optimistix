@@ -54,13 +54,26 @@ class ClassicalTrustRegion(AbstractMinimiser):
     # This choice of default parameters comes from Gould et al.
     # "Sensitivity of trust region algorithms to their parameters."
 
+    def first_init(self, vector, operator, options):
+        # in a sense, there is a natural scaling for quasi-Newton methods
+        # where you'd normally apply a trust-region method. However, we don't
+        # anticipate a user is always passing in these methods, or doesn't do
+        # normalisation within the descent itself. As such, we choose a sub-optimal
+        # default value `1`, and allow the user the pass this via options to the
+        # external solver.
+        try:
+            init_size = options["init_line_search"]
+        except KeyError:
+            init_size = jnp.array(1.0)
+        return init_size
+
     def init(
         self,
         problem: MinimiseProblem[OneDimensionalFunction],
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         try:
@@ -96,7 +109,7 @@ class ClassicalTrustRegion(AbstractMinimiser):
         # check downstream, and add an indication that the line_search
         # failed and should not be taken into account in the termination
         # condition of the final solver
-        predicted_reduction = jnp.minimum(predicted_reduction, 0)
+        # predicted_reduction = jnp.minimum(predicted_reduction, 0)
         # usually this is written in terms of a "trust region ratio", but this
         # is equivalent and slightly more numerically stable. Note that when
         # the predicted reduction is linear, `good` and `finished` are Armijo
@@ -110,9 +123,15 @@ class ClassicalTrustRegion(AbstractMinimiser):
         good = good & jnp.invert(state.compute_f0)
         bad = f_new > f_prev + self.low_cutoff * predicted_reduction
         bad = bad & jnp.invert(state.compute_f0)
+
+        predicted_reduction_neg = predicted_reduction < 0
+        finished = finished & predicted_reduction_neg
+        good = good & predicted_reduction_neg
+        bad = bad | jnp.invert(predicted_reduction_neg)
+
         new_y = jnp.where(good, y * self.high_constant, y)
         new_y = jnp.where(bad, y * self.low_constant, new_y)
-        f_new = jnp.where(finished, f_new, f_prev)
+        f_new = jnp.where(finished | state.compute_f0, f_new, f_prev)
         new_state = TRState(
             f_val=f_new,
             finished=finished,

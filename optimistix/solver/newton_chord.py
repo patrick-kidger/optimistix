@@ -1,15 +1,16 @@
 import abc
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import ArrayLike, Bool, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
 from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator, linearise
 from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import max_norm
-from ..root_find import AbstractRootFinder
+from ..root_find import AbstractRootFinder, RootFindProblem
 from ..solution import RESULTS
 
 
@@ -24,7 +25,7 @@ def _diverged(rate: Scalar) -> Bool[ArrayLike, " "]:
     return jnp.invert(jnp.isfinite(rate)) | (rate > 2)
 
 
-def _converged(factor: Scalar, tol: Scalar) -> Bool[ArrayLike, " "]:
+def _converged(factor: Scalar, tol: float) -> Bool[ArrayLike, " "]:
     return (factor > 0) & (factor < tol)
 
 
@@ -37,8 +38,8 @@ class _NewtonChordState(eqx.Module):
 
 
 class _NewtonChord(AbstractRootFinder):
-    atol: float
     rtol: float
+    atol: float
     kappa: float = 1e-2
     norm: Callable = max_norm
     linear_solver: AbstractLinearSolver = AutoLinearSolver(well_posed=None)
@@ -51,7 +52,15 @@ class _NewtonChord(AbstractRootFinder):
     def _is_newton(self) -> bool:
         ...
 
-    def init(self, problem, y, args, options, aux_struct, f_struct):
+    def init(
+        self,
+        problem: RootFindProblem,
+        y: PyTree[Array],
+        args: Any,
+        options: dict[str, Any],
+        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
+        f_struct: PyTree[jax.ShapeDtypeStruct],
+    ):
         del options, aux_struct, f_struct
         if self._is_newton:
             linear_state = None
@@ -60,7 +69,7 @@ class _NewtonChord(AbstractRootFinder):
                 problem.fn, y, args, tags=problem.tags, _has_aux=True
             )
             jac = self.modify_jac(jac)
-            linear_state = (jac, self.linear_solver.init(jac))
+            linear_state = (jac, self.linear_solver.init(jac, options={}))
         return _NewtonChordState(
             linear_state=linear_state,
             step=jnp.array(0),
@@ -69,7 +78,14 @@ class _NewtonChord(AbstractRootFinder):
             result=jnp.array(RESULTS.successful),
         )
 
-    def step(self, problem, y, args, options, state):
+    def step(
+        self,
+        problem: RootFindProblem,
+        y: PyTree[Array],
+        args: Any,
+        options: dict[str, Any],
+        state: _NewtonChordState,
+    ):
         del options
         fx, _ = problem.fn(y, args)
         if self._is_newton:
@@ -79,8 +95,10 @@ class _NewtonChord(AbstractRootFinder):
             jac = self.modify_jac(jac)
             sol = linear_solve(jac, fx, self.linear_solver, throw=False)
         else:
-            jac, state = state.linear_state
-            sol = linear_solve(jac, fx, self.linear_solver, state=state, throw=False)
+            jac, linear_state = state.linear_state
+            sol = linear_solve(
+                jac, fx, self.linear_solver, state=linear_state, throw=False
+            )
         diff = sol.value
         new_y = (y**ω - diff**ω).ω
         # this clip is very important for LM, as it keeps lambda > 0.
@@ -99,7 +117,14 @@ class _NewtonChord(AbstractRootFinder):
         )
         return new_y, new_state, jac.aux
 
-    def terminate(self, problem, y, args, options, state):
+    def terminate(
+        self,
+        problem: RootFindProblem,
+        y: PyTree[Array],
+        args: Any,
+        options: dict[str, Any],
+        state: _NewtonChordState,
+    ):
         del problem, y, args, options
         at_least_two = state.step >= 2
         rate = state.diffsize / state.diffsize_prev

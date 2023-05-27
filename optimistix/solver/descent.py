@@ -141,7 +141,7 @@ class UnnormalisedNewton(AbstractDescent[NewtonState]):
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
-        return NewtonState(vector, operator, operator, operator_inv)
+        return NewtonState(vector, operator, operator_inv)
 
     def update_state(
         self,
@@ -163,7 +163,7 @@ class UnnormalisedNewton(AbstractDescent[NewtonState]):
     ):
         if descent_state.operator_inv is not None:
             newton = descent_state.operator_inv.mv(descent_state.vector)
-            result = RESULTS.successful
+            result = jnp.array(RESULTS.successful)
         elif descent_state.operator is not None:
             out = linear_solve(
                 descent_state.operator,
@@ -194,7 +194,7 @@ class UnnormalisedNewton(AbstractDescent[NewtonState]):
 
 
 class NormalisedNewton(AbstractDescent[NewtonState]):
-    gauss_newton = False
+    gauss_newton: bool = False
 
     def init_state(
         self,
@@ -206,7 +206,7 @@ class NormalisedNewton(AbstractDescent[NewtonState]):
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
-        return NewtonState(vector, operator)
+        return NewtonState(vector, operator, operator_inv)
 
     def update_state(
         self,
@@ -217,7 +217,7 @@ class NormalisedNewton(AbstractDescent[NewtonState]):
         operator_inv: Optional[AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
-        return NewtonState(vector, operator)
+        return NewtonState(vector, operator, operator_inv)
 
     def __call__(
         self,
@@ -228,7 +228,7 @@ class NormalisedNewton(AbstractDescent[NewtonState]):
     ):
         if descent_state.operator_inv is not None:
             newton = descent_state.operator_inv.mv(descent_state.vector)
-            result = RESULTS.successful
+            result = jnp.array(RESULTS.successful)
         elif descent_state.operator is not None:
             out = linear_solve(
                 descent_state.operator,

@@ -10,7 +10,7 @@ from jaxtyping import Array, Bool, Float, Int, PyTree, Scalar
 
 from ..custom_types import sentinel
 from ..iterate import AbstractIterativeProblem
-from ..line_search import AbstractProxyDescent
+from ..line_search import AbstractDescent
 from ..linear_operator import (
     AbstractLinearOperator,
     IdentityLinearOperator,
@@ -74,7 +74,7 @@ def _diverged(rate: Scalar) -> Bool[Array, " "]:
     return jnp.invert(jnp.isfinite(rate)) | (rate > 2)
 
 
-def _converged(factor: Scalar, tol: Scalar) -> Bool[Array, " "]:
+def _converged(factor: Scalar, tol: float) -> Bool[Array, " "]:
     return (factor > 0) & (factor < tol)
 
 
@@ -98,7 +98,7 @@ class _IndirectDualRootFind(AbstractRootFinder):
         y: Array,
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         del aux_struct, f_struct
@@ -236,7 +236,7 @@ class _Damped(eqx.Module):
         return (f, damped), aux
 
 
-class _DirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
+class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
     gauss_newton: bool
     modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
 
@@ -331,7 +331,6 @@ class DirectIterativeDual(_DirectIterativeDual):
                 _has_aux=True,
             )
         else:
-            # WARNING: this branch is yet untested.
             vector = descent_state.vector
             operator = descent_state.operator + jnp.where(
                 delta_nonzero, 1 / delta, jnp.inf
@@ -343,7 +342,7 @@ class DirectIterativeDual(_DirectIterativeDual):
         return diff, linear_soln.result
 
 
-class IndirectIterativeDual(AbstractProxyDescent[IterativeDualState]):
+class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
 
     #
     # Indirect iterative dual finds the `λ` to match the
