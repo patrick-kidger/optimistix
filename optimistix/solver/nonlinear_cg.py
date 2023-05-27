@@ -12,7 +12,7 @@ from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 from ..line_search import AbstractDescent, OneDimensionalFunction
 from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator
 from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
-from ..misc import max_norm, tree_full, tree_zeros_like
+from ..misc import max_norm, tree_full, tree_zeros, tree_zeros_like
 from ..solution import RESULTS
 from .nonlinear_cg_descent import hestenes_stiefel, NonlinearCGDescent
 
@@ -85,7 +85,7 @@ class AbstractGradOnly(AbstractMinimiser):
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         f0 = tree_full(f_struct, jnp.inf)
-        aux = tree_zeros_like(aux_struct)
+        aux = tree_zeros(aux_struct)
         y_zeros = tree_zeros_like(y)
         operator = IdentityLinearOperator(jax.eval_shape(lambda: y))
         descent_state = self.descent.init_state(

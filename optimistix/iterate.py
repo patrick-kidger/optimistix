@@ -110,7 +110,6 @@ def _iterate(inputs, closure, while_loop):
         f_struct, aux_struct = eqx.filter_eval_shape(problem.fn, y0, args)
 
     init_aux = jtu.tree_map(_zero, aux_struct)
-
     init_state = solver.init(problem, y0, args, options, aux_struct, f_struct)
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
 

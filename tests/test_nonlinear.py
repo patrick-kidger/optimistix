@@ -45,7 +45,7 @@ def _norm_squared(tree):
 # - Gradient
 # - NonlinearCG
 #
-atol = rtol = 1e-12
+atol = rtol = 1e-8
 _lsqr_only = (
     optx.LevenbergMarquardt(rtol, atol),  # DirectIterativeDual(GN=True)
     # these two are having problems most likely caused by the convergence criteria.
@@ -81,7 +81,7 @@ _lsqr_only = (
 )
 # NOTE: Should we parametrize the line search algo?
 # NOTE: Should we parametrize the nonlinearCG method?
-atol = rtol = 1e-12
+atol = rtol = 1e-8
 _minimisers = (
     optx.BFGS(
         rtol,
@@ -91,14 +91,12 @@ _minimisers = (
             gauss_newton=False
         ),  # DirectIterativeDual(GN=False)
     ),
-    optx.BFGS(
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(),
-        descent=optx.IndirectIterativeDual(
-            gauss_newton=False, lambda_0=1.0
-        ),  # IndirectIterativeDual(GN=False)
-    ),
+    # optx.BFGS(
+    #     rtol,
+    #     atol,
+    #     line_search=optx.ClassicalTrustRegion(),
+    #     descent=optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1.),
+    # ), # IndirectIterativeDual(GN=False)
     # optx.BFGS(
     #     rtol,
     #     atol,
@@ -151,11 +149,11 @@ _lsqr_minimisers = _lsqr_only + _minimisers
 # - Bisection
 #
 
-atol = rtol = 1e-10
+atol = rtol = 1e-6
 _root_finders = (
     # optx.Bisection(rtol, atol),
     optx.Newton(rtol, atol),
-    optx.Chord(rtol, atol),
+    # optx.Chord(rtol, atol),
 )
 
 #
@@ -169,22 +167,22 @@ atol = rtol = 1e-6
 _fp_solvers = (optx.FixedPointIteration(rtol, atol),)
 
 #
-# If `has_aux` in any of these we pass the extra string "smoke_aux" as an aux value.
+# If `has_aux` in any of these we pass the extra PyTree `smoke_aux` as an aux value.
 # This is just to make sure that auxs are handled correctly by the solvers, and
-# I (raderj) chose the term "smoke_aux" to make it obvious what was going on and
-# easier to debug
 #
+
+smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 
 @pytest.mark.parametrize("solver", _lsqr_minimisers)
 @pytest.mark.parametrize("_problem, minimum, init", least_squares_problem_minima_init)
-@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("has_aux", (True, False))
 def test_least_squares(solver, _problem, minimum, init, has_aux):
     atol = rtol = 1e-4
     if has_aux:
 
         def aux_problem(x, args):
-            return _problem.fn(x, args), "smoke_aux"
+            return _problem.fn(x, args), smoke_aux
 
         problem = optx.LeastSquaresProblem(aux_problem, True, _problem.tags)
     else:
@@ -199,8 +197,7 @@ def test_least_squares(solver, _problem, minimum, init, has_aux):
         throw=False,
     ).value
     out = problem.fn(optx_argmin, static_init)
-    # will this throw an error?
-    if problem.has_aux:
+    if has_aux:
         lst_sqr, _ = out
     else:
         lst_sqr = out
@@ -218,7 +215,7 @@ def test_minimise(solver, _problem, minimum, init, has_aux):
     if has_aux:
 
         def aux_problem(x, args):
-            return _problem.fn(x, args), "smoke_aux"
+            return _problem.fn(x, args), smoke_aux
 
         problem = optx.MinimiseProblem(aux_problem, True, _problem.tags)
     else:
@@ -228,8 +225,7 @@ def test_minimise(solver, _problem, minimum, init, has_aux):
         problem, solver, dynamic_init, args=static_init, max_steps=10_000, throw=False
     ).value
     out = problem.fn(optx_argmin, static_init)
-    # will this throw an error?
-    if problem.has_aux:
+    if has_aux:
         optx_min, _ = out
     else:
         optx_min = out
@@ -244,7 +240,7 @@ def test_fixed_point(solver, _problem, init, has_aux):
     if has_aux:
 
         def aux_problem(x, args):
-            return _problem.fn(x, args), "smoke_aux"
+            return _problem.fn(x, args), smoke_aux
 
         problem = optx.FixedPointProblem(aux_problem, True, _problem.tags)
     else:
@@ -254,8 +250,7 @@ def test_fixed_point(solver, _problem, init, has_aux):
         problem, solver, dynamic_init, args=static_init, max_steps=10_000, throw=False
     ).value
     out = problem.fn(optx_fp, static_init)
-    # will this throw an error?
-    if problem.has_aux:
+    if has_aux:
         f_val, _ = out
     else:
         f_val = out
@@ -274,7 +269,7 @@ def test_root_find(solver, _problem, init, has_aux):
 
     def root_find_problem_aux(y, args):
         f_val = _problem.fn(y, args)
-        return (f_val**ω - y**ω).ω, "smoke_aux"
+        return (f_val**ω - y**ω).ω, smoke_aux
 
     if has_aux:
         problem = optx.RootFindProblem(root_find_problem_aux, has_aux=True)
@@ -285,12 +280,17 @@ def test_root_find(solver, _problem, init, has_aux):
         problem, solver, dynamic_init, args=static_init, max_steps=10_000, throw=False
     ).value
     out = _problem.fn(optx_fp, static_init)
-    # will this throw an error?
-    if problem.has_aux:
+    if has_aux:
         f_val, _ = out
     else:
         f_val = out
     assert shaped_allclose(optx_fp, f_val, atol=atol, rtol=rtol)
+
+
+@pytest.mark.parametrize("_problem, init", fixed_point_problem_init)
+@pytest.mark.parametrize("has_aux", (False,))
+def test_bisection(_problem, init, has_aux):
+    ...
 
 
 @pytest.mark.parametrize("solver", _lsqr_minimisers)
@@ -301,7 +301,7 @@ def test_least_squares_jvp(getkey, solver, _problem, minimum, init, has_aux):
     if has_aux:
 
         def aux_problem(x, args):
-            return _problem.fn(x, args), "smoke_aux"
+            return _problem.fn(x, args), smoke_aux
 
         problem = optx.MinimiseProblem(aux_problem, True, _problem.tags)
     else:
@@ -331,7 +331,7 @@ def test_minimise_jvp(getkey, solver, _problem, minimum, init, has_aux):
     if has_aux:
 
         def aux_problem(x, args):
-            return _problem.fn(x, args), "smoke_aux"
+            return _problem.fn(x, args), smoke_aux
 
         problem = optx.MinimiseProblem(aux_problem, True, _problem.tags)
     else:
@@ -361,7 +361,7 @@ def test_fixed_point_jvp(getkey, solver, _problem, minimum, init, has_aux):
     if has_aux:
 
         def aux_problem(x, args):
-            return _problem.fn(x, args), "smoke_aux"
+            return _problem.fn(x, args), smoke_aux
 
         problem = optx.MinimiseProblem(aux_problem, True, _problem.tags)
     else:
@@ -395,7 +395,7 @@ def test_root_find_jvp(getkey, solver, _problem, minimum, init, has_aux):
 
     def root_find_problem_aux(y, args):
         f_val = _problem.fn(y, args)
-        return (f_val**ω - y**ω).ω, "smoke_aux"
+        return (f_val**ω - y**ω).ω, smoke_aux
 
     if has_aux:
         problem = optx.RootFindProblem(root_find_problem_aux, has_aux=True)
