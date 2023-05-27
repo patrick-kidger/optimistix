@@ -49,7 +49,7 @@ class AbstractIterativeSolver(eqx.Module):
         y: PyTree[Array],
         args: PyTree,
         options: dict[str, Any],
-        aux_struc: PyTree[jax.ShapeDtypeStruct] | None,
+        aux_struc: PyTree[jax.ShapeDtypeStruct],
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ) -> _SolverState:
         ...

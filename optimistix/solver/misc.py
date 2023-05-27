@@ -1,5 +1,5 @@
 import math
-from typing import Any, Callable, NewType, Optional
+from typing import Any, Callable, NewType, Optional, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -85,7 +85,7 @@ class _NoAuxOut(eqx.Module):
 
 
 def compute_hess_grad(
-    problem: MinimiseProblem | RootFindProblem, y: PyTree[Array], args: Any
+    problem: Union[MinimiseProblem, RootFindProblem], y: PyTree[Array], args: Any
 ):
     jrev = jax.jacrev(problem.fn, has_aux=True)
     grad, aux = jrev(y, args)
