@@ -73,7 +73,7 @@ class ClassicalTrustRegion(AbstractMinimiser):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
         f_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         try:

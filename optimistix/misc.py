@@ -1,5 +1,5 @@
 import functools as ft
-from typing import Callable, cast
+from typing import Callable, cast, Optional
 
 import equinox as eqx
 import jax
@@ -64,7 +64,7 @@ def _rms_norm_jvp(x, tx):
     return out, t_out
 
 
-def tree_full(struct: jax.ShapeDtypeStruct | None, fill_value: ArrayLike):
+def tree_full(struct: Optional[jax.ShapeDtypeStruct], fill_value: ArrayLike):
     if struct is None:
         filled = None
     else:
@@ -76,7 +76,7 @@ def tree_full_like(tree: PyTree[Array], fill_value: ArrayLike):
     return jtu.tree_map(lambda x: jnp.full_like(x, fill_value), tree)
 
 
-def tree_zeros(struct: jax.ShapeDtypeStruct | None):
+def tree_zeros(struct: Optional[jax.ShapeDtypeStruct]):
     if struct is None:
         zeros = None
     else:
