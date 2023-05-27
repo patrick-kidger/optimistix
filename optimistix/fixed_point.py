@@ -52,7 +52,12 @@ def fixed_point(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
 ) -> Solution:
-    if jax.eval_shape(lambda: y0) != jax.eval_shape(problem.fn, y0, args):
+    struct = jax.eval_shape(lambda: problem.fn(y0, args))
+    if problem.has_aux:
+        struct, aux_struct = struct
+    else:
+        aux_struct = None
+    if jax.eval_shape(lambda: y0) != struct:
         raise ValueError(
             "The input and output of `fixed_point_fn` must have the same structure"
         )
@@ -84,4 +89,6 @@ def fixed_point(
             adjoint=adjoint,
             throw=throw,
             tags=frozenset(),
+            aux_struct=aux_struct,
+            f_struct=struct,
         )

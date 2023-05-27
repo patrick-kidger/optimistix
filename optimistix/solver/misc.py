@@ -6,16 +6,12 @@ import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import lineax as lx
 import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Shaped
 
 from ..least_squares import LeastSquaresProblem
-from ..linear_operator import (
-    AbstractLinearOperator,
-    JacobianLinearOperator,
-    PyTreeLinearOperator,
-)
 from ..minimise import MinimiseProblem
 from ..misc import tree_inner_prod, two_norm
 from ..root_find import RootFindProblem
@@ -90,7 +86,7 @@ def compute_hess_grad(
     jrev = jax.jacrev(problem.fn, has_aux=True)
     grad, aux = jrev(y, args)
     hessian, _ = jax.jacfwd(jrev, has_aux=True)(y, args)
-    hessian = PyTreeLinearOperator(
+    hessian = lx.PyTreeLinearOperator(
         hessian,
         output_structure=jax.eval_shape(lambda: grad),
     )
@@ -100,7 +96,7 @@ def compute_hess_grad(
 def compute_jac_residual(problem: LeastSquaresProblem, y: PyTree[Array], args: Any):
     residual, aux = problem.fn(y, args)
     problem.tags
-    jacobian = JacobianLinearOperator(
+    jacobian = lx.JacobianLinearOperator(
         problem.fn, y, args, tags=problem.tags, _has_aux=True
     )
     return residual, jacobian, aux
@@ -109,7 +105,7 @@ def compute_jac_residual(problem: LeastSquaresProblem, y: PyTree[Array], args: A
 PackedStructures = NewType("PackedStructures", eqxi.Static)
 
 
-def pack_structures(operator: AbstractLinearOperator) -> PackedStructures:
+def pack_structures(operator: lx.AbstractLinearOperator) -> PackedStructures:
     structures = operator.out_structure(), operator.in_structure()
     leaves, treedef = jtu.tree_flatten(structures)  # handle nonhashable pytrees
     return PackedStructures(eqxi.Static((leaves, treedef)))

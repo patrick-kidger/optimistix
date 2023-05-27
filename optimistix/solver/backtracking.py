@@ -3,10 +3,10 @@ from typing import Any
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import lineax as lx
 from jaxtyping import Array, Bool, Float, Int, PyTree
 
 from ..line_search import OneDimensionalFunction
-from ..linear_operator import AbstractLinearOperator
 from ..minimise import AbstractMinimiser, MinimiseProblem
 from ..misc import tree_full, tree_inner_prod, tree_zeros_like
 from ..solution import RESULTS
@@ -17,7 +17,7 @@ class BacktrackingState(eqx.Module):
     f_delta: Float[Array, ""]
     f0: Float[Array, ""]
     vector: PyTree[Array]
-    operator: AbstractLinearOperator
+    operator: lx.AbstractLinearOperator
     diff: PyTree[Array]
     compute_f0: Bool[Array, ""]
     result: RESULTS

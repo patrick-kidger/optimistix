@@ -2,13 +2,12 @@ from typing import Any, Callable, Optional
 
 import equinox as eqx
 import jax.numpy as jnp
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
 from ..iterate import AbstractIterativeProblem
 from ..line_search import AbstractDescent
-from ..linear_operator import AbstractLinearOperator
-from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import tree_full_like, tree_inner_prod, tree_where, two_norm
 
 
@@ -22,21 +21,21 @@ def _quadratic_solve(a, b, c):
 
 class DoglegState(eqx.Module):
     vector: PyTree[Array]
-    operator: AbstractLinearOperator
+    operator: lx.AbstractLinearOperator
 
 
 class Dogleg(AbstractDescent):
     gauss_newton: bool
     norm: Callable = two_norm
-    solver: AbstractLinearSolver = AutoLinearSolver(well_posed=False)
+    solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
 
     def init_state(
         self,
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = {},
     ):
@@ -49,8 +48,8 @@ class Dogleg(AbstractDescent):
         descent_state: DoglegState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
         return DoglegState(vector, operator)
@@ -84,7 +83,7 @@ class Dogleg(AbstractDescent):
         # compute Newton and Cauchy steps. If below Cauchy or above Newton
         # accept (scaled) cauchy or Newton respectively.
         cauchy = (-projection_const * grad**ω).ω
-        newton_soln = linear_solve(
+        newton_soln = lx.linear_solve(
             descent_state.operator, descent_state.vector, solver=self.solver
         )
         newton = (-newton_soln.value**ω).ω

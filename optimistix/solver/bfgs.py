@@ -5,11 +5,11 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
 from ..line_search import AbstractDescent, OneDimensionalFunction
-from ..linear_operator import AbstractLinearOperator, PyTreeLinearOperator
 from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
 from ..misc import max_norm, tree_full, tree_inner_prod, tree_zeros
 from ..solution import RESULTS
@@ -56,7 +56,7 @@ def _converged(factor: Scalar, tol: float) -> Bool[ArrayLike, " "]:
 class BFGSState(eqx.Module):
     descent_state: PyTree
     vector: PyTree[Array]
-    operator: AbstractLinearOperator
+    operator: lx.AbstractLinearOperator
     diff: PyTree[Array]
     diffsize: Scalar
     diffsize_prev: Scalar
@@ -97,7 +97,7 @@ class BFGS(AbstractMinimiser):
         vector, aux = jrev(y, args)
         # create an identity operator which we can update with BFGS
         # update/Woodbury identity
-        operator = PyTreeLinearOperator(
+        operator = lx.PyTreeLinearOperator(
             _std_basis(vector), output_structure=jax.eval_shape(lambda: vector)
         )
         if self.use_inverse:
@@ -190,7 +190,7 @@ class BFGS(AbstractMinimiser):
             operator_ip = tree_inner_prod(diff, state.operator.mv(diff))
             term1 = (diff_outer**ω / inner).ω
             term2 = (hess_outer**ω / operator_ip).ω
-        new_hess = PyTreeLinearOperator(
+        new_hess = lx.PyTreeLinearOperator(
             (state.operator.pytree**ω + term1**ω - term2**ω).ω,
             state.operator.out_structure(),
         )

@@ -4,10 +4,10 @@ from typing import Any, Callable, FrozenSet, Optional
 
 import equinox as eqx
 import equinox.internal as eqxi
+import lineax as lx
 from jaxtyping import PyTree
 
 from .ad import implicit_jvp
-from .linear_solve import AbstractLinearSolver, AutoLinearSolver
 
 
 class AbstractAdjoint(eqx.Module):
@@ -35,7 +35,7 @@ class RecursiveCheckpointAdjoint(AbstractAdjoint):
 
 
 class ImplicitAdjoint(AbstractAdjoint):
-    linear_solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True)
+    linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=True)
 
     def apply(self, primal_fn, rewrite_fn, inputs, closure, tags):
         while_loop = ft.partial(eqxi.while_loop, kind="lax")

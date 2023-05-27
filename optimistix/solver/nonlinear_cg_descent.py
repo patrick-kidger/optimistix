@@ -4,12 +4,12 @@ import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
 from ..iterate import AbstractIterativeProblem
 from ..line_search import AbstractDescent
-from ..linear_operator import AbstractLinearOperator
 from ..misc import tree_inner_prod, two_norm
 from ..solution import RESULTS
 
@@ -71,8 +71,8 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = {},
     ):
@@ -83,8 +83,8 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         descent_state: NonlinearCGState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
         # not sure of a better way to do this at the moment

@@ -4,17 +4,13 @@ from typing import Any, Callable
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Float, Int, PyTree, Scalar
 
-from ..least_squares import (
-    AbstractLeastSquaresSolver,
-    least_squares,
-    LeastSquaresProblem,
-)
+from ..least_squares import AbstractLeastSquaresSolver, LeastSquaresProblem
 from ..line_search import AbstractDescent, OneDimensionalFunction
-from ..linear_operator import AbstractLinearOperator
-from ..minimise import AbstractMinimiser
+from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
 from ..misc import max_norm, tree_full_like
 from ..solution import RESULTS
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
@@ -40,7 +36,7 @@ def _converged(factor: Scalar, tol: float) -> Bool[ArrayLike, " "]:
 class GNState(eqx.Module):
     descent_state: PyTree
     vector: PyTree[ArrayLike]
-    operator: AbstractLinearOperator
+    operator: lx.AbstractLinearOperator
     diff: PyTree[Array]
     diffsize: Scalar
     diffsize_prev: Scalar
@@ -106,7 +102,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             residual, aux = problem.fn(x, args)
             return two_norm(residual), aux
 
-        problem_1d = LeastSquaresProblem(
+        problem_1d = MinimiseProblem(
             OneDimensionalFunction(line_search_problem, descent, y), has_aux=True
         )
         line_search_options = {
@@ -128,7 +124,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             self.line_search.first_init(state.vector, state.operator, options),
             state.next_init,
         )
-        line_sol = least_squares(
+        line_sol = minimise(
             problem_1d,
             self.line_search,
             init,
@@ -145,7 +141,6 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         descent_state = self.descent.update_state(
             state.descent_state, state.diff, vector, operator, None, options
         )
-        jax.debug.print("f_val: {}", f_val)
         new_state = GNState(
             descent_state=descent_state,
             vector=vector,

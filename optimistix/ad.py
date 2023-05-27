@@ -4,11 +4,9 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.tree_util as jtu
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import PyTree
-
-from .linear_operator import JacobianLinearOperator
-from .linear_solve import AbstractLinearSolver, linear_solve
 
 
 def implicit_jvp(
@@ -17,7 +15,7 @@ def implicit_jvp(
     inputs: PyTree,
     closure: Any,
     tags: FrozenSet[object],
-    linear_solver: AbstractLinearSolver,
+    linear_solver: lx.AbstractLinearSolver,
 ):
     """Rewrites gradients via the implicit function theorem.
 
@@ -30,7 +28,7 @@ def implicit_jvp(
         computation.
     - `tags`: any tags (symmetric, diagonal, ...) for the matrix
         `d(fn_rewrite)/d(root)`.
-    - `linear_solver`: an `AbstractLinearSolver`, used to solve the linear problem
+    - `linear_solver`: an `lx.AbstractLinearSolver`, used to solve the linear problem
         on the backward pass.
 
     Note that due to limitations with JAX's custom autodiff, both `fn_primal` and
@@ -96,12 +94,12 @@ def _implicit_impl_jvp(primals, tangents):
         _inputs = eqx.combine(_diff, nondiff)
         return fn_rewrite(root, residual, _inputs, closure)
 
-    operator = JacobianLinearOperator(
+    operator = lx.JacobianLinearOperator(
         _for_jac, root, (fn_rewrite, residual, inputs, closure), tags=tags
     )
     _, jvp_diff = jax.jvp(_for_jvp, (diff,), (t_inputs,))
 
-    t_root = linear_solve(operator, jvp_diff, linear_solver)
+    t_root = lx.linear_solve(operator, jvp_diff, linear_solver)
     t_root_value = (-ω(t_root.value)).ω
     t_root = eqx.tree_at(lambda x: x.value, t_root, t_root_value)
 

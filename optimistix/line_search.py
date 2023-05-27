@@ -3,11 +3,11 @@ from typing import Any, Callable, Generic, Optional, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar
 
 from .iterate import AbstractIterativeProblem
-from .linear_operator import AbstractLinearOperator
 
 
 _DescentState = TypeVar("_DescentState")
@@ -20,8 +20,8 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         args: Optional[Any],
         options: Optional[dict[str, Any]],
     ):
@@ -33,8 +33,8 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         descent_state: _DescentState,
         prev_diff: Optional[PyTree[Array]],
         vector: Optional[PyTree[Array]],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         options: Optional[dict[str, Any]],
     ):
         ...

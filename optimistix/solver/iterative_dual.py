@@ -5,25 +5,17 @@ import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Float, Int, PyTree, Scalar
 
 from ..custom_types import sentinel
 from ..iterate import AbstractIterativeProblem
 from ..line_search import AbstractDescent
-from ..linear_operator import (
-    AbstractLinearOperator,
-    IdentityLinearOperator,
-    JacobianLinearOperator,
-    linearise,
-    PyTreeLinearOperator,
-)
-from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import tree_where, two_norm
 from ..root_find import AbstractRootFinder, root_find, RootFindProblem
 from ..solution import RESULTS
 from .misc import quadratic_predicted_reduction
-from .qr import QR
 
 
 #
@@ -222,7 +214,7 @@ class IterativeDualState(eqx.Module):
     y: PyTree[Array]
     problem: AbstractIterativeProblem
     vector: PyTree[Array]
-    operator: AbstractLinearOperator
+    operator: lx.AbstractLinearOperator
 
 
 class _Damped(eqx.Module):
@@ -238,15 +230,17 @@ class _Damped(eqx.Module):
 
 class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
     gauss_newton: bool
-    modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
+    modify_jac: Callable[
+        [lx.JacobianLinearOperator], lx.AbstractLinearOperator
+    ] = lx.linearise
 
     def init_state(
         self,
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator] = None,
-        operator_inv: Optional[AbstractLinearOperator] = None,
+        operator: Optional[lx.AbstractLinearOperator] = None,
+        operator_inv: Optional[lx.AbstractLinearOperator] = None,
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
@@ -259,8 +253,8 @@ class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
         descent_state: IterativeDualState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
         return IterativeDualState(
@@ -276,7 +270,7 @@ class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
     ):
         if self.gauss_newton:
             vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
-            operator = JacobianLinearOperator(
+            operator = lx.JacobianLinearOperator(
                 _Damped(descent_state.problem.fn, delta),
                 descent_state.y,
                 args,
@@ -284,11 +278,11 @@ class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
             )
         else:
             vector = descent_state.vector
-            operator = descent_state.operator + delta * IdentityLinearOperator(
+            operator = descent_state.operator + delta * lx.IdentityLinearOperator(
                 descent_state.operator.in_structure()
             )
         operator = self.modify_jac(operator)
-        linear_soln = linear_solve(operator, vector, QR(), throw=False)
+        linear_soln = lx.linear_solve(operator, vector, lx.QR(), throw=False)
         diff = (-linear_soln.value**ω).ω
         return diff, linear_soln.result
 
@@ -321,7 +315,7 @@ class DirectIterativeDual(_DirectIterativeDual):
         delta_nonzero = delta > jnp.finfo(delta.dtype).eps
         if self.gauss_newton:
             vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
-            operator = JacobianLinearOperator(
+            operator = lx.JacobianLinearOperator(
                 _Damped(
                     descent_state.problem.fn,
                     jnp.where(delta_nonzero, 1 / delta, jnp.inf),
@@ -334,9 +328,9 @@ class DirectIterativeDual(_DirectIterativeDual):
             vector = descent_state.vector
             operator = descent_state.operator + jnp.where(
                 delta_nonzero, 1 / delta, jnp.inf
-            ) * IdentityLinearOperator(descent_state.operator.in_structure())
+            ) * lx.IdentityLinearOperator(descent_state.operator.in_structure())
         operator = self.modify_jac(operator)
-        linear_soln = linear_solve(operator, vector, QR(), throw=False)
+        linear_soln = lx.linear_solve(operator, vector, lx.QR(), throw=False)
         no_diff = jtu.tree_map(jnp.zeros_like, linear_soln.value)
         diff = tree_where(delta_nonzero, (-linear_soln.value**ω).ω, no_diff)
         return diff, linear_soln.result
@@ -361,22 +355,22 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
     gauss_newton: bool
     lambda_0: Float[Array, ""]
     root_finder: AbstractRootFinder
-    solver: AbstractLinearSolver
-    tr_reg: Optional[PyTreeLinearOperator]
+    solver: lx.AbstractLinearSolver
+    tr_reg: Optional[lx.PyTreeLinearOperator]
     norm: Callable
-    modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator]
+    modify_jac: Callable[[lx.JacobianLinearOperator], lx.AbstractLinearOperator]
 
     def __init__(
         self,
         gauss_newton: bool,
         lambda_0: float,
         root_finder: AbstractRootFinder = sentinel,
-        solver: AbstractLinearSolver = AutoLinearSolver(well_posed=False),
-        tr_reg: Optional[PyTreeLinearOperator] = None,
+        solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False),
+        tr_reg: Optional[lx.PyTreeLinearOperator] = None,
         norm: Callable = two_norm,
         modify_jac: Callable[
-            [JacobianLinearOperator], AbstractLinearOperator
-        ] = linearise,
+            [lx.JacobianLinearOperator], lx.AbstractLinearOperator
+        ] = lx.linearise,
     ):
         self.gauss_newton = gauss_newton
         self.lambda_0 = jnp.array(lambda_0)
@@ -394,8 +388,8 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
@@ -408,8 +402,8 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
         descent_state: IterativeDualState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
         return IterativeDualState(
@@ -436,7 +430,7 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
             args=args,
             options=options,
         )
-        newton_soln = linear_solve(
+        newton_soln = lx.linear_solve(
             descent_state.operator, (-descent_state.vector**ω).ω, self.solver
         )
         # NOTE: try delta = delta * self.norm(newton_step).
@@ -446,7 +440,7 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
         tr_reg = self.tr_reg
 
         if tr_reg is None:
-            tr_reg = IdentityLinearOperator(jax.eval_shape(lambda: newton_step))
+            tr_reg = lx.IdentityLinearOperator(jax.eval_shape(lambda: newton_step))
 
         def comparison_fn(
             lambda_i: Scalar,

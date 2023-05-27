@@ -9,6 +9,7 @@ import optimistix as optx
 
 from .helpers import finite_difference_jvp, shaped_allclose
 from .test_problems import (
+    bisection_problem_init,
     fixed_point_problem_init,
     least_squares_problem_minima_init,
     minimisation_problem_minima_init,
@@ -41,9 +42,9 @@ def _norm_squared(tree):
 # - DirectIterativeDual(GN=...)
 # - IndirectIterativeDual(GN=...)
 # - Dogleg(GN=...)
-# - Newton(GN=...) (NewtonInverse)
-# - Gradient
-# - NonlinearCG
+# - Newton(GN=...)
+# - Gradient (Not appropriate for GN!)
+# - NonlinearCG (Not appropriate for GN!)
 #
 atol = rtol = 1e-8
 _lsqr_only = (
@@ -62,22 +63,6 @@ _lsqr_only = (
         line_search=optx.ClassicalTrustRegion(),
         descent=optx.NormalisedNewton(gauss_newton=True),  # Newton(GN=True)
     ),
-    optx.GaussNewton(
-        rtol,
-        atol,
-        line_search=optx.BacktrackingArmijo(
-            gauss_newton=True, backtrack_slope=0.1, decrease_factor=0.5
-        ),
-        descent=optx.NormalisedGradient(),  # Gradient
-    ),
-    optx.GaussNewton(
-        rtol,
-        atol,
-        line_search=optx.BacktrackingArmijo(
-            gauss_newton=True, backtrack_slope=0.1, decrease_factor=0.5
-        ),
-        descent=optx.NonlinearCGDescent(method=optx.polak_ribiere),  # NonlinearCG
-    ),
 )
 # NOTE: Should we parametrize the line search algo?
 # NOTE: Should we parametrize the nonlinearCG method?
@@ -91,12 +76,12 @@ _minimisers = (
             gauss_newton=False
         ),  # DirectIterativeDual(GN=False)
     ),
-    # optx.BFGS(
-    #     rtol,
-    #     atol,
-    #     line_search=optx.ClassicalTrustRegion(),
-    #     descent=optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1.),
-    # ), # IndirectIterativeDual(GN=False)
+    optx.BFGS(
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(),
+        descent=optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1.0),
+    ),  # IndirectIterativeDual(GN=False)
     # optx.BFGS(
     #     rtol,
     #     atol,
@@ -146,14 +131,13 @@ _lsqr_minimisers = _lsqr_only + _minimisers
 # SOLVERS:
 # - Newton
 # - Chord
-# - Bisection
+# - Bisection (is initialized elsewhere)
 #
 
 atol = rtol = 1e-6
 _root_finders = (
-    # optx.Bisection(rtol, atol),
     optx.Newton(rtol, atol),
-    # optx.Chord(rtol, atol),
+    optx.Chord(rtol, atol),
 )
 
 #
@@ -168,7 +152,7 @@ _fp_solvers = (optx.FixedPointIteration(rtol, atol),)
 
 #
 # If `has_aux` in any of these we pass the extra PyTree `smoke_aux` as an aux value.
-# This is just to make sure that auxs are handled correctly by the solvers, and
+# This is just to make sure that aux is handled correctly by the solvers.
 #
 
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
@@ -209,7 +193,7 @@ def test_least_squares(solver, _problem, minimum, init, has_aux):
 
 @pytest.mark.parametrize("solver", _minimisers)
 @pytest.mark.parametrize("_problem, minimum, init", minimisation_problem_minima_init)
-@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("has_aux", (True, False))
 def test_minimise(solver, _problem, minimum, init, has_aux):
     atol = rtol = 1e-4
     if has_aux:
@@ -234,7 +218,7 @@ def test_minimise(solver, _problem, minimum, init, has_aux):
 
 @pytest.mark.parametrize("solver", _fp_solvers)
 @pytest.mark.parametrize("_problem, init", fixed_point_problem_init)
-@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("has_aux", (True, False))
 def test_fixed_point(solver, _problem, init, has_aux):
     atol = rtol = 1e-4
     if has_aux:
@@ -242,7 +226,7 @@ def test_fixed_point(solver, _problem, init, has_aux):
         def aux_problem(x, args):
             return _problem.fn(x, args), smoke_aux
 
-        problem = optx.FixedPointProblem(aux_problem, True, _problem.tags)
+        problem = optx.FixedPointProblem(aux_problem, True)
     else:
         problem = _problem
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
@@ -259,7 +243,7 @@ def test_fixed_point(solver, _problem, init, has_aux):
 
 @pytest.mark.parametrize("solver", _root_finders)
 @pytest.mark.parametrize("_problem, init", fixed_point_problem_init)
-@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("has_aux", (True, False))
 def test_root_find(solver, _problem, init, has_aux):
     atol = rtol = 1e-4
 
@@ -279,23 +263,56 @@ def test_root_find(solver, _problem, init, has_aux):
     optx_fp = optx.root_find(
         problem, solver, dynamic_init, args=static_init, max_steps=10_000, throw=False
     ).value
-    out = _problem.fn(optx_fp, static_init)
+    out = problem.fn(optx_fp, static_init)
     if has_aux:
         f_val, _ = out
     else:
         f_val = out
-    assert shaped_allclose(optx_fp, f_val, atol=atol, rtol=rtol)
+    zeros = jtu.tree_map(jnp.zeros_like, f_val)
+    assert shaped_allclose(f_val, zeros, atol=atol, rtol=rtol)
 
 
-@pytest.mark.parametrize("_problem, init", fixed_point_problem_init)
-@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("_problem, init", bisection_problem_init)
+@pytest.mark.parametrize("has_aux", (True, False))
 def test_bisection(_problem, init, has_aux):
-    ...
+    solver = optx.Bisection(rtol=1e-6, atol=1e-6)
+    atol = rtol = 1e-4
+
+    def root_find_problem(y, args):
+        f_val = _problem.fn(y, args)
+        return (f_val**ω - y**ω).ω
+
+    def root_find_problem_aux(y, args):
+        f_val = _problem.fn(y, args)
+        return (f_val**ω - y**ω).ω, smoke_aux
+
+    if has_aux:
+        problem = optx.RootFindProblem(root_find_problem_aux, has_aux=True)
+    else:
+        problem = optx.RootFindProblem(root_find_problem, has_aux=False)
+    bisection_options = {"upper": jnp.array(1.0), "lower": jnp.array(0.0)}
+    dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
+    optx_fp = optx.root_find(
+        problem,
+        solver,
+        dynamic_init,
+        args=static_init,
+        options=bisection_options,
+        max_steps=10_000,
+        throw=False,
+    ).value
+    out = problem.fn(optx_fp, static_init)
+    if has_aux:
+        f_val, _ = out
+    else:
+        f_val = out
+    zeros = jtu.tree_map(jnp.zeros_like, f_val)
+    assert shaped_allclose(f_val, zeros, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize("solver", _lsqr_minimisers)
 @pytest.mark.parametrize("_problem, minimum, init", least_squares_problem_minima_init)
-@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("has_aux", (True, False))
 def test_least_squares_jvp(getkey, solver, _problem, minimum, init, has_aux):
     atol = rtol = 1e-4
     if has_aux:
@@ -325,7 +342,7 @@ def test_least_squares_jvp(getkey, solver, _problem, minimum, init, has_aux):
 
 @pytest.mark.parametrize("solver", _minimisers)
 @pytest.mark.parametrize("_problem, minimum, init", minimisation_problem_minima_init)
-@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("has_aux", (True, False))
 def test_minimise_jvp(getkey, solver, _problem, minimum, init, has_aux):
     atol = rtol = 1e-4
     if has_aux:
@@ -355,7 +372,7 @@ def test_minimise_jvp(getkey, solver, _problem, minimum, init, has_aux):
 
 @pytest.mark.parametrize("solver", _fp_solvers)
 @pytest.mark.parametrize("_problem, init", fixed_point_problem_init)
-@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("has_aux", (True, False))
 def test_fixed_point_jvp(getkey, solver, _problem, minimum, init, has_aux):
     atol = rtol = 1e-4
     if has_aux:
@@ -385,7 +402,7 @@ def test_fixed_point_jvp(getkey, solver, _problem, minimum, init, has_aux):
 
 @pytest.mark.parametrize("solver", _root_finders)
 @pytest.mark.parametrize("_problem, init", fixed_point_problem_init)
-@pytest.mark.parametrize("has_aux", (False,))
+@pytest.mark.parametrize("has_aux", (True, False))
 def test_root_find_jvp(getkey, solver, _problem, minimum, init, has_aux):
     atol = rtol = 1e-4
 

@@ -4,11 +4,10 @@ from typing import Any, Callable, Optional
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
-from ..linear_operator import AbstractLinearOperator, JacobianLinearOperator, linearise
-from ..linear_solve import AbstractLinearSolver, AutoLinearSolver, linear_solve
 from ..misc import max_norm
 from ..root_find import AbstractRootFinder, RootFindProblem
 from ..solution import RESULTS
@@ -42,8 +41,10 @@ class _NewtonChord(AbstractRootFinder):
     atol: float
     kappa: float = 1e-2
     norm: Callable = max_norm
-    linear_solver: AbstractLinearSolver = AutoLinearSolver(well_posed=None)
-    modify_jac: Callable[[JacobianLinearOperator], AbstractLinearOperator] = linearise
+    linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
+    modify_jac: Callable[
+        [lx.JacobianLinearOperator], lx.AbstractLinearOperator
+    ] = lx.linearise
     lower: float = None
     upper: float = None
 
@@ -65,7 +66,7 @@ class _NewtonChord(AbstractRootFinder):
         if self._is_newton:
             linear_state = None
         else:
-            jac = JacobianLinearOperator(
+            jac = lx.JacobianLinearOperator(
                 problem.fn, y, args, tags=problem.tags, _has_aux=True
             )
             jac = self.modify_jac(jac)
@@ -89,14 +90,14 @@ class _NewtonChord(AbstractRootFinder):
         del options
         fx, _ = problem.fn(y, args)
         if self._is_newton:
-            jac = JacobianLinearOperator(
+            jac = lx.JacobianLinearOperator(
                 problem.fn, y, args, tags=problem.tags, _has_aux=True
             )
             jac = self.modify_jac(jac)
-            sol = linear_solve(jac, fx, self.linear_solver, throw=False)
+            sol = lx.linear_solve(jac, fx, self.linear_solver, throw=False)
         else:
             jac, linear_state = state.linear_state
-            sol = linear_solve(
+            sol = lx.linear_solve(
                 jac, fx, self.linear_solver, state=linear_state, throw=False
             )
         diff = sol.value

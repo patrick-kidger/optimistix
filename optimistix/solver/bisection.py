@@ -27,7 +27,7 @@ class Bisection(AbstractRootFinder):
                 "Bisection can only be used to find the roots of a function taking a "
                 "scalar input"
             )
-        out_struct = jax.eval_shape(root_prob.fn, y)
+        out_struct, _ = jax.eval_shape(root_prob.fn, y, args)
         if not isinstance(out_struct, jax.ShapeDtypeStruct) or out_struct.shape != ():
             raise ValueError(
                 "Bisection can only be used to find the roots of a function producing "

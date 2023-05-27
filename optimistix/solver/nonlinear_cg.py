@@ -5,12 +5,12 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import lineax as lx
 from equinox.internal import ω
 from jax import lax
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
 from ..line_search import AbstractDescent, OneDimensionalFunction
-from ..linear_operator import AbstractLinearOperator, IdentityLinearOperator
 from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
 from ..misc import max_norm, tree_full, tree_zeros, tree_zeros_like
 from ..solution import RESULTS
@@ -35,7 +35,7 @@ def _converged(factor: Scalar, tol: float) -> Bool[ArrayLike, " "]:
 class GradOnlyState(eqx.Module):
     descent_state: PyTree
     vector: PyTree[Array]
-    operator: AbstractLinearOperator
+    operator: lx.AbstractLinearOperator
     diff: PyTree[Array]
     diffsize: Scalar
     diffsize_prev: Scalar
@@ -87,7 +87,7 @@ class AbstractGradOnly(AbstractMinimiser):
         f0 = tree_full(f_struct, jnp.inf)
         aux = tree_zeros(aux_struct)
         y_zeros = tree_zeros_like(y)
-        operator = IdentityLinearOperator(jax.eval_shape(lambda: y))
+        operator = lx.IdentityLinearOperator(jax.eval_shape(lambda: y))
         descent_state = self.descent.init_state(
             problem, y, y_zeros, operator, None, args, {}
         )

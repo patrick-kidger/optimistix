@@ -2,13 +2,12 @@ from typing import Any, Optional
 
 import equinox as eqx
 import jax.numpy as jnp
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
 from ..iterate import AbstractIterativeProblem
 from ..line_search import AbstractDescent
-from ..linear_operator import AbstractLinearOperator
-from ..linear_solve import AutoLinearSolver, linear_solve
 from ..misc import tree_inner_prod, two_norm
 from ..solution import RESULTS
 from .misc import quadratic_predicted_reduction
@@ -24,8 +23,8 @@ class UnnormalisedGradient(AbstractDescent[GradientState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator] = None,
-        operator_inv: Optional[AbstractLinearOperator] = None,
+        operator: Optional[lx.AbstractLinearOperator] = None,
+        operator_inv: Optional[lx.AbstractLinearOperator] = None,
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
@@ -36,8 +35,8 @@ class UnnormalisedGradient(AbstractDescent[GradientState]):
         descent_state: GradientState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator] = None,
-        operator_inv: Optional[AbstractLinearOperator] = None,
+        operator: Optional[lx.AbstractLinearOperator] = None,
+        operator_inv: Optional[lx.AbstractLinearOperator] = None,
         options: Optional[dict[str, Any]] = None,
     ):
         return GradientState(vector)
@@ -68,8 +67,8 @@ class NormalisedGradient(AbstractDescent[GradientState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator] = None,
-        operator_inv: Optional[AbstractLinearOperator] = None,
+        operator: Optional[lx.AbstractLinearOperator] = None,
+        operator_inv: Optional[lx.AbstractLinearOperator] = None,
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
@@ -80,8 +79,8 @@ class NormalisedGradient(AbstractDescent[GradientState]):
         descent_state: GradientState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator] = None,
-        operator_inv: Optional[AbstractLinearOperator] = None,
+        operator: Optional[lx.AbstractLinearOperator] = None,
+        operator_inv: Optional[lx.AbstractLinearOperator] = None,
         options: Optional[dict[str, Any]] = None,
     ):
         return GradientState(vector)
@@ -108,8 +107,8 @@ class NormalisedGradient(AbstractDescent[GradientState]):
 
 class NewtonState(eqx.Module):
     vector: PyTree[Array]
-    operator: Optional[AbstractLinearOperator]
-    operator_inv: Optional[AbstractLinearOperator]
+    operator: Optional[lx.AbstractLinearOperator]
+    operator_inv: Optional[lx.AbstractLinearOperator]
 
 
 #
@@ -136,8 +135,8 @@ class UnnormalisedNewton(AbstractDescent[NewtonState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
@@ -148,8 +147,8 @@ class UnnormalisedNewton(AbstractDescent[NewtonState]):
         descent_state: NewtonState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator] = None,
-        operator_inv: Optional[AbstractLinearOperator] = None,
+        operator: Optional[lx.AbstractLinearOperator] = None,
+        operator_inv: Optional[lx.AbstractLinearOperator] = None,
         options: Optional[dict[str, Any]] = None,
     ):
         return NewtonState(vector, operator, operator_inv)
@@ -165,10 +164,10 @@ class UnnormalisedNewton(AbstractDescent[NewtonState]):
             newton = descent_state.operator_inv.mv(descent_state.vector)
             result = jnp.array(RESULTS.successful)
         elif descent_state.operator is not None:
-            out = linear_solve(
+            out = lx.linear_solve(
                 descent_state.operator,
                 descent_state.vector,
-                AutoLinearSolver(well_posed=False),
+                lx.AutoLinearSolver(well_posed=False),
             )
             newton = out.value
             result = out.result
@@ -201,8 +200,8 @@ class NormalisedNewton(AbstractDescent[NewtonState]):
         problem: AbstractIterativeProblem,
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         args: Optional[Any] = None,
         options: Optional[dict[str, Any]] = None,
     ):
@@ -213,8 +212,8 @@ class NormalisedNewton(AbstractDescent[NewtonState]):
         descent_state: NewtonState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[AbstractLinearOperator],
-        operator_inv: Optional[AbstractLinearOperator],
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
         options: Optional[dict[str, Any]] = None,
     ):
         return NewtonState(vector, operator, operator_inv)
@@ -230,10 +229,10 @@ class NormalisedNewton(AbstractDescent[NewtonState]):
             newton = descent_state.operator_inv.mv(descent_state.vector)
             result = jnp.array(RESULTS.successful)
         elif descent_state.operator is not None:
-            out = linear_solve(
+            out = lx.linear_solve(
                 descent_state.operator,
                 descent_state.vector,
-                AutoLinearSolver(well_posed=False),
+                lx.AutoLinearSolver(well_posed=False),
             )
             newton = out.value
             result = out.result

@@ -223,7 +223,7 @@ least_squares_problem_minima_init = (
     #     jnp.array(0.0),
     #     (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
     # ),
-    # (optx.LeastSquaresProblem(_simple_nn), jnp.array(0.0), ffn_init),
+    (optx.LeastSquaresProblem(_simple_nn), jnp.array(0.0), ffn_init),
     # (
     #     optx.LeastSquaresProblem(_variably_dimensioned),
     #     jnp.array(0.0),
@@ -248,21 +248,21 @@ minimisation_problem_minima_init = (
         jnp.array(0.0),
         ({"a": 0.05 * jnp.ones((2, 3, 3))}, (0.05 * jnp.ones(2))),
     ),
-    # (
-    #     optx.MinimiseProblem(_himmelblau),
-    #     jnp.array(0.0),
-    #     [jnp.array(2.0), jnp.array(2.5)],
-    # ),
-    # (
-    #     optx.MinimiseProblem(_matyas),
-    #     jnp.array(0.0),
-    #     [jnp.array(6.0), jnp.array(6.0)],
-    # ),
-    # (
-    #     optx.MinimiseProblem(_beale),
-    #     jnp.array(0.0),
-    #     [jnp.array(2.0), jnp.array(0.0)],
-    # ),
+    (
+        optx.MinimiseProblem(_himmelblau),
+        jnp.array(0.0),
+        [jnp.array(2.0), jnp.array(2.5)],
+    ),
+    (
+        optx.MinimiseProblem(_matyas),
+        jnp.array(0.0),
+        [jnp.array(6.0), jnp.array(6.0)],
+    ),
+    (
+        optx.MinimiseProblem(_beale),
+        jnp.array(0.0),
+        [jnp.array(2.0), jnp.array(0.0)],
+    ),
 )
 
 # ROOT FIND/FIXED POINT PROBLEMS
@@ -471,6 +471,31 @@ def _midpoint_k_nonlinear(y: PyTree[Array], args: Any):
 ones_pytree = ({"a": 0.5 * jnp.ones((3, 2, 4))}, 0.5 * jnp.ones(4))
 ones_robertson = (jnp.ones(2), {"b": jnp.array(1.0)})
 hundred = jnp.ones(100)
+single = jnp.array(1.0)
+
+bisection_problem_init = (
+    (
+        optx.FixedPointProblem(_sin),
+        single,
+    ),
+    (
+        optx.FixedPointProblem(_exponential),
+        single,
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_y_linear),
+        single,
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_f_linear),
+        single,
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_k_linear),
+        single,
+    ),
+)
+
 fixed_point_problem_init = (
     (
         optx.FixedPointProblem(_sin),
