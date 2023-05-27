@@ -49,8 +49,8 @@ class BacktrackingArmijo(AbstractMinimiser):
         y: Array,
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
         f_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
     ):
         f0 = tree_full(f_struct, jnp.inf)
         vector, operator = get_vector_operator(options)

@@ -22,8 +22,8 @@ class OptaxMinimiser(AbstractMinimiser):
         self.kwargs = kwargs
         self.max_steps = max_steps
 
-    def init(self, problem, y, args, options, aux_struct, f_struct):
-        del problem, args, options, aux_struct, f_struct
+    def init(self, problem, y, args, options, f_struct, aux_struct):
+        del problem, args, options, f_struct, aux_struct
         step_index = jnp.array(0)
         optim = self.optax_cls(*self.args, **self.kwargs)
         opt_state = optim.init(y)

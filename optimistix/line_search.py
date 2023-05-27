@@ -65,7 +65,12 @@ class OneDimensionalFunction(eqx.Module):
     descent: Callable
     y: PyTree[Array]
 
-    def __init__(self, fn: Callable[..., Scalar], descent: Callable, y: PyTree[Array]):
+    def __init__(
+        self,
+        fn: Callable[[PyTree[Array], PyTree], Scalar],
+        descent: Callable,
+        y: PyTree[Array],
+    ):
         self.fn = fn
         self.descent = descent
         self.y = y
