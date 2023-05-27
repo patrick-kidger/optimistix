@@ -23,9 +23,6 @@ class FixedPointIteration(AbstractFixedPointSolver):
         error = (y**ω - new_y**ω).ω
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         new_state = self.norm((error**ω / scale**ω).ω)
-        import jax
-
-        jax.debug.print("new_y: {}", new_y)
         return new_y, new_state, aux
 
     def terminate(self, fixed_point_fn, y, args, options, state: Scalar):
