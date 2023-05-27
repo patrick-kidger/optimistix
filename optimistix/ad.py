@@ -101,9 +101,8 @@ def _implicit_impl_jvp(primals, tangents):
     )
     _, jvp_diff = jax.jvp(_for_jvp, (diff,), (t_inputs,))
 
-    t_root = linear_solve(operator, jvp_diff, linear_solver)
-    t_root_value = (-ω(t_root.value)).ω
-    t_root = eqx.tree_at(lambda x: x.value, t_root, t_root_value)
+    t_root = linear_solve(operator, jvp_diff, linear_solver).value
+    t_root = (-(t_root**ω)).ω
 
     t_residual = jtu.tree_map(lambda _: None, residual)
     return (root, residual), (t_root, t_residual)

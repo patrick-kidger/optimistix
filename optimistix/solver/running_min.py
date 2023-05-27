@@ -28,15 +28,15 @@ class RunningMinMinimiser(AbstractMinimiser):
         y: PyTree[Array],
         args: PyTree,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
     ):
         auxmented = eqx.Partial(_auxmented, problem.fn, problem.has_aux)
         pipethrough_problem = MinimiseProblem(
             auxmented, has_aux=True, tags=problem.tags
         )
         return self.minimiser.init(
-            pipethrough_problem, y, args, options, aux_struct, f_struct
+            pipethrough_problem, y, args, options, f_struct, aux_struct
         )
 
     def step(

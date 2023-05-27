@@ -65,9 +65,10 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
         f_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
     ):
+        del options, f_struct, aux_struct
         f0 = jnp.array(jnp.inf)
         vector, operator, aux = compute_jac_residual(problem, y, args)
         descent_state = self.descent.init_state(

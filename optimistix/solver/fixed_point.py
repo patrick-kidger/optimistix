@@ -14,8 +14,8 @@ class FixedPointIteration(AbstractFixedPointSolver):
     atol: float
     norm: Callable = max_norm
 
-    def init(self, fixed_point_prob, y, args, options, aux_struct, f_struct) -> Scalar:
-        del fixed_point_prob, y, args, options
+    def init(self, fixed_point_prob, y, args, options, f_struct, aux_struct) -> Scalar:
+        del fixed_point_prob, y, args, options, f_struct, aux_struct
         return jnp.array(jnp.inf)
 
     def step(self, fixed_point_prob, y, args, options, state: Scalar):

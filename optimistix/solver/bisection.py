@@ -19,7 +19,8 @@ class Bisection(AbstractRootFinder):
     rtol: float
     atol: float
 
-    def init(self, root_prob, y: Scalar, args, options, aux_struct, f_struct):
+    def init(self, root_prob, y: Scalar, args, options, f_struct, aux_struct):
+        del f_struct, aux_struct
         upper = options["upper"]
         lower = options["lower"]
         if jnp.shape(y) != () or jnp.shape(lower) != () or jnp.shape(upper) != ():

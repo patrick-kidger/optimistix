@@ -58,10 +58,10 @@ class _NewtonChord(AbstractRootFinder):
         y: PyTree[Array],
         args: Any,
         options: dict[str, Any],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
         f_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
     ):
-        del options, aux_struct, f_struct
+        del options, f_struct, aux_struct
         if self._is_newton:
             linear_state = None
         else:

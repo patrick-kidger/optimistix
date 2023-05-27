@@ -49,8 +49,8 @@ class AbstractIterativeSolver(eqx.Module):
         y: PyTree[Array],
         args: PyTree,
         options: dict[str, Any],
-        aux_struc: PyTree[jax.ShapeDtypeStruct],
         f_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
     ) -> _SolverState:
         ...
 
@@ -93,24 +93,28 @@ def _zero(x):
 
 def _iterate(inputs, closure, while_loop):
     problem, args = inputs
-    solver, y0, options, max_steps, aux_struct, f_struct = closure
+    solver, y0, options, max_steps, f_struct, aux_struct = closure
     del inputs, closure
 
     if options is None:
         options = {}
 
     if not problem.has_aux:
-        problem = eqx.tree_at(lambda p: p.fn, problem, NoneAux(problem.fn))
-        problem = eqx.tree_at(lambda p: p.has_aux, problem, aux_error)
+        problem = eqx.tree_at(
+            lambda p: (p.fn, p.has_aux), problem, (NoneAux(problem.fn), aux_error)
+        )
 
     # We need to filter non-JAX-arrays, as our linear solvers use Python bools in their
     # state.
 
     if aux_struct is sentinel:
+        assert f_struct is sentinel
         f_struct, aux_struct = eqx.filter_eval_shape(problem.fn, y0, args)
+    else:
+        assert f_struct is not sentinel
 
     init_aux = jtu.tree_map(_zero, aux_struct)
-    init_state = solver.init(problem, y0, args, options, aux_struct, f_struct)
+    init_state = solver.init(problem, y0, args, options, f_struct, aux_struct)
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
 
     init_carry = (y0, 0, dynamic_init_state, init_aux)
@@ -165,11 +169,11 @@ def iterative_solve(
     adjoint: AbstractAdjoint,
     throw: bool,
     tags: FrozenSet[object],
+    f_struct: PyTree[jax.ShapeDtypeStruct] = sentinel,
     aux_struct: PyTree[jax.ShapeDtypeStruct] = sentinel,
-    f_struct: PyTree[jax.ShapeDtypeStruct] = sentinel
 ) -> Solution:
     inputs = problem, args
-    closure = solver, y0, options, max_steps, aux_struct, f_struct
+    closure = solver, y0, options, max_steps, f_struct, aux_struct
     out, (num_steps, result, final_state, aux) = adjoint.apply(
         _iterate, rewrite_fn, inputs, closure, tags
     )
