@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, Float, PyTree, Scalar
+from jaxtyping import Array, PyTree, Scalar
 
 import optimistix as optx
 
@@ -315,22 +315,21 @@ def _nonlinear_heat_pde_general(
 
 
 def _midpoint_y_general(
-    f: Callable[[Float[Array, ""], Any], Float[Array, ""]],
-    y0: Float[Array, ""],
+    f: Callable[[PyTree[Array], Any], PyTree[Array]],
+    y0: PyTree[Array],
     dt: Scalar,
     y: PyTree[Array],
     args: Any,
 ):
     # Solve an implicit midpoint Runge-Kutta step with fixed point iteration
     # in "y space," ie. the typical representation of a Runge-Kutta method
-    ...
-    f_new = f(((0.5 * (y0**ω + y**ω))).ω, args)
+    f_new = f((0.5 * (y0**ω + y**ω)).ω, args)
     return (y0**ω + dt * f_new**ω).ω
 
 
 def _midpoint_f_general(
-    f: Callable[[Float[Array, ""], Any], Float[Array, ""]],
-    y0: Float[Array, ""],
+    f: Callable[[PyTree[Array], Any], PyTree[Array]],
+    y0: PyTree[Array],
     dt: Scalar,
     y: PyTree[Array],
     args: Any,
@@ -342,8 +341,8 @@ def _midpoint_f_general(
 
 
 def _midpoint_k_general(
-    f: Callable[[Float[Array, ""], Any], Float[Array, ""]],
-    y0: Float[Array, ""],
+    f: Callable[[PyTree[Array], Any], PyTree[Array]],
+    y0: PyTree[Array],
     dt: Scalar,
     y: PyTree[Array],
     args: Any,
@@ -381,9 +380,7 @@ def _sin(tree: PyTree[Array], args: Any):
     return jtu.tree_map(jnp.sin, tree)
 
 
-def _nn_decaying(tree: PyTree[Array], args: Any):
-    # an untrained, noisy MLP + an exponential decay term
-    # ie. `MLP(y) - 10 * y`
+def _nn(tree: PyTree[Array], args: Any):
     (y, unflatten) = jax.flatten_util.ravel_pytree(tree)
     size = _getsize(y)
     model = eqx.nn.MLP(
@@ -396,7 +393,7 @@ def _nn_decaying(tree: PyTree[Array], args: Any):
     )
     key = jr.PRNGKey(17)
     model_key, data_key = jr.split(key, 2)
-    return unflatten(model(y) - 10 * y)
+    return unflatten(0.1 * model(y))
 
 
 def _nonlinear_heat_pde(y: PyTree[Array], args: Any):
@@ -449,7 +446,7 @@ def _midpoint_y_nonlinear(y: PyTree[Array], args: Any):
     assert size == 3
     f = Robertson(0.04, 3e7, 1e4)
     y0 = ω(y).call(jnp.zeros_like).ω
-    dt = jnp.array(1 / (2**8))
+    dt = 1e-8
     return _midpoint_y_general(f, y0, dt, y, args)
 
 
@@ -458,7 +455,7 @@ def _midpoint_f_nonlinear(y: PyTree[Array], args: Any):
     assert size == 3
     f = Robertson(0.04, 3e7, 1e4)
     y0 = ω(y).call(jnp.zeros_like).ω
-    dt = jnp.array(1 / (2**8))
+    dt = 1e-8
     return _midpoint_f_general(f, y0, dt, y, args)
 
 
@@ -467,7 +464,7 @@ def _midpoint_k_nonlinear(y: PyTree[Array], args: Any):
     assert size == 3
     f = Robertson(0.04, 3e7, 1e4)
     y0 = ω(y).call(jnp.zeros_like).ω
-    dt = jnp.array(1 / (2**2))
+    dt = 1e-8
     return _midpoint_k_general(f, y0, dt, y, args)
 
 
@@ -483,36 +480,33 @@ fixed_point_problem_init = (
         optx.FixedPointProblem(_exponential),
         ones_pytree,
     ),
-    # (
-    #     optx.FixedPointProblem(_nn_decaying),
-    #     ones_pytree,
-    # ),
-    # (
-    #     optx.FixedPointProblem(_nonlinear_heat_pde),
-    #     hundred,
-    # ),
-    # (
-    #     optx.FixedPointProblem(_midpoint_y_linear),
-    #     ones_pytree,
-    # ),
-    # (
-    #     optx.FixedPointProblem(_midpoint_f_linear),
-    #     ones_pytree,
-    # ),
-    # (
-    #     optx.FixedPointProblem(_midpoint_k_linear),
-    #     ones_pytree,
-    # ),
-    # (
-    #     optx.FixedPointProblem(_midpoint_y_nonlinear),
-    #     ones_robertson
-    # ),
-    # (
-    #     optx.FixedPointProblem(_midpoint_f_nonlinear),
-    #     ones_robertson,
-    # ),
-    # (
-    #     optx.FixedPointProblem(_midpoint_k_nonlinear),
-    #     ones_robertson,
-    # ),
+    (
+        optx.FixedPointProblem(_nn),
+        ones_pytree,
+    ),
+    (
+        optx.FixedPointProblem(_nonlinear_heat_pde),
+        hundred,
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_y_linear),
+        ones_pytree,
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_f_linear),
+        ones_pytree,
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_k_linear),
+        ones_pytree,
+    ),
+    (optx.FixedPointProblem(_midpoint_y_nonlinear), ones_robertson),
+    (
+        optx.FixedPointProblem(_midpoint_f_nonlinear),
+        ones_robertson,
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_k_nonlinear),
+        ones_robertson,
+    ),
 )
