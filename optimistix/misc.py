@@ -155,8 +155,23 @@ def default_floating_dtype():
         return jnp.float32
 
 
+def _asarray(dtype, x):
+    return jnp.asarray(x, dtype=dtype)
+
+
+# Work around JAX issue #15676
+_asarray = jax.custom_jvp(_asarray, nondiff_argnums=(0,))
+
+
+@_asarray.defjvp
+def _asarray_jvp(dtype, x, tx):
+    (x,) = x
+    (tx,) = tx
+    return _asarray(dtype, x), _asarray(dtype, tx)
+
+
 def inexact_asarray(x):
-    x = jnp.asarray(x)
-    if not jnp.issubdtype(x, jnp.inexact):
-        x = x.astype(default_floating_dtype())
-    return x
+    dtype = jnp.result_type(x)
+    if not jnp.issubdtype(jnp.result_type(x), jnp.inexact):
+        dtype = default_floating_dtype()
+    return _asarray(dtype, x)

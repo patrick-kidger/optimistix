@@ -7,12 +7,13 @@ from equinox.internal import ω
 
 import optimistix as optx
 
-from .helpers import finite_difference_jvp, shaped_allclose
-from .test_problems import (
+from .helpers import (
     bisection_problem_init,
+    finite_difference_jvp,
     fixed_point_problem_init,
     least_squares_problem_minima_init,
     minimisation_problem_minima_init,
+    shaped_allclose,
 )
 
 
