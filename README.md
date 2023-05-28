@@ -25,19 +25,19 @@ TODO
 
 ### JAX ecosystem
 
-Neural Networks: [Equinox](https://github.com/patrick-kidger/equinox).
+[Equinox](https://github.com/patrick-kidger/equinox): neural networks.
 
-First-order gradient (SGD, Adam, ...) optimisers: [Optax](https://github.com/deepmind/optax).
+[Optax](https://github.com/deepmind/optax): first-order gradient (SGD, Adam, ...) optimisers.
 
-Numerical differential equation solvers: [Diffrax](https://github.com/patrick-kidger/diffrax).
+[Diffrax](https://github.com/patrick-kidger/diffrax): numerical differential equation solvers.
 
-Linear solvers: [Lineax](https://github.com/google/lineax).
+[Lineax](https://github.com/google/lineax): linear solvers.
 
-Type annotations and runtime checking for PyTrees and shape/dtype of JAX arrays: [jaxtyping](https://github.com/google/jaxtyping).
+[jaxtyping](https://github.com/google/jaxtyping): type annotations for shape/dtype of arrays.
 
-Computer vision models: [Eqxvision](https://github.com/paganpasta/eqxvision).
+[Eqxvision](https://github.com/paganpasta/eqxvision): computer vision models.
 
-SymPy<->JAX conversion; train symbolic expressions via gradient descent: [sympy2jax](https://github.com/google/sympy2jax).
+[sympy2jax](https://github.com/google/sympy2jax): SymPy<->JAX conversion; train symbolic expressions via gradient descent.
 
 ### Disclaimer
 
