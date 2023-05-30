@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, Bool, Float, Int, PyTree, Scalar
+from jaxtyping import Array, Float, Int, PyTree, Scalar
 
 from ..custom_types import sentinel
 from ..iterate import AbstractIterativeProblem
@@ -55,25 +55,12 @@ from .misc import quadratic_predicted_reduction
 # classical implementation of the algorithm as well (see Moré, "The Levenberg-Marquardt
 # Algorithm: Implementation and Theory.")
 #
-def _small(diffsize: Scalar) -> Bool[Array, " "]:
-    # TODO(kidger): make a more careful choice here -- the existence of this
-    # function is pretty ad-hoc.
-    resolution = 10 ** (2 - jnp.finfo(diffsize.dtype).precision)
-    return diffsize < resolution
-
-
-def _diverged(rate: Scalar) -> Bool[Array, " "]:
-    return jnp.invert(jnp.isfinite(rate)) | (rate > 2)
-
-
-def _converged(factor: Scalar, tol: float) -> Bool[Array, " "]:
-    return (factor > 0) & (factor < tol)
 
 
 class _IndirectDualState(eqx.Module):
     delta: Scalar
-    diffsize: Scalar
-    diffsize_prev: Scalar
+    y: Array
+    y_prev: Array
     lower_bound: Scalar
     upper_bound: Scalar
     result: RESULTS
@@ -127,8 +114,8 @@ class _IndirectDualRootFind(AbstractRootFinder):
         upper_bound = jnp.where(delta_nonzero, two_norm(grad) / safe_delta, jnp.inf)
         return _IndirectDualState(
             delta=delta,
-            diffsize=jnp.array(0.0),
-            diffsize_prev=jnp.array(0.0),
+            y=y,
+            y_prev=y,
             lower_bound=jnp.array(0.0),
             upper_bound=upper_bound,
             result=jnp.array(RESULTS.successful),
@@ -170,13 +157,13 @@ class _IndirectDualRootFind(AbstractRootFinder):
         upper_bound = jnp.where(state.step == 0, state.upper_bound, upper_bound)
         lower_bound = jnp.where((state.step == 0) & grad_nonzero, -factor, lower_bound)
         new_state = _IndirectDualState(
-            state.delta,
-            diff,
-            state.diffsize,
-            lower_bound,
-            upper_bound,
-            jnp.array(RESULTS.successful),
-            state.step + 1,
+            delta=state.delta,
+            y=new_y,
+            y_prev=y,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+            result=jnp.array(RESULTS.successful),
+            step=state.step + 1,
         )
         return jnp.clip(new_y, a_min=0), new_state, aux
 
@@ -188,22 +175,14 @@ class _IndirectDualRootFind(AbstractRootFinder):
         options: dict[str, Any],
         state: _IndirectDualState,
     ):
-        del problem, args, options
-        y_zero = jnp.abs(y) < jnp.finfo(y.dtype).eps
         at_least_two = state.step >= 2
-        rate = state.diffsize / state.diffsize_prev
-        factor = state.diffsize * rate / (1 - rate)
-        small = _small(state.diffsize)
-        diverged = _diverged(rate)
-        converged = _converged(factor, self.converged_tol)
+        interval_size = jnp.abs(state.upper_bound - state.lower_bound)
+        interval_converged = interval_size < self.converged_tol
+        y_converged = jnp.abs(state.y - state.y_prev) < self.converged_tol
         linsolve_fail = state.result != RESULTS.successful
-        terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
-        in_bounds = (y > state.lower_bound) & (y < state.upper_bound)
-        terminate = terminate & in_bounds
-        terminate = terminate | y_zero
-        result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
-        result = jnp.where(y_zero, RESULTS.successful, result)
-        result = jnp.where(linsolve_fail, state.result, result)
+        converged = interval_converged | y_converged
+        terminate = linsolve_fail | (converged & at_least_two)
+        result = jnp.where(linsolve_fail, state.result, RESULTS.successful)
         return terminate, result
 
     def buffers(self, state: _IndirectDualState):
@@ -431,7 +410,10 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
             options=options,
         )
         newton_soln = lx.linear_solve(
-            descent_state.operator, (-descent_state.vector**ω).ω, self.solver
+            descent_state.operator,
+            (-descent_state.vector**ω).ω,
+            self.solver,
+            throw=False,
         )
         # NOTE: try delta = delta * self.norm(newton_step).
         # this scales the trust and sets the natural bound `delta = 1`.

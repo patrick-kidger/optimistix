@@ -74,7 +74,6 @@ class Dogleg(AbstractDescent):
             grad = descent_state.vector
             mvp = descent_state.operator.mv(grad)
 
-        # WARNING: CURRENTLY SUFFERING FROM PYTREE ERROR
         numerator = two_norm(grad) ** 2
         denominator = tree_inner_prod(grad, mvp)
         pred = denominator > jnp.finfo(denominator.dtype).eps

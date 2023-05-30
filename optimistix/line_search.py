@@ -77,5 +77,6 @@ class OneDimensionalFunction(eqx.Module):
 
     def __call__(self, delta: Float[Array, ""], args: PyTree):
         diff, result = self.descent(delta)
-        fn, aux = self.fn((self.y**ω + diff**ω).ω, args)
-        return fn, (fn**2, diff, aux, result, jnp.array(0.0))
+        new_y = (self.y**ω + diff**ω).ω
+        fn, aux = self.fn(new_y, args)
+        return fn, (fn, diff, aux, result, jnp.array(0.0))

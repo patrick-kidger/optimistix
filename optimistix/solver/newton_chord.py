@@ -75,7 +75,7 @@ class _NewtonChord(AbstractRootFinder):
             linear_state=linear_state,
             step=jnp.array(0),
             diffsize=jnp.array(0.0),
-            diffsize_prev=jnp.array(0.0),
+            diffsize_prev=jnp.array(1.0),
             result=jnp.array(RESULTS.successful),
         )
 

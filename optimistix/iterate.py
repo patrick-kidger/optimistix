@@ -91,10 +91,12 @@ def _zero(x):
         return x
 
 
-def _iterate(inputs, closure, while_loop):
-    problem, args = inputs
-    solver, y0, options, max_steps, f_struct, aux_struct = closure
-    del inputs, closure
+def _iterate(inputs, while_loop):
+    problem, args, solver, y0, options, max_steps, f_struct, aux_struct = inputs
+    del inputs
+    static_leaf = lambda x: isinstance(x, eqxi.Static)
+    f_struct = jtu.tree_map(lambda x: x.value, f_struct, is_leaf=static_leaf)
+    aux_struct = jtu.tree_map(lambda x: x.value, aux_struct, is_leaf=static_leaf)
 
     if options is None:
         options = {}
@@ -169,10 +171,11 @@ def iterative_solve(
     f_struct: PyTree[jax.ShapeDtypeStruct] = sentinel,
     aux_struct: PyTree[jax.ShapeDtypeStruct] = sentinel,
 ) -> Solution:
-    inputs = problem, args
-    closure = solver, y0, options, max_steps, f_struct, aux_struct
+    f_struct = jtu.tree_map(eqxi.Static, f_struct)
+    aux_struct = jtu.tree_map(eqxi.Static, aux_struct)
+    inputs = problem, args, solver, y0, options, max_steps, f_struct, aux_struct
     out, (num_steps, result, final_state, aux) = adjoint.apply(
-        _iterate, rewrite_fn, inputs, closure, tags
+        _iterate, rewrite_fn, inputs, tags
     )
     stats = {"num_steps": num_steps, "max_steps": max_steps}
     sol = Solution(value=out, result=result, state=final_state, aux=aux, stats=stats)

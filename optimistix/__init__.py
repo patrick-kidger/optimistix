@@ -1,4 +1,5 @@
 from . import internal
+from .adjoint import AbstractAdjoint, ImplicitAdjoint, RecursiveCheckpointAdjoint
 from .fixed_point import AbstractFixedPointSolver, fixed_point, FixedPointProblem
 from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
 from .least_squares import (

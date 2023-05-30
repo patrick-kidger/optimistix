@@ -8,7 +8,7 @@ from jaxtyping import Array, Bool, Float, Int, PyTree
 
 from ..line_search import OneDimensionalFunction
 from ..minimise import AbstractMinimiser, MinimiseProblem
-from ..misc import tree_full, tree_inner_prod, tree_zeros_like
+from ..misc import tree_full, tree_inner_prod, tree_where, tree_zeros_like
 from ..solution import RESULTS
 from .misc import get_vector_operator
 
@@ -16,6 +16,8 @@ from .misc import get_vector_operator
 class BacktrackingState(eqx.Module):
     f_delta: Float[Array, ""]
     f0: Float[Array, ""]
+    running_min: Array
+    running_min_diff: PyTree[Array]
     vector: PyTree[Array]
     operator: lx.AbstractLinearOperator
     diff: PyTree[Array]
@@ -54,7 +56,10 @@ class BacktrackingArmijo(AbstractMinimiser):
     ):
         f0 = tree_full(f_struct, jnp.inf)
         vector, operator = get_vector_operator(options)
-        diff = tree_zeros_like(vector)
+        try:
+            diff0 = tree_zeros_like(options["diff"])
+        except KeyError:
+            assert False
 
         try:
             f0 = options["f0"]
@@ -65,9 +70,11 @@ class BacktrackingArmijo(AbstractMinimiser):
         return BacktrackingState(
             f_delta=f0,
             f0=f0,
+            running_min=f0,
+            running_min_diff=diff0,
             vector=vector,
             operator=operator,
-            diff=diff,
+            diff=diff0,
             compute_f0=compute_f0,
             result=jnp.array(RESULTS.successful),
             step=jnp.array(0),
@@ -84,9 +91,15 @@ class BacktrackingArmijo(AbstractMinimiser):
         delta = jnp.where(state.compute_f0, jnp.array(0.0), y)
         (f_delta, (_, diff, aux, result, _)) = problem.fn(delta, args)
         f0 = jnp.where(state.compute_f0, f_delta, state.f0)
+        running_min = jnp.where(f_delta < state.running_min, f_delta, state.running_min)
+        running_min_diff = tree_where(
+            f_delta < state.running_min, diff, state.running_min_diff
+        )
         new_state = BacktrackingState(
             f_delta,
             f0,
+            running_min,
+            running_min_diff,
             state.vector,
             state.operator,
             diff,
@@ -95,7 +108,11 @@ class BacktrackingArmijo(AbstractMinimiser):
             state.step + 1,
         )
         new_y = self.decrease_factor * y
-        return new_y, new_state, (f_delta, diff, aux, result, jnp.array(1.0))
+        return (
+            new_y,
+            new_state,
+            (running_min, running_min_diff, aux, result, jnp.array(1.0)),
+        )
 
     def terminate(
         self,

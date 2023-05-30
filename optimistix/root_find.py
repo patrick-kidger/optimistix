@@ -19,10 +19,18 @@ class AbstractRootFinder(AbstractIterativeSolver):
     pass
 
 
-def _root(root, _, inputs, __):
-    root_fn, args = inputs
+def _root(root, _, inputs):
+    root_prob, args, *_ = inputs
     del inputs
-    return root_fn(root, args)
+
+    def root_no_aux(x):
+        if root_prob.has_aux:
+            out, _ = root_prob.fn(x, args)
+        else:
+            out = root_prob.fn(x, args)
+        return out
+
+    return root_no_aux(root)
 
 
 @eqx.filter_jit
