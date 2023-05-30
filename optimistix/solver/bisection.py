@@ -1,8 +1,10 @@
+from typing import cast
+
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, Scalar
+from jaxtyping import Array, Bool, Int, Scalar
 
 from ..root_find import AbstractRootFinder
 from ..solution import RESULTS
@@ -13,6 +15,7 @@ class _BisectionState(eqx.Module):
     upper: Scalar
     error: Scalar
     flip: Bool[Array, ""]
+    step: Int[Array, ""]
 
 
 class Bisection(AbstractRootFinder):
@@ -34,26 +37,42 @@ class Bisection(AbstractRootFinder):
                 "Bisection can only be used to find the roots of a function producing "
                 "a scalar output"
             )
-        upper_sign = jnp.sign(upper)
-        lower_sign = jnp.sign(lower)
-        upper_sign = eqxi.error_if(
-            upper_sign,
-            upper_sign == lower_sign,
-            "The root is not contained in [lower, upper]",
-        )
+        # This computes a range such that `f(0.5 * (a+b))` is
+        # the user-passed `lower` on the first step, and the user
+        # passed `upper` on the second step. This saves us from
+        # compiling `problem.fn` two extra times in the init.
+        range = upper - lower
+        extended_upper = upper + range
+        extended_range = extended_upper - lower
+        extended_lower = lower - extended_range
         return _BisectionState(
-            lower=lower, upper=upper, error=jnp.asarray(jnp.inf), flip=upper_sign < 0
+            lower=extended_lower,
+            upper=extended_upper,
+            error=jnp.asarray(jnp.inf),
+            flip=jnp.array(False),
+            step=jnp.array(0),
         )
 
-    def step(self, root_prob, y: Scalar, args, options, state):
+    def step(self, root_prob, y: Scalar, args, options, state: _BisectionState):
         del y, options
         new_y = state.lower + 0.5 * (state.upper - state.lower)
         error, aux = root_prob.fn(new_y, args)
-        too_large = state.flip ^ (error > 0)
+        too_large = cast(Bool[Array, ""], state.flip ^ (error < 0))
+        too_large = jnp.where(state.step == 0, True, too_large)
+        too_large = jnp.where(state.step == 1, False, too_large)
         new_lower = jnp.where(too_large, new_y, state.lower)
         new_upper = jnp.where(too_large, state.upper, new_y)
+        flip = jnp.where(state.step == 1, error < 0, state.flip)
+        message = "The root is not contained in [lower, upper]"
+        step = eqxi.error_if(
+            state.step, (state.step == 1) & (state.error * error > 0), message
+        )
         new_state = _BisectionState(
-            lower=new_lower, upper=new_upper, error=error, flip=state.flip
+            lower=new_lower,
+            upper=new_upper,
+            error=error,
+            flip=flip,
+            step=step + 1,
         )
         return new_y, new_state, aux
 

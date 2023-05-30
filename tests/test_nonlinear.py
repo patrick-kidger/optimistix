@@ -8,7 +8,7 @@ from equinox.internal import ω
 import optimistix as optx
 
 from .helpers import (
-    bisection_problem_init,
+    bisection_problem_init_options,
     finite_difference_jvp,
     fixed_point_problem_init,
     least_squares_problem_minima_init,
@@ -273,24 +273,38 @@ def test_root_find(solver, _problem, init, has_aux):
     assert shaped_allclose(f_val, zeros, atol=atol, rtol=rtol)
 
 
-@pytest.mark.parametrize("_problem, init", bisection_problem_init)
+@pytest.mark.parametrize(
+    "_problem, init, bisection_options", bisection_problem_init_options
+)
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_bisection(_problem, init, has_aux):
+def test_bisection(_problem, init, bisection_options, has_aux):
     solver = optx.Bisection(rtol=1e-6, atol=1e-6)
     atol = rtol = 1e-4
 
-    def root_find_problem(y, args):
-        f_val = _problem.fn(y, args)
-        return (f_val**ω - y**ω).ω
+    if isinstance(_problem, optx.RootFindProblem):
+        if has_aux:
 
-    def root_find_problem_aux(y, args):
-        f_val = _problem.fn(y, args)
-        return (f_val**ω - y**ω).ω, smoke_aux
+            def aux_problem(x, args):
+                return _problem.fn(x, args), smoke_aux
 
-    if has_aux:
-        problem = optx.RootFindProblem(root_find_problem_aux, has_aux=True)
+            problem = optx.RootFindProblem(aux_problem, True)
+        else:
+            problem = _problem
     else:
-        problem = optx.RootFindProblem(root_find_problem, has_aux=False)
+
+        def root_find_problem(y, args):
+            f_val = _problem.fn(y, args)
+            return (f_val**ω - y**ω).ω
+
+        def root_find_problem_aux(y, args):
+            f_val = _problem.fn(y, args)
+            return (f_val**ω - y**ω).ω, smoke_aux
+
+        if has_aux:
+            problem = optx.RootFindProblem(root_find_problem_aux, has_aux=True)
+        else:
+            problem = optx.RootFindProblem(root_find_problem, has_aux=False)
+
     bisection_options = {"upper": jnp.array(1.0), "lower": jnp.array(0.0)}
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
     optx_fp = optx.root_find(
