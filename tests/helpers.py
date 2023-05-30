@@ -532,26 +532,46 @@ ones_robertson = (jnp.ones(2), {"b": jnp.array(1.0)})
 hundred = jnp.ones(100)
 single = jnp.array(1.0)
 
-bisection_problem_init = (
+bisection_problem_init_options = (
     (
-        optx.FixedPointProblem(_sin),
+        optx.RootFindProblem(lambda x, _: x - 1),
         single,
-    ),
-    (
-        optx.FixedPointProblem(_exponential),
-        single,
-    ),
-    (
-        optx.FixedPointProblem(_midpoint_y_linear),
-        single,
-    ),
-    (
-        optx.FixedPointProblem(_midpoint_f_linear),
-        single,
+        {"upper": jnp.array(2.0), "lower": jnp.array(0.5)},
     ),
     (
         optx.FixedPointProblem(_midpoint_k_linear),
         single,
+        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+    ),
+    (
+        optx.FixedPointProblem(_sin),
+        single,
+        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+    ),
+    (
+        optx.FixedPointProblem(_exponential),
+        single,
+        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_y_linear),
+        single,
+        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_f_linear),
+        single,
+        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_k_linear),
+        single,
+        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+    ),
+    (
+        optx.FixedPointProblem(_midpoint_k_linear),
+        single,
+        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
     ),
 )
 
