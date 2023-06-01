@@ -77,18 +77,18 @@ _minimisers = (
             gauss_newton=False
         ),  # DirectIterativeDual(GN=False)
     ),
-    optx.BFGS(
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(),
-        descent=optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1.0),
-    ),  # IndirectIterativeDual(GN=False)
     # optx.BFGS(
     #     rtol,
     #     atol,
     #     line_search=optx.ClassicalTrustRegion(),
-    #     descent=optx.Dogleg(gauss_newton=False), # Dogleg(GN=False)
-    # ),
+    #     descent=optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1.0),
+    # ),  # IndirectIterativeDual(GN=False)
+    optx.BFGS(
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(),
+        descent=optx.Dogleg(gauss_newton=False),  # Dogleg(GN=False)
+    ),
     optx.BFGS(
         rtol,
         atol,
@@ -113,13 +113,14 @@ _minimisers = (
         ),
         descent=optx.NormalisedGradient(),  # Gradient
     ),
-    # optx.NonlinearCG(
-    #     rtol,
-    #     atol,
-    #     line_search=optx.BacktrackingArmijo(
-    #         gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
-    #     ),
-    # ), # NonlinearCG
+    optx.NonlinearCG(
+        rtol,
+        atol,
+        line_search=optx.BacktrackingArmijo(
+            gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
+        ),
+        method=optx.dai_yuan,
+    ),  # NonlinearCG
 )
 
 # the minimisers can handle least squares problems, but the least squares
@@ -207,7 +208,7 @@ def test_minimise(solver, _problem, minimum, init, has_aux):
         problem = _problem
     dynamic_init, static_init = eqx.partition(init, eqx.is_inexact_array)
     optx_argmin = optx.minimise(
-        problem, solver, dynamic_init, args=static_init, max_steps=10_000, throw=False
+        problem, solver, dynamic_init, args=static_init, max_steps=100, throw=False
     ).value
     out = problem.fn(optx_argmin, static_init)
     if has_aux:

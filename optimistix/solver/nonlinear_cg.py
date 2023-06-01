@@ -123,9 +123,13 @@ class AbstractGradOnly(AbstractMinimiser):
             problem_1d = MinimiseProblem(
                 OneDimensionalFunction(problem.fn, descent, y), has_aux=True
             )
+            # Line search should compute`f0` the first time it is called.
+            # Since `first_pass` will be computed at step 0 of this solver, the
+            # first time the line search is called is step 1. Each time after this,
+            # we pass `f0` via these `line_search_options`.
             line_search_options = {
                 "f0": state.f_val,
-                "compute_f0": (state.step == 0),
+                "compute_f0": (state.step == 1),
                 "vector": state.vector,
                 "operator": state.operator,
             }
@@ -148,6 +152,7 @@ class AbstractGradOnly(AbstractMinimiser):
                 args=args,
                 options=line_search_options,
                 max_steps=100,
+                throw=False,
             )
             (f_val, diff, new_aux, _, next_init) = line_sol.aux
             return f_val, diff, new_aux, line_sol.result, next_init

@@ -10,7 +10,7 @@ from jaxtyping import Array, PyTree, Scalar
 
 from ..iterate import AbstractIterativeProblem
 from ..line_search import AbstractDescent
-from ..misc import tree_inner_prod, two_norm
+from ..misc import tree_inner_prod, tree_where, two_norm
 from ..solution import RESULTS
 
 
@@ -116,9 +116,17 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
             descent_state.vector_prev,
             descent_state.diff_prev,
         )
-        return (
-            delta * (-ω(descent_state.vector) + beta * ω(descent_state.diff_prev))
-        ).ω, jnp.array(RESULTS.successful)
+        negative_gradient = (-descent_state.vector**ω).ω
+        nonlinear_cg_direction = (
+            negative_gradient**ω + beta * descent_state.diff_prev**ω
+        ).ω
+        is_descent_direction = (
+            tree_inner_prod(descent_state.vector, nonlinear_cg_direction) < 0
+        )
+        diff = tree_where(
+            is_descent_direction, nonlinear_cg_direction, negative_gradient
+        )
+        return (delta * diff**ω).ω, jnp.array(RESULTS.successful)
 
     def predicted_reduction(
         self,
