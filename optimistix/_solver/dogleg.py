@@ -6,9 +6,9 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
-from ..iterate import AbstractIterativeProblem
-from ..line_search import AbstractDescent
-from ..misc import tree_full_like, tree_inner_prod, tree_where, two_norm
+from .._iterate import AbstractIterativeProblem
+from .._line_search import AbstractDescent
+from .._misc import tree_full_like, tree_inner_prod, tree_where, two_norm
 
 
 def _quadratic_solve(a, b, c):

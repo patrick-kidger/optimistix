@@ -6,10 +6,10 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float, Int, PyTree
 
-from ..line_search import OneDimensionalFunction
-from ..minimise import AbstractMinimiser, MinimiseProblem
-from ..misc import tree_full, tree_inner_prod, tree_where, tree_zeros_like
-from ..solution import RESULTS
+from .._line_search import OneDimensionalFunction
+from .._minimise import AbstractMinimiser, MinimiseProblem
+from .._misc import tree_full, tree_inner_prod, tree_where, tree_zeros_like
+from .._solution import RESULTS
 from .misc import get_vector_operator
 
 

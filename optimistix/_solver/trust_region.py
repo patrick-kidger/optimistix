@@ -6,10 +6,10 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Int, PyTree
 
-from ..line_search import OneDimensionalFunction
-from ..minimise import AbstractMinimiser, MinimiseProblem
-from ..misc import tree_full, tree_where, tree_zeros_like, two_norm
-from ..solution import RESULTS
+from .._line_search import OneDimensionalFunction
+from .._minimise import AbstractMinimiser, MinimiseProblem
+from .._misc import tree_full, tree_where, tree_zeros_like, two_norm
+from .._solution import RESULTS
 
 
 class TRState(eqx.Module):

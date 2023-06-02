@@ -9,7 +9,7 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import PyTree
 
-from .misc import tree_zeros_like
+from ._misc import tree_zeros_like
 
 
 def _is_global_function(x):

@@ -10,9 +10,9 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from ..line_search import AbstractDescent, OneDimensionalFunction
-from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
-from ..misc import (
+from .._line_search import AbstractDescent, OneDimensionalFunction
+from .._minimise import AbstractMinimiser, minimise, MinimiseProblem
+from .._misc import (
     max_norm,
     tree_full,
     tree_full_like,
@@ -21,7 +21,7 @@ from ..misc import (
     tree_zeros,
     tree_zeros_like,
 )
-from ..solution import RESULTS
+from .._solution import RESULTS
 from .descent import UnnormalisedNewton
 
 

@@ -9,9 +9,9 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import ArrayLike, Bool, PyTree, Scalar
 
-from ..minimise import AbstractMinimiser
-from ..misc import max_norm
-from ..solution import RESULTS
+from .._minimise import AbstractMinimiser
+from .._misc import max_norm
+from .._solution import RESULTS
 
 
 class _NMStats(eqx.Module):

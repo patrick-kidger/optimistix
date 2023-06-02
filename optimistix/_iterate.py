@@ -8,10 +8,10 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, PyTree
 
-from .adjoint import AbstractAdjoint
-from .custom_types import sentinel
-from .misc import NoneAux
-from .solution import RESULTS, Solution
+from ._adjoint import AbstractAdjoint
+from ._custom_types import sentinel
+from ._misc import NoneAux
+from ._solution import RESULTS, Solution
 
 
 class _AuxError:

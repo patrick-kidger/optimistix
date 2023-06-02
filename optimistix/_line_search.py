@@ -7,7 +7,7 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar
 
-from .iterate import AbstractIterativeProblem
+from ._iterate import AbstractIterativeProblem
 
 
 _DescentState = TypeVar("_DescentState")
