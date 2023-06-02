@@ -1,7 +1,6 @@
 from typing import Any, Optional
 
 import equinox as eqx
-import jax.numpy as jnp
 import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
@@ -49,7 +48,7 @@ class UnnormalisedGradient(AbstractDescent[GradientState]):
         options: dict[str, Any],
     ):
         diff = (-delta * ω(descent_state.vector)).ω
-        return diff, jnp.array(RESULTS.successful)
+        return diff, RESULTS.successful
 
     def predicted_reduction(
         self,
@@ -93,7 +92,7 @@ class NormalisedGradient(AbstractDescent[GradientState]):
         options: dict[str, Any],
     ):
         diff = ((-delta * descent_state.vector**ω) / two_norm(descent_state.vector)).ω
-        return diff, jnp.array(RESULTS.successful)
+        return diff, RESULTS.successful
 
     def predicted_reduction(
         self,
@@ -162,7 +161,7 @@ class UnnormalisedNewton(AbstractDescent[NewtonState]):
     ):
         if descent_state.operator_inv is not None:
             newton = descent_state.operator_inv.mv(descent_state.vector)
-            result = jnp.array(RESULTS.successful)
+            result = RESULTS.successful
         elif descent_state.operator is not None:
             out = lx.linear_solve(
                 descent_state.operator,
@@ -170,7 +169,7 @@ class UnnormalisedNewton(AbstractDescent[NewtonState]):
                 lx.AutoLinearSolver(well_posed=False),
             )
             newton = out.value
-            result = out.result
+            result = RESULTS.promote(out.result)
         else:
             raise ValueError(
                 "At least one of `operator` or `operator_inv` must be "
@@ -227,7 +226,7 @@ class NormalisedNewton(AbstractDescent[NewtonState]):
     ):
         if descent_state.operator_inv is not None:
             newton = descent_state.operator_inv.mv(descent_state.vector)
-            result = jnp.array(RESULTS.successful)
+            result = RESULTS.successful
         elif descent_state.operator is not None:
             out = lx.linear_solve(
                 descent_state.operator,
@@ -235,7 +234,7 @@ class NormalisedNewton(AbstractDescent[NewtonState]):
                 lx.AutoLinearSolver(well_posed=False),
             )
             newton = out.value
-            result = out.result
+            result = RESULTS.promote(out.result)
         else:
             raise ValueError(
                 "At least one of `operator` or `operator_inv` must be "

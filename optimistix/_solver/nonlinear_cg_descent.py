@@ -126,7 +126,7 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         diff = tree_where(
             is_descent_direction, nonlinear_cg_direction, negative_gradient
         )
-        return (delta * diff**ω).ω, jnp.array(RESULTS.successful)
+        return (delta * diff**ω).ω, RESULTS.successful
 
     def predicted_reduction(
         self,

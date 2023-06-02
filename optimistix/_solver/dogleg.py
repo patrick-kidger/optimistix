@@ -9,6 +9,7 @@ from jaxtyping import Array, PyTree, Scalar
 from .._iterate import AbstractIterativeProblem
 from .._line_search import AbstractDescent
 from .._misc import tree_full_like, tree_inner_prod, tree_where, two_norm
+from .._solution import RESULTS
 
 
 def _quadratic_solve(a, b, c):
@@ -109,7 +110,7 @@ class Dogleg(AbstractDescent):
         diff = tree_where(below_cauchy, normalised_cauchy, newton)
         diff = tree_where(between_choices, dogleg, diff)
         diff = tree_where(accept_newton, newton, diff)
-        return diff, newton_soln.result
+        return diff, RESULTS.promote(newton_soln.result)
 
     def predicted_reduction(
         self,

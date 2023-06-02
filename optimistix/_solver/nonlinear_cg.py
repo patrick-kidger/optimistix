@@ -84,7 +84,7 @@ class AbstractGradOnly(AbstractMinimiser):
             diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf), y),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
-            result=jnp.array(RESULTS.successful),
+            result=RESULTS.successful,
             f_val=f0,
             f_prev=f0,
             next_init=jnp.array(1.0),
@@ -165,7 +165,7 @@ class AbstractGradOnly(AbstractMinimiser):
         descent_state = self.descent.update_state(
             state.descent_state, diff, new_grad, state.operator, None, {}
         )
-        result = jnp.where(
+        result = RESULTS.where(
             result == RESULTS.max_steps_reached, RESULTS.successful, result
         )
         new_state = GradOnlyState(
@@ -196,8 +196,8 @@ class AbstractGradOnly(AbstractMinimiser):
         f_diff = jnp.abs(state.f_val - state.f_prev)
         converged = f_diff < self.rtol * jnp.abs(state.f_prev) + self.atol
         linsolve_fail = state.result != RESULTS.successful
-        terminate = linsolve_fail | (converged & at_least_two)
-        result = jnp.where(linsolve_fail, state.result, RESULTS.successful)
+        terminate = linsolve_fail | (at_least_two & converged)
+        result = RESULTS.where(linsolve_fail, state.result, RESULTS.successful)
         return terminate, result
 
     def buffers(self, state: GradOnlyState):

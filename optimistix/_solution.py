@@ -1,11 +1,12 @@
 from typing import Any, Union
 
 import equinox as eqx
-import equinox.internal as eqxi
+import lineax as lx
 from jaxtyping import Array, PyTree
 
 
-class RESULTS(metaclass=eqxi.ContainerMeta):
+# Extend `lineax.RESULTS` as we want to be able to use their error messages too.
+class RESULTS(lx.RESULTS):  # pyright: ignore
     successful = ""
     max_steps_reached = (
         "The maximum number of solver steps was reached. Try increasing `max_steps`."

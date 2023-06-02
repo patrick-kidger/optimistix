@@ -189,7 +189,7 @@ class NelderMead(AbstractMinimiser):
             second_worst=jnp.array(0.0),
             step=jnp.array(0),
             stats=stats,
-            result=jnp.array(RESULTS.successful),
+            result=RESULTS.successful,
             first_pass=jnp.array(True),
         )
 
@@ -454,7 +454,9 @@ class NelderMead(AbstractMinimiser):
         converged = x_conv & f_conv
         diverged = jnp.any(jnp.invert(jnp.isfinite(f_best)))
         terminate = converged | diverged
-        result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
+        result = RESULTS.where(
+            diverged, RESULTS.nonlinear_divergence, RESULTS.successful
+        )
         return terminate, result
 
     def buffers(self, state):

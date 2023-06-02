@@ -76,7 +76,7 @@ class _NewtonChord(AbstractRootFinder):
             step=jnp.array(0),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(1.0),
-            result=jnp.array(RESULTS.successful),
+            result=RESULTS.successful,
         )
 
     def step(
@@ -114,7 +114,7 @@ class _NewtonChord(AbstractRootFinder):
             step=state.step + 1,
             diffsize=diffsize,
             diffsize_prev=state.diffsize,
-            result=sol.result,
+            result=RESULTS.promote(sol.result),
         )
         return new_y, new_state, jac.aux
 
@@ -134,9 +134,13 @@ class _NewtonChord(AbstractRootFinder):
         diverged = _diverged(rate)
         converged = _converged(factor, self.kappa)
         linsolve_fail = state.result != RESULTS.successful
-        terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
-        result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
-        result = jnp.where(linsolve_fail, state.result, result)
+        terminate = linsolve_fail | (
+            at_least_two & (small | diverged | converged)  # pyright: ignore
+        )
+        result = RESULTS.where(
+            diverged, RESULTS.nonlinear_divergence, RESULTS.successful
+        )
+        result = RESULTS.where(linsolve_fail, state.result, result)
         return terminate, result
 
     def buffers(self, state):

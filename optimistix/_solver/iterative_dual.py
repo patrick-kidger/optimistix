@@ -63,7 +63,6 @@ class _IndirectDualState(eqx.Module):
     y_prev: Array
     lower_bound: Scalar
     upper_bound: Scalar
-    result: RESULTS
     step: Int[Array, ""]
 
 
@@ -118,7 +117,6 @@ class _IndirectDualRootFind(AbstractRootFinder):
             y_prev=y,
             lower_bound=jnp.array(0.0),
             upper_bound=upper_bound,
-            result=jnp.array(RESULTS.successful),
             step=jnp.array(0),
         )
 
@@ -162,7 +160,6 @@ class _IndirectDualRootFind(AbstractRootFinder):
             y_prev=y,
             lower_bound=lower_bound,
             upper_bound=upper_bound,
-            result=jnp.array(RESULTS.successful),
             step=state.step + 1,
         )
         return jnp.clip(new_y, a_min=0), new_state, aux
@@ -179,11 +176,9 @@ class _IndirectDualRootFind(AbstractRootFinder):
         interval_size = jnp.abs(state.upper_bound - state.lower_bound)
         interval_converged = interval_size < self.converged_tol
         y_converged = jnp.abs(state.y - state.y_prev) < self.converged_tol
-        linsolve_fail = state.result != RESULTS.successful
         converged = interval_converged | y_converged
-        terminate = linsolve_fail | (converged & at_least_two)
-        result = jnp.where(linsolve_fail, state.result, RESULTS.successful)
-        return terminate, result
+        terminate = converged & at_least_two
+        return terminate, RESULTS.successful
 
     def buffers(self, state: _IndirectDualState):
         return ()
@@ -263,7 +258,7 @@ class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
         operator = self.modify_jac(operator)
         linear_soln = lx.linear_solve(operator, vector, lx.QR(), throw=False)
         diff = (-linear_soln.value**ω).ω
-        return diff, linear_soln.result
+        return diff, RESULTS.promote(linear_soln.result)
 
     def predicted_reduction(
         self,
@@ -312,7 +307,7 @@ class DirectIterativeDual(_DirectIterativeDual):
         linear_soln = lx.linear_solve(operator, vector, lx.QR(), throw=False)
         no_diff = jtu.tree_map(jnp.zeros_like, linear_soln.value)
         diff = tree_where(delta_nonzero, (-linear_soln.value**ω).ω, no_diff)
-        return diff, linear_soln.result
+        return diff, RESULTS.promote(linear_soln.result)
 
 
 class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
@@ -418,7 +413,7 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
         # NOTE: try delta = delta * self.norm(newton_step).
         # this scales the trust and sets the natural bound `delta = 1`.
         newton_step = (-ω(newton_soln.value)).ω
-        newton_result = newton_soln.result
+        newton_result = RESULTS.promote(newton_soln.result)
         tr_reg = self.tr_reg
 
         if tr_reg is None:
