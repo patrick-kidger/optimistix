@@ -8,9 +8,9 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
-from ..misc import max_norm
-from ..root_find import AbstractRootFinder, RootFindProblem
-from ..solution import RESULTS
+from .._misc import max_norm
+from .._root_find import AbstractRootFinder, RootFindProblem
+from .._solution import RESULTS
 
 
 def _small(diffsize: Scalar) -> Bool[ArrayLike, " "]:

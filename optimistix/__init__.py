@@ -1,44 +1,50 @@
-from . import internal
-from .adjoint import AbstractAdjoint, ImplicitAdjoint, RecursiveCheckpointAdjoint
-from .fixed_point import AbstractFixedPointSolver, fixed_point, FixedPointProblem
-from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
-from .least_squares import (
-    AbstractLeastSquaresSolver,
-    least_squares,
-    LeastSquaresProblem,
-)
-from .line_search import AbstractDescent
-from .minimise import AbstractMinimiser, minimise, MinimiseProblem
-from .root_find import AbstractRootFinder, root_find, RootFindProblem
-from .solution import RESULTS, Solution
-from .solver import (
-    AbstractGaussNewton,
-    BacktrackingArmijo,
-    BFGS,
-    Bisection,
-    Chord,
-    ClassicalTrustRegion,
-    dai_yuan,
-    DirectIterativeDual,
-    Dogleg,
-    FixedPointIteration,
-    fletcher_reeves,
-    GaussNewton,
-    GradOnly,
-    hestenes_stiefel,
-    IndirectIterativeDual,
-    IndirectLevenbergMarquardt,
-    LevenbergMarquardt,
-    NelderMead,
-    Newton,
-    NonlinearCG,
-    NonlinearCGDescent,
-    NormalisedGradient,
-    NormalisedNewton,
-    polak_ribiere,
-    UnnormalisedGradient,
-    UnnormalisedNewton,
-)
+from . import _internal
+from ._adjoint import AbstractAdjoint as AbstractAdjoint
+from ._adjoint import ImplicitAdjoint as ImplicitAdjoint
+from ._adjoint import RecursiveCheckpointAdjoint as RecursiveCheckpointedAdjoint
+from ._fixed_point import AbstractFixedPointSolver as AbstractFixedPointSolver
+from ._fixed_point import fixed_point as fixed_point
+from ._fixed_point import FixedPointProblem as FixedPointProblem
+from ._iterate import AbstractIterativeProblem as AbstractIterativeProblem
+from ._iterate import AbstractIterativeSolver as AbstractIterativeSolver
+from ._iterate import iterative_solve as iterative_solve
+from ._least_squares import AbstractLeastSquaresSolver as AbstractLeastSquaresSolver
+from ._least_squares import least_squares as least_squares
+from ._least_squares import LeastSquaresProblem as LeastSquaresProblem
+from ._line_search import AbstractDescent as AbstractDescent
+from ._minimise import AbstractMinimiser as AbstractMinimiser
+from ._minimise import minimise as minimise
+from ._minimise import MinimiseProblem as MinimiseProblem
+from ._root_find import AbstractRootFinder as AbstractRootFinder
+from ._root_find import root_find as root_find
+from ._root_find import RootFindProblem as RootFindProblem
+from ._solution import RESULTS as RESULTS
+from ._solution import Solution as Solution
+from ._solver import AbstractGaussNewton as AbstractGaussNewton
+from ._solver import BacktrackingArmijo as BacktrackingArmijo
+from ._solver import BFGS as BFGS
+from ._solver import Bisection as Bisection
+from ._solver import Chord as Chord
+from ._solver import ClassicalTrustRegion as ClassicalTrustRegion
+from ._solver import dai_yuan as dai_yuan
+from ._solver import DirectIterativeDual as DirectIterativeDual
+from ._solver import Dogleg as Dogleg
+from ._solver import FixedPointIteration as FixedPointIteration
+from ._solver import fletcher_reeves as fletcher_reeves
+from ._solver import GaussNewton as GaussNewton
+from ._solver import GradOnly as GradOnly
+from ._solver import hestenes_stiefel as hestenes_stiefel
+from ._solver import IndirectIterativeDual as IndirectIterativeDual
+from ._solver import IndirectLevenbergMarquardt as IndirectLevenbergMarquardt
+from ._solver import LevenbergMarquardt as LevenbergMarquardt
+from ._solver import Newton as Newton
+from ._solver import NonlinearCG as NonlinearCG
+from ._solver import NonlinearCGDescent as NonlinearCGDescent
+from ._solver import NormalisedGradient as NormalisedGradient
+from ._solver import NormalisedNewton as NormalisedNewton
+from ._solver import polak_ribiere as polak_ribiere
+from ._solver import UnnormalisedGradient as UnnormalisedGradient
+from ._solver import UnnormalisedNewton as UnnormalisedNewton
 
 
 __version__ = "0.0.1"

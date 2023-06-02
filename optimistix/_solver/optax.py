@@ -4,7 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from typing_extensions import TypeAlias
 
-from ..minimise import AbstractMinimiser
+from .._minimise import AbstractMinimiser
 
 
 OptaxClass: TypeAlias = Any

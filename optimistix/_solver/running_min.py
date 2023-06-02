@@ -5,8 +5,8 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
-from ..minimise import AbstractMinimiser, MinimiseProblem
-from ..misc import tree_where
+from .._minimise import AbstractMinimiser, MinimiseProblem
+from .._misc import tree_where
 
 
 def _auxmented(fn, has_aux, x, args):

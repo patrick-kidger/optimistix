@@ -10,10 +10,10 @@ from equinox.internal import ω
 from jax import lax
 from jaxtyping import Array, PyTree, Scalar
 
-from ..line_search import AbstractDescent, OneDimensionalFunction
-from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
-from ..misc import max_norm, tree_full, tree_zeros, tree_zeros_like
-from ..solution import RESULTS
+from .._line_search import AbstractDescent, OneDimensionalFunction
+from .._minimise import AbstractMinimiser, minimise, MinimiseProblem
+from .._misc import max_norm, tree_full, tree_zeros, tree_zeros_like
+from .._solution import RESULTS
 from .nonlinear_cg_descent import hestenes_stiefel, NonlinearCGDescent
 
 

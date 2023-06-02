@@ -9,12 +9,12 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Float, Int, PyTree, Scalar
 
-from ..custom_types import sentinel
-from ..iterate import AbstractIterativeProblem
-from ..line_search import AbstractDescent
-from ..misc import tree_where, two_norm
-from ..root_find import AbstractRootFinder, root_find, RootFindProblem
-from ..solution import RESULTS
+from .._custom_types import sentinel
+from .._iterate import AbstractIterativeProblem
+from .._line_search import AbstractDescent
+from .._misc import tree_where, two_norm
+from .._root_find import AbstractRootFinder, root_find, RootFindProblem
+from .._solution import RESULTS
 from .misc import quadratic_predicted_reduction
 
 

@@ -11,10 +11,10 @@ import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Shaped
 
-from ..least_squares import LeastSquaresProblem
-from ..minimise import MinimiseProblem
-from ..misc import tree_inner_prod, two_norm
-from ..root_find import RootFindProblem
+from .._least_squares import LeastSquaresProblem
+from .._minimise import MinimiseProblem
+from .._misc import tree_inner_prod, two_norm
+from .._root_find import RootFindProblem
 
 
 # these are just to avoid large try-except blocks in the line search code,

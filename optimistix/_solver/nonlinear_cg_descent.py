@@ -8,10 +8,10 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
-from ..iterate import AbstractIterativeProblem
-from ..line_search import AbstractDescent
-from ..misc import tree_inner_prod, tree_where, two_norm
-from ..solution import RESULTS
+from .._iterate import AbstractIterativeProblem
+from .._line_search import AbstractDescent
+from .._misc import tree_inner_prod, tree_where, two_norm
+from .._solution import RESULTS
 
 
 def _sum_leaves(tree):

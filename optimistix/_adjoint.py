@@ -7,7 +7,7 @@ import equinox.internal as eqxi
 import lineax as lx
 from jaxtyping import PyTree
 
-from .ad import implicit_jvp
+from ._ad import implicit_jvp
 
 
 class AbstractAdjoint(eqx.Module):

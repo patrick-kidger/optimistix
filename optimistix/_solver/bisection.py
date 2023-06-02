@@ -6,8 +6,8 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Int, Scalar
 
-from ..root_find import AbstractRootFinder
-from ..solution import RESULTS
+from .._root_find import AbstractRootFinder
+from .._solution import RESULTS
 
 
 class _BisectionState(eqx.Module):

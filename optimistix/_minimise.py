@@ -6,9 +6,9 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, PyTree
 
-from .adjoint import AbstractAdjoint, ImplicitAdjoint
-from .iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
-from .solution import Solution
+from ._adjoint import AbstractAdjoint, ImplicitAdjoint
+from ._iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
+from ._solution import Solution
 
 
 _SolverState = TypeVar("_SolverState")

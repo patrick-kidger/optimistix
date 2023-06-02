@@ -8,11 +8,11 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Float, Int, PyTree, Scalar
 
-from ..least_squares import AbstractLeastSquaresSolver, LeastSquaresProblem
-from ..line_search import AbstractDescent, OneDimensionalFunction
-from ..minimise import AbstractMinimiser, minimise, MinimiseProblem
-from ..misc import max_norm, tree_full_like
-from ..solution import RESULTS
+from .._least_squares import AbstractLeastSquaresSolver, LeastSquaresProblem
+from .._line_search import AbstractDescent, OneDimensionalFunction
+from .._minimise import AbstractMinimiser, minimise, MinimiseProblem
+from .._misc import max_norm, tree_full_like
+from .._solution import RESULTS
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .misc import compute_jac_residual, two_norm
 from .trust_region import ClassicalTrustRegion
