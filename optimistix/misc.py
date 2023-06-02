@@ -7,7 +7,7 @@ import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Bool, Float, PyTree, Scalar
 
 
 def two_norm(x: PyTree) -> Scalar:
@@ -84,11 +84,11 @@ def tree_zeros(struct: Optional[PyTree[jax.ShapeDtypeStruct]]):
     return zeros
 
 
-def tree_zeros_like(tree: PyTree[Array]):
+def tree_zeros_like(tree: PyTree[Array]) -> PyTree[Array]:
     return jtu.tree_map(jnp.zeros_like, tree)
 
 
-def tree_inner_prod(tree1, tree2):
+def tree_inner_prod(tree1: PyTree[Array], tree2: PyTree[Array]) -> Float[Array, ""]:
     prod = (tree1**ω * tree2**ω).call(jnp.sum).ω
     return jtu.tree_reduce(lambda x, y: x + y, prod)
 

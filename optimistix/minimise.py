@@ -24,10 +24,18 @@ class AbstractMinimiser(AbstractIterativeSolver):
     pass
 
 
-def _minimum(optimum, _, inputs, __):
-    minimise_prob, args = inputs
+def _minimum(optimum, _, inputs):
+    minimise_prob, args, *_ = inputs
     del inputs
-    return jax.grad(minimise_prob.fn)(optimum, args)
+
+    def min_no_aux(x):
+        if minimise_prob.has_aux:
+            out, _ = minimise_prob.fn(x, args)
+        else:
+            out = minimise_prob.fn(x, args)
+        return out
+
+    return jax.grad(min_no_aux)(optimum)
 
 
 @eqx.filter_jit

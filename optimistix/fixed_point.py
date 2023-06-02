@@ -2,6 +2,7 @@ from typing import Any, Callable, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
+from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
 from .adjoint import AbstractAdjoint, ImplicitAdjoint
@@ -21,10 +22,18 @@ class AbstractFixedPointSolver(AbstractIterativeSolver):
     pass
 
 
-def _fixed_point(root, _, inputs, __):
-    fixed_point_prob, args = inputs
+def _fixed_point(root, _, inputs):
+    fixed_point_prob, args, *_ = inputs
     del inputs
-    return fixed_point_prob.fn(root, args) - root
+
+    def fixed_point_no_aux(x):
+        if fixed_point_prob.has_aux:
+            out, _ = fixed_point_prob.fn(x, args)
+        else:
+            out = fixed_point_prob.fn(x, args)
+        return out
+
+    return (fixed_point_no_aux(root) ** ω - root**ω).ω
 
 
 class _ToRootFn(eqx.Module):

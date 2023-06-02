@@ -82,46 +82,42 @@ def finite_difference_jvp(fn, primals, tangents):
 #
 
 
-def _bowl(tree: PyTree[Array], args: Any):
-    # Trivial quadratic bowl smoke test for convergence
+def _bowl(tree: PyTree[Array], args: Array):
+    # Trivial quadratic bowl smoke test for convergence.
     (y, _) = jax.flatten_util.ravel_pytree(tree)
-    size = y.size
-    key = jr.PRNGKey(17)
-    matrix = jr.normal(key, (size, size))
-    pd_matrix = matrix.T @ matrix
-    w, v = jnp.linalg.eig(pd_matrix)
-    return y.T @ pd_matrix @ y
+    matrix = args
+    return y.T @ matrix @ y
 
 
-def _uncoupled_simple(tree: PyTree[Array], args: Any):
-    leaves, treedef = jtu.tree_flatten(tree)
-    key = jr.PRNGKey(17)
-    random_positive = treedef.unflatten(
-        [jr.normal(key, leaf.shape, leaf.dtype) ** 2 for leaf in leaves]
-    )
-    return (ω(tree).call(jnp.square) * random_positive**ω).ω
+def _diagonal_quadratic_bowl(tree: PyTree[Array], args: PyTree[Array]):
+    # A diagonal quadratic bowl smoke test for convergence.
+    weight_vector = args
+    return (ω(tree).call(jnp.square) * weight_vector**ω).ω
 
 
-def _rosenbrock(tree: PyTree[Array], args: Any):
+def _rosenbrock(tree: PyTree[Array], args: Scalar):
     # Wiki
     # least squares
     (y, _) = jax.flatten_util.ravel_pytree(tree)
-    return (100 * (y[1:] - y[:-1]), 1 - y[:-1])
+    const = args
+    return (100 * (y[1:] - y[:-1]), const - y[:-1])
 
 
 def _himmelblau(tree: PyTree[Array], args: Any):
     # Wiki
     (y, z) = tree
-    term1 = ((ω(y).call(jnp.square) + z**ω - 11.0) ** 2).ω
-    term2 = ((y**ω + ω(z).call(jnp.square) - 7.0) ** 2).ω
+    const1, const2 = args
+    term1 = ((ω(y).call(jnp.square) + z**ω - const1) ** 2).ω
+    term2 = ((y**ω + ω(z).call(jnp.square) - const2) ** 2).ω
     return (term1**ω + term2**ω).ω
 
 
 def _matyas(tree: PyTree[Array], args: Any):
     # Wiki
     (y, z) = tree
-    term1 = (0.26 * (ω(y).call(jnp.square) + ω(z).call(jnp.square))).ω
-    term2 = (0.48 * y**ω * z**ω).ω
+    const1, const2 = args
+    term1 = (const1 * (ω(y).call(jnp.square) + ω(z).call(jnp.square))).ω
+    term2 = (const2 * y**ω * z**ω).ω
     return (term1**ω - term2**ω).ω
 
 
@@ -138,13 +134,14 @@ def _eggholder(tree: PyTree[Array], args: Any):
 def _beale(tree: PyTree[Array], args: Any):
     # Wiki
     (y, z) = tree
-    term1 = ((1.5 - y**ω + y**ω * z**ω) ** 2).ω
-    term2 = ((2.25 - y**ω + y**ω * ω(z).call(jnp.square)) ** 2).ω
-    term3 = ((2.625 - y**ω + y**ω * ω(z).call(lambda x: x**3)) ** 2).ω
+    const1, const2, const3 = args
+    term1 = ((const1 - y**ω + y**ω * z**ω) ** 2).ω
+    term2 = ((const2 - y**ω + y**ω * ω(z).call(jnp.square)) ** 2).ω
+    term3 = ((const3 - y**ω + y**ω * ω(z).call(lambda x: x**3)) ** 2).ω
     return (term1**ω + term2**ω + term3**ω).ω
 
 
-def _penalty_ii(tree: PyTree[Array], args: Any):
+def penalty_ii(tree: PyTree[Array], args: Any):
     # TUOS eqn 24
     # least squares
     (y, _) = jax.flatten_util.ravel_pytree(tree)
@@ -160,34 +157,37 @@ def _penalty_ii(tree: PyTree[Array], args: Any):
     return (term1, term2, term3, term4)
 
 
-def _variably_dimensioned(tree: PyTree[Array], args: Any):
+def variably_dimensioned(tree: PyTree[Array], args: Any):
     # TUOS eqn 25
     # least squares
     (y, _) = jax.flatten_util.ravel_pytree(tree)
+    const = args
     increasing = jnp.arange(1, jnp.size(y) + 1)
-    term1 = y - 1
-    term2 = jnp.sum(increasing * (y - 1))
+    term1 = y - const
+    term2 = jnp.sum(increasing * (y - const))
     term3 = term2**2
     return (term1, term2, term3)
 
 
-def _trigonometric(tree: PyTree[Array], args: Any):
+def trigonometric(tree: PyTree[Array], args: Any):
     # TUOS eqn 26
     # least squares
     (y, _) = jax.flatten_util.ravel_pytree(tree)
+    const = args
     sumcos = jnp.sum(jnp.cos(y))
     increasing = jnp.arange(1, jnp.size(y) + 1, dtype=jnp.float32)
-    return jnp.size(y) - sumcos + increasing * (1 - jnp.cos(y)) - jnp.sin(y)
+    return jnp.size(y) - sumcos + increasing * (const - jnp.cos(y)) - jnp.sin(y)
 
 
-def _simple_nn(model: PyTree[Array], args: Any):
+def simple_nn(model_dynamic: PyTree[Array], args: Any):
     # args is the activation functions in
     # the MLP.
-    model = eqx.combine(model, args)
+    (model_static, data) = args
+    model = eqx.combine(model_dynamic, model_static)
     key = jr.PRNGKey(17)
     model_key, data_key = jr.split(key, 2)
     x = jnp.linspace(0, 1, 100)[..., None]
-    y = x**2
+    y = data**2
 
     def loss(model, x, y):
         pred_y = eqx.filter_vmap(model)(x)
@@ -196,10 +196,19 @@ def _simple_nn(model: PyTree[Array], args: Any):
     return loss(model, x, y)
 
 
+#
+# The MLP can be difficult for some of the solvers to optimise. Rather than set
+# max_steps to a higher value and iterate for longer, we initialise the MLP
+# closer to the minimum by explicitly setting the weights and biases.
+#
+
+
+def get_weights(model):
+    layer1, layer2 = model.layers
+    return layer1.weight, layer1.bias, layer2.weight, layer2.bias
+
+
 ffn_init = eqx.nn.MLP(in_size=1, out_size=1, width_size=8, depth=1, key=jr.PRNGKey(17))
-
-layer1, layer2 = ffn_init.layers
-
 weight1 = jnp.array(
     [
         [3.39958394],
@@ -239,20 +248,8 @@ weight2 = jnp.array(
     ]
 )
 bias2 = jnp.array([-2.16578771])
-
-#
-# The MLP can be difficult for some of the solvers to optimise. Rather than set
-# max_steps to a higher value and iterate for longer, we initialise the MLP
-# closer to the minimum by explicitly setting the weights and biases.
-#
-
-
-def get_weights(model):
-    layer1, layer2 = model.layers
-    return layer1.weight, layer1.bias, layer2.weight, layer2.bias
-
-
-ffn_init = eqx.tree_at(get_weights, ffn_init, (weight1, bias1, weight2, bias2))
+new_ffn_init = eqx.tree_at(get_weights, ffn_init, (weight1, bias1, weight2, bias2))
+ffn_dynamic, ffn_static = eqx.partition(new_ffn_init, eqx.is_array)
 
 # TODO(raderj): patch or remove _penalty_ii
 # (
@@ -266,61 +263,90 @@ ffn_init = eqx.tree_at(get_weights, ffn_init, (weight1, bias1, weight2, bias2))
 #     (({"a": 0.5 * jnp.ones(4)}), 0.5 * jnp.ones(3), (0.5 * jnp.ones(3), ())),
 # ),
 
-least_squares_problem_minima_init = (
-    (
-        optx.LeastSquaresProblem(_uncoupled_simple),
-        jnp.array(0.0),
-        ({"a": 0.05 * jnp.ones((2, 3, 3))}, (0.05 * jnp.ones(2))),
-    ),
-    # (
-    #     optx.LeastSquaresProblem(_rosenbrock),
-    #     jnp.array(0.0),
-    #     [jnp.array(0.0), jnp.array(0.0)],
-    # ),
-    # (
-    #     optx.LeastSquaresProblem(_rosenbrock),
-    #     jnp.array(0.0),
-    #     (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
-    # ),
-    (optx.LeastSquaresProblem(_simple_nn), jnp.array(0.0), ffn_init),
-    # (
-    #     optx.LeastSquaresProblem(_variably_dimensioned),
-    #     jnp.array(0.0),
-    #     1 - jnp.arange(1, 11) / 10,
-    # ),
-    # (
-    #     optx.LeastSquaresProblem(_variably_dimensioned),
-    #     jnp.array(0.0),
-    #     (1 - jnp.arange(1, 7) / 10, {"a": (1 - jnp.arange(7, 11) / 10)}),
-    # ),
-    # (optx.LeastSquaresProblem(_trigonometric), jnp.array(0.0), jnp.ones(70) / 70),
-    # (
-    #     optx.LeastSquaresProblem(_trigonometric),
-    #     jnp.array(0.0),
-    #     ((jnp.ones(40) / 70, (), {"a": jnp.ones(20) / 70}), jnp.ones(10) / 70),
-    # ),
+# _uncoupled_simple default args
+diagonal_bowl_init = ({"a": 0.05 * jnp.ones((2, 3, 3))}, (0.05 * jnp.ones(2)))
+leaves, treedef = jtu.tree_flatten(diagonal_bowl_init)
+key = jr.PRNGKey(17)
+diagonal_bowl_args = treedef.unflatten(
+    [jr.normal(key, leaf.shape, leaf.dtype) ** 2 for leaf in leaves]
 )
 
-minimisation_problem_minima_init = (
+# neural net args
+ffn_data = jnp.linspace(0, 1, 100)[..., None]
+ffn_args = (ffn_static, ffn_data)
+
+
+least_squares_problem_minima_init_args = (
     (
-        optx.MinimiseProblem(_bowl),
+        optx.LeastSquaresProblem(_diagonal_quadratic_bowl),
         jnp.array(0.0),
-        ({"a": 0.05 * jnp.ones((2, 3, 3))}, (0.05 * jnp.ones(2))),
+        diagonal_bowl_init,
+        diagonal_bowl_args,
     ),
+    (
+        optx.LeastSquaresProblem(_rosenbrock),
+        jnp.array(0.0),
+        [jnp.array(1.5), jnp.array(1.5)],
+        jnp.array(1.0),
+    ),
+    (
+        optx.LeastSquaresProblem(_rosenbrock),
+        jnp.array(0.0),
+        (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
+        jnp.array(1.0),
+    ),
+    (optx.LeastSquaresProblem(simple_nn), jnp.array(0.0), ffn_dynamic, ffn_args),
+    (
+        optx.LeastSquaresProblem(variably_dimensioned),
+        jnp.array(0.0),
+        1 - jnp.arange(1, 11) / 10,
+        jnp.array(1.0),
+    ),
+    (
+        optx.LeastSquaresProblem(variably_dimensioned),
+        jnp.array(0.0),
+        (1 - jnp.arange(1, 7) / 10, {"a": (1 - jnp.arange(7, 11) / 10)}),
+        jnp.array(1.0),
+    ),
+    (
+        optx.LeastSquaresProblem(trigonometric),
+        jnp.array(0.0),
+        jnp.ones(70) / 70,
+        jnp.array(1.0),
+    ),
+    (
+        optx.LeastSquaresProblem(trigonometric),
+        jnp.array(0.0),
+        ((jnp.ones(40) / 70, (), {"a": jnp.ones(20) / 70}), jnp.ones(10) / 70),
+        jnp.array(1.0),
+    ),
+)
+
+bowl_init = ({"a": 0.05 * jnp.ones((2, 3, 3))}, (0.05 * jnp.ones(2)))
+(flatten_bowl, _) = jax.flatten_util.ravel_pytree(bowl_init)
+key = jr.PRNGKey(17)
+matrix = jr.normal(key, (flatten_bowl.size, flatten_bowl.size))
+diagonal_bowl_args = matrix.T @ matrix
+
+minimisation_problem_minima_init_args = (
+    (optx.MinimiseProblem(_bowl), jnp.array(0.0), bowl_init, diagonal_bowl_args),
     (
         optx.MinimiseProblem(_himmelblau),
         jnp.array(0.0),
         [jnp.array(2.0), jnp.array(2.5)],
+        (jnp.array(11.0), jnp.array(7.0)),
     ),
     (
         optx.MinimiseProblem(_matyas),
         jnp.array(0.0),
         [jnp.array(6.0), jnp.array(6.0)],
+        (jnp.array(0.26), jnp.array(0.48)),
     ),
     (
         optx.MinimiseProblem(_beale),
         jnp.array(0.0),
         [jnp.array(2.0), jnp.array(0.0)],
+        (jnp.array(1.5), jnp.array(2.25), jnp.array(2.625)),
     ),
 )
 
@@ -365,9 +391,10 @@ def _nonlinear_heat_pde_general(
     # the nonlinear heat equation:
     # `d y(t, x)/dt = (1 - y(t, x)) Δy(t, x)`
     # where `d/dt` is a partial derivative wrt time and `Δ` is the Laplacian.
+    const = args
     stepsize = t1 - t0
     f_val = ((1 - y**ω) * _laplacian(y, dx) ** ω).ω
-    return (y0**ω + 0.5 * stepsize * (f_val**ω + f0**ω)).ω
+    return const * (y0**ω + 0.5 * stepsize * (f_val**ω + f0**ω)).ω
 
 
 # Note that the midpoint methods below assume that `f` is autonomous.
@@ -432,26 +459,28 @@ class Robertson(eqx.Module):
 
 # PROBLEMS
 def _exponential(tree: PyTree[Array], args: Any):
-    return jtu.tree_map(lambda x: jnp.exp(-x), tree)
+    const = args
+    return jtu.tree_map(lambda x: jnp.exp(-const * x), tree)
 
 
 def _sin(tree: PyTree[Array], args: Any):
-    return jtu.tree_map(jnp.sin, tree)
+    const = args
+    return jtu.tree_map(lambda x: jnp.sin(const * x), tree)
 
 
 def _nn(tree: PyTree[Array], args: Any):
     (y, unflatten) = jax.flatten_util.ravel_pytree(tree)
     size = _getsize(y)
+    weight1, bias1, weight2, bias2 = args
     model = eqx.nn.MLP(
         in_size=size,
         out_size=size,
         width_size=8,
         depth=1,
         activation=jax.nn.softplus,  # more complex than relu
-        key=jr.PRNGKey(42),
+        key=jr.PRNGKey(42),  # doesn't matter! is overwritten immediately
     )
-    key = jr.PRNGKey(17)
-    model_key, data_key = jr.split(key, 2)
+    model = eqx.tree_at(get_weights, model, (weight1, bias1, weight2, bias2))
     return unflatten(0.1 * model(y))
 
 
@@ -469,41 +498,45 @@ def _nonlinear_heat_pde(y: PyTree[Array], args: Any):
 
 def _midpoint_y_linear(tree: PyTree[Array], args: Any):
     (y, unflatten) = jax.flatten_util.ravel_pytree(tree)
-    size = y.size
-    key = jr.PRNGKey(17)
-    matrix = jr.normal(key, (size, size))
+    matrix = args
     f = lambda x, _: matrix @ x
     y0 = ω(y).call(jnp.zeros_like).ω
     dt = jnp.array(1 / (2**4))
-    return unflatten(_midpoint_y_general(f, y0, dt, y, args))
+    midpoint = _midpoint_y_general(f, y0, dt, y, args)
+    return unflatten(midpoint)
 
 
 def _midpoint_f_linear(tree: PyTree[Array], args: Any):
     (y, unflatten) = jax.flatten_util.ravel_pytree(tree)
-    size = y.size
-    key = jr.PRNGKey(18)
-    matrix = jr.normal(key, (size, size))
-    f = lambda x, _: matrix @ x
+    f = lambda x, args: jnp.dot(args, x)
     y0 = ω(y).call(jnp.zeros_like).ω
     dt = jnp.array(1 / (2**4))
-    return unflatten(_midpoint_f_general(f, y0, dt, y, args))
+    midpoint = _midpoint_f_general(f, y0, dt, y, args)
+    if midpoint.size == 1:
+        out = midpoint.reshape(1)
+    else:
+        out = midpoint
+    return unflatten(out)
 
 
 def _midpoint_k_linear(tree: PyTree[Array], args: Any):
     (y, unflatten) = jax.flatten_util.ravel_pytree(tree)
-    size = y.size
-    key = jr.PRNGKey(19)
-    matrix = jr.normal(key, (size, size))
-    f = lambda x, _: matrix @ x
+    f = lambda x, args: jnp.dot(args, x)
     y0 = ω(y).call(jnp.zeros_like).ω
     dt = jnp.array(1 / (2**4))
-    return unflatten(_midpoint_k_general(f, y0, dt, y, args))
+    midpoint = _midpoint_k_general(f, y0, dt, y, args)
+    if midpoint.size == 1:
+        out = midpoint.reshape(1)
+    else:
+        out = midpoint
+    return unflatten(out)
 
 
 def _midpoint_y_nonlinear(y: PyTree[Array], args: Any):
     size = _getsize(y)
     assert size == 3
-    f = Robertson(0.04, 3e7, 1e4)
+    const1, const2, const3 = args
+    f = Robertson(const1, const2, const3)
     y0 = ω(y).call(jnp.zeros_like).ω
     dt = 1e-8
     return _midpoint_y_general(f, y0, dt, y, args)
@@ -512,7 +545,8 @@ def _midpoint_y_nonlinear(y: PyTree[Array], args: Any):
 def _midpoint_f_nonlinear(y: PyTree[Array], args: Any):
     size = _getsize(y)
     assert size == 3
-    f = Robertson(0.04, 3e7, 1e4)
+    const1, const2, const3 = args
+    f = Robertson(const1, const2, const3)
     y0 = ω(y).call(jnp.zeros_like).ω
     dt = 1e-8
     return _midpoint_f_general(f, y0, dt, y, args)
@@ -521,96 +555,100 @@ def _midpoint_f_nonlinear(y: PyTree[Array], args: Any):
 def _midpoint_k_nonlinear(y: PyTree[Array], args: Any):
     size = _getsize(y)
     assert size == 3
-    f = Robertson(0.04, 3e7, 1e4)
+    const1, const2, const3 = args
+    f = Robertson(const1, const2, const3)
     y0 = ω(y).call(jnp.zeros_like).ω
     dt = 1e-8
     return _midpoint_k_general(f, y0, dt, y, args)
 
 
+# ARGS FOR BISECTION AND FIXED POINT
 ones_pytree = ({"a": 0.5 * jnp.ones((3, 2, 4))}, 0.5 * jnp.ones(4))
+flat_ones, _ = jax.flatten_util.ravel_pytree(ones_pytree)
+size = flat_ones.size
+key = jr.PRNGKey(19)
+matrix = jr.normal(key, (size, size))
+nn_model = eqx.nn.MLP(
+    in_size=size,
+    out_size=size,
+    width_size=8,
+    depth=1,
+    activation=jax.nn.softplus,  # more complex than relu
+    key=jr.PRNGKey(42),
+)
+nn_args = get_weights(nn_model)
+robertson_args = (jnp.array(0.04), jnp.array(3e7), jnp.array(1e4))
 ones_robertson = (jnp.ones(2), {"b": jnp.array(1.0)})
 hundred = jnp.ones(100)
 single = jnp.array(1.0)
-
-bisection_problem_init_options = (
+bisection_problem_init_options_args = (
     (
         optx.RootFindProblem(lambda x, _: x - 1),
         single,
         {"upper": jnp.array(2.0), "lower": jnp.array(0.5)},
-    ),
-    (
-        optx.FixedPointProblem(_midpoint_k_linear),
-        single,
-        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        None,
     ),
     (
         optx.FixedPointProblem(_sin),
         single,
         {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        jnp.array(1.0),
     ),
     (
         optx.FixedPointProblem(_exponential),
         single,
         {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        jnp.array(1.0),
     ),
     (
         optx.FixedPointProblem(_midpoint_y_linear),
         single,
         {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        jnp.array([0.5]),
     ),
     (
         optx.FixedPointProblem(_midpoint_f_linear),
         single,
         {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        jnp.array([0.625]),
     ),
     (
         optx.FixedPointProblem(_midpoint_k_linear),
         single,
         {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
-    ),
-    (
-        optx.FixedPointProblem(_midpoint_k_linear),
-        single,
-        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        jnp.array([-0.137]),
     ),
 )
 
-fixed_point_problem_init = (
-    (
-        optx.FixedPointProblem(_sin),
-        ones_pytree,
-    ),
-    (
-        optx.FixedPointProblem(_exponential),
-        ones_pytree,
-    ),
-    (
-        optx.FixedPointProblem(_nn),
-        ones_pytree,
-    ),
-    (
-        optx.FixedPointProblem(_nonlinear_heat_pde),
-        hundred,
-    ),
+fixed_point_problem_init_args = (
+    (optx.FixedPointProblem(_sin), ones_pytree, jnp.array(1.0)),
+    (optx.FixedPointProblem(_exponential), ones_pytree, jnp.array(1.0)),
+    (optx.FixedPointProblem(_nn), ones_pytree, nn_args),
+    (optx.FixedPointProblem(_nonlinear_heat_pde), hundred, jnp.array(1.0)),
     (
         optx.FixedPointProblem(_midpoint_y_linear),
         ones_pytree,
+        matrix,
     ),
     (
         optx.FixedPointProblem(_midpoint_f_linear),
         ones_pytree,
+        matrix,
     ),
     (
         optx.FixedPointProblem(_midpoint_k_linear),
         ones_pytree,
+        matrix,
     ),
-    (optx.FixedPointProblem(_midpoint_y_nonlinear), ones_robertson),
+    (optx.FixedPointProblem(_midpoint_y_nonlinear), ones_robertson, robertson_args),
     (
         optx.FixedPointProblem(_midpoint_f_nonlinear),
         ones_robertson,
+        robertson_args,
     ),
     (
         optx.FixedPointProblem(_midpoint_k_nonlinear),
         ones_robertson,
+        robertson_args,
     ),
 )

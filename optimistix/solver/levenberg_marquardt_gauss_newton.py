@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, Float, Int, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Float, Int, PyTree, Scalar
 
 from ..least_squares import AbstractLeastSquaresSolver, LeastSquaresProblem
 from ..line_search import AbstractDescent, OneDimensionalFunction
@@ -18,21 +18,6 @@ from .misc import compute_jac_residual, two_norm
 from .trust_region import ClassicalTrustRegion
 
 
-def _small(diffsize: Scalar) -> Bool[ArrayLike, " "]:
-    # TODO(kidger): make a more careful choice here -- the existence of this
-    # function is pretty ad-hoc.
-    resolution = 10 ** (2 - jnp.finfo(diffsize.dtype).precision)
-    return diffsize < resolution
-
-
-def _diverged(rate: Scalar) -> Bool[ArrayLike, " "]:
-    return jnp.invert(jnp.isfinite(rate))
-
-
-def _converged(factor: Scalar, tol: float) -> Bool[ArrayLike, " "]:
-    return (factor > 0) & (factor < tol)
-
-
 class GNState(eqx.Module):
     descent_state: PyTree
     vector: PyTree[ArrayLike]
@@ -42,6 +27,7 @@ class GNState(eqx.Module):
     diffsize_prev: Scalar
     result: RESULTS
     f_val: PyTree[Array]
+    f_prev: PyTree[Array]
     next_init: Array
     aux: Any
     step: Int[Array, ""]
@@ -79,6 +65,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             diffsize_prev=jnp.array(0.0),
             result=jnp.array(RESULTS.successful),
             f_val=f0,
+            f_prev=f0,
             next_init=jnp.array(1.0),
             aux=aux,
             step=jnp.array(0),
@@ -111,6 +98,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             "compute_f0": (state.step == 0),
             "vector": state.vector,
             "operator": state.operator,
+            "diff": y,
         }
 
         line_search_options["predicted_reduction"] = ft.partial(
@@ -151,6 +139,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             diffsize_prev=state.diffsize,
             result=jnp.array(RESULTS.successful),
             f_val=f_val,
+            f_prev=state.f_val,
             next_init=next_init,
             aux=new_aux,
             step=state.step + 1,
@@ -170,15 +159,11 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         state: GNState,
     ):
         at_least_two = state.step >= 2
-        rate = state.diffsize / state.diffsize_prev
-        factor = state.diffsize * rate / (1 - rate)
-        small = _small(state.diffsize)
-        diverged = _diverged(rate)
-        converged = _converged(factor, self.converged_tol)
+        f_diff = jnp.abs(state.f_val - state.f_prev)
+        converged = f_diff < self.rtol * jnp.abs(state.f_prev) + self.atol
         linsolve_fail = state.result != RESULTS.successful
-        terminate = linsolve_fail | (at_least_two & (small | diverged | converged))
-        result = jnp.where(diverged, RESULTS.nonlinear_divergence, RESULTS.successful)
-        result = jnp.where(linsolve_fail, state.result, result)
+        terminate = linsolve_fail | (converged & at_least_two)
+        result = jnp.where(linsolve_fail, state.result, RESULTS.successful)
         return terminate, result
 
     def buffers(self, state: GNState):

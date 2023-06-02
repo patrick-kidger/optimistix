@@ -24,12 +24,17 @@ class AbstractLeastSquaresSolver(AbstractIterativeSolver):
     pass
 
 
-def _residual(optimum, _, inputs, __):
-    residual_prob, args = inputs
+def _residual(optimum, _, inputs):
+    residual_prob, args, *_ = inputs
     del inputs
 
     def objective(_optimum):
-        return jnp.sum(residual_prob.fn(_optimum, args) ** 2)
+        if residual_prob.has_aux:
+            residual, _ = residual_prob.fn(_optimum, args)
+        else:
+            residual = residual_prob.fn(_optimum, args)
+        sum_squared = jtu.tree_map(lambda x: jnp.sum(x**2), residual)
+        return jtu.tree_reduce(lambda x, y: x + y, sum_squared)
 
     return jax.grad(objective)(optimum)
 
