@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-import optimistix.misc as optx_misc
+import optimistix._misc as optx_misc
 
 
 def test_inexact_asarray_no_copy():

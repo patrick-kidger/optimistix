@@ -1,4 +1,9 @@
-from typing import Any, Callable, cast, Optional
+from typing import (
+    Any,
+    Callable,
+    cast,
+    Optional,
+)
 
 import equinox as eqx
 import jax
@@ -7,13 +12,12 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, Float, Int, PyTree, Scalar
+from jaxtyping import Array, Bool, Float, Int, PyTree, Scalar
 
-from .._custom_types import sentinel
-from .._iterate import AbstractIterativeProblem
+from .._custom_types import Aux, Fn, Out, sentinel, Y
 from .._line_search import AbstractDescent
 from .._misc import tree_where, two_norm
-from .._root_find import AbstractRootFinder, root_find, RootFindProblem
+from .._root_find import AbstractRootFinder, root_find
 from .._solution import RESULTS
 from .misc import quadratic_predicted_reduction
 
@@ -66,19 +70,22 @@ class _IndirectDualState(eqx.Module):
     step: Int[Array, ""]
 
 
-class _IndirectDualRootFind(AbstractRootFinder):
+class _IndirectDualRootFind(
+    AbstractRootFinder[_IndirectDualState, Scalar, Scalar, Aux]
+):
     gauss_newton: bool
     converged_tol: float
 
     def init(
         self,
-        problem: RootFindProblem,
-        y: Array,
+        fn: Fn[Scalar, Scalar, Aux],
+        y: Scalar,
         args: Any,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
-    ):
+        tags: frozenset[object],
+    ) -> _IndirectDualState:
         del f_struct, aux_struct
         try:
             delta = options["delta"]
@@ -122,31 +129,31 @@ class _IndirectDualRootFind(AbstractRootFinder):
 
     def step(
         self,
-        problem: RootFindProblem,
-        y: Array,
+        fn: Fn[Scalar, Scalar, Aux],
+        y: Scalar,
         args: Any,
         options: dict[str, Any],
         state: _IndirectDualState,
-    ):
+        tags: frozenset[object],
+    ) -> tuple[Scalar, _IndirectDualState, Aux]:
         # avoid an extra compilation of problem.fn in the init.
-        _y = jnp.where(state.step == 0, 0, y)
+        y_or_zero = jnp.where(state.step == 0, 0, y)
         lambda_in_bounds = (state.lower_bound < y) & (y < state.upper_bound)
         new_y = jnp.where(
             lambda_in_bounds,
-            _y,
+            y_or_zero,
             jnp.maximum(
                 1e-3 * state.upper_bound,
                 jnp.sqrt(state.upper_bound * state.lower_bound),
             ),
         )
         # TODO(raderj): track down a link to reference for this.
-        f_val, aux = problem.fn(_y, args)
-        f_grad, _ = jax.grad(problem.fn, has_aux=True)(_y, args)
+        f_val, aux = fn(y_or_zero, args)
+        f_grad, _ = jax.grad(fn, has_aux=True)(y_or_zero, args)
+        f_grad = cast(Array, f_grad)
         grad_nonzero = f_grad < jnp.finfo(f_grad.dtype).eps
         safe_grad = jnp.where(grad_nonzero, f_grad, 1)
-        factor = cast(
-            Array, jnp.where(grad_nonzero, f_val / safe_grad, jnp.array(jnp.inf))
-        )
+        factor = jnp.where(grad_nonzero, f_val / safe_grad, jnp.array(jnp.inf))
         upper_bound = jnp.where(f_val < 0, y, state.upper_bound)
         lower_bound = jnp.maximum(state.lower_bound, y - factor)
         diff = -((f_val - state.delta) / state.delta) * factor
@@ -166,12 +173,13 @@ class _IndirectDualRootFind(AbstractRootFinder):
 
     def terminate(
         self,
-        problem: RootFindProblem,
-        y: Array,
+        fn: Fn[Scalar, Scalar, Aux],
+        y: Scalar,
         args: Any,
         options: dict[str, Any],
         state: _IndirectDualState,
-    ):
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
         at_least_two = state.step >= 2
         interval_size = jnp.abs(state.upper_bound - state.lower_bound)
         interval_converged = interval_size < self.converged_tol
@@ -180,13 +188,13 @@ class _IndirectDualRootFind(AbstractRootFinder):
         terminate = converged & at_least_two
         return terminate, RESULTS.successful
 
-    def buffers(self, state: _IndirectDualState):
+    def buffers(self, state: _IndirectDualState) -> tuple[()]:
         return ()
 
 
-class IterativeDualState(eqx.Module):
+class _IterativeDualState(eqx.Module):
     y: PyTree[Array]
-    problem: AbstractIterativeProblem
+    fn: Fn[Scalar, Scalar, Any]
     vector: PyTree[Array]
     operator: lx.AbstractLinearOperator
 
@@ -195,14 +203,14 @@ class _Damped(eqx.Module):
     fn: Callable
     damping: Float[Array, " "]
 
-    def __call__(self, y, args):
+    def __call__(self, y: PyTree[Array], args: Any):
         damping = jnp.sqrt(self.damping)
         f, aux = self.fn(y, args)
         damped = jtu.tree_map(lambda yi: damping * yi, y)
         return (f, damped), aux
 
 
-class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
+class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
     gauss_newton: bool
     modify_jac: Callable[
         [lx.JacobianLinearOperator], lx.AbstractLinearOperator
@@ -210,42 +218,40 @@ class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
 
     def init_state(
         self,
-        problem: AbstractIterativeProblem,
+        fn: Fn[Y, Out, Aux],
         y: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[lx.AbstractLinearOperator] = None,
-        operator_inv: Optional[lx.AbstractLinearOperator] = None,
-        args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = None,
-    ):
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
+        args: Any,
+        options: dict[str, Any],
+    ) -> _IterativeDualState:
         if operator is None:
             assert False
-        return IterativeDualState(y, problem, vector, operator)
+        return _IterativeDualState(y, fn, vector, operator)
 
     def update_state(
         self,
-        descent_state: IterativeDualState,
+        descent_state: _IterativeDualState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return IterativeDualState(
-            descent_state.y, descent_state.problem, vector, operator
-        )
+        options: dict[str, Any],
+    ) -> _IterativeDualState:
+        return _IterativeDualState(descent_state.y, descent_state.fn, vector, operator)
 
     def __call__(
         self,
         delta: Scalar,
-        descent_state: IterativeDualState,
+        descent_state: _IterativeDualState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> tuple[PyTree[Array], RESULTS]:
         if self.gauss_newton:
             vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
             operator = lx.JacobianLinearOperator(
-                _Damped(descent_state.problem.fn, delta),
+                _Damped(descent_state.fn, delta),
                 descent_state.y,
                 args,
                 _has_aux=True,
@@ -263,10 +269,10 @@ class _DirectIterativeDual(AbstractDescent[IterativeDualState]):
     def predicted_reduction(
         self,
         diff: PyTree[Array],
-        descent_state: IterativeDualState,
+        descent_state: _IterativeDualState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> Scalar:
         return quadratic_predicted_reduction(
             self.gauss_newton, diff, descent_state, args, options
         )
@@ -276,10 +282,10 @@ class DirectIterativeDual(_DirectIterativeDual):
     def __call__(
         self,
         delta: Scalar,
-        descent_state: IterativeDualState,
+        descent_state: _IterativeDualState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> tuple[PyTree[Array], RESULTS]:
         if descent_state.operator is None:
             raise ValueError(
                 "`operator` must be passed to `DirectIterativeDual`. "
@@ -291,7 +297,7 @@ class DirectIterativeDual(_DirectIterativeDual):
             vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
             operator = lx.JacobianLinearOperator(
                 _Damped(
-                    descent_state.problem.fn,
+                    descent_state.fn,
                     jnp.where(delta_nonzero, 1 / delta, jnp.inf),
                 ),
                 descent_state.y,
@@ -310,7 +316,7 @@ class DirectIterativeDual(_DirectIterativeDual):
         return diff, RESULTS.promote(linear_soln.result)
 
 
-class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
+class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
 
     #
     # Indirect iterative dual finds the `λ` to match the
@@ -359,38 +365,36 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
 
     def init_state(
         self,
-        problem: AbstractIterativeProblem,
+        fn: Fn[Y, Out, Aux],
         y: PyTree[Array],
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = None,
-    ):
+        args: Any,
+        options: dict[str, Any],
+    ) -> _IterativeDualState:
         if operator is None:
             assert False
-        return IterativeDualState(y, problem, vector, operator)
+        return _IterativeDualState(y, fn, vector, operator)
 
     def update_state(
         self,
-        descent_state: IterativeDualState,
+        descent_state: _IterativeDualState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        options: Optional[dict[str, Any]] = None,
+        options: dict[str, Any],
     ):
-        return IterativeDualState(
-            descent_state.y, descent_state.problem, vector, operator
-        )
+        return _IterativeDualState(descent_state.y, descent_state.fn, vector, operator)
 
     def __call__(
         self,
         delta: Scalar,
-        descent_state: IterativeDualState,
+        descent_state: _IterativeDualState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> tuple[PyTree[Array], RESULTS]:
         if descent_state.operator is None:
             raise ValueError(
                 "`operator` must be passed to "
@@ -431,19 +435,18 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
             return newton_step, newton_result
 
         def reject_newton():
-            root_find_problem = RootFindProblem(comparison_fn, has_aux=False)
             root_find_options = {
                 "vector": descent_state.vector,
                 "operator": descent_state.operator,
                 "delta": delta,
             }
-            # I don't love the max_steps here.
             lambda_out = root_find(
-                root_find_problem,
-                self.root_finder,
-                self.lambda_0,
-                args,
-                root_find_options,
+                fn=comparison_fn,
+                has_aux=False,
+                solver=self.root_finder,
+                y0=self.lambda_0,
+                args=args,
+                options=root_find_options,
                 max_steps=32,
                 throw=False,
             ).value
@@ -455,10 +458,10 @@ class IndirectIterativeDual(AbstractDescent[IterativeDualState]):
     def predicted_reduction(
         self,
         diff: PyTree[Array],
-        descent_state: IterativeDualState,
+        descent_state: _IterativeDualState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> Scalar:
         return quadratic_predicted_reduction(
             self.gauss_newton, diff, descent_state, args, options
         )

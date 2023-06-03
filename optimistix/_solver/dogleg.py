@@ -6,13 +6,13 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
-from .._iterate import AbstractIterativeProblem
+from .._custom_types import Aux, Fn, Out, Y
 from .._line_search import AbstractDescent
 from .._misc import tree_full_like, tree_inner_prod, tree_where, two_norm
 from .._solution import RESULTS
 
 
-def _quadratic_solve(a, b, c):
+def _quadratic_solve(a: Scalar, b: Scalar, c: Scalar) -> Scalar:
     discriminant = jnp.sqrt(b**2 - 4 * a * c)
     # if the output is >2 then we should be accepting the Newton step
     # regardless, so this clip is just a safeguard keeping us in the theoretical
@@ -20,48 +20,48 @@ def _quadratic_solve(a, b, c):
     return jnp.clip(0.5 * (-b + discriminant) / a, a_min=1, a_max=2)
 
 
-class DoglegState(eqx.Module):
+class _DoglegState(eqx.Module):
     vector: PyTree[Array]
     operator: lx.AbstractLinearOperator
 
 
-class Dogleg(AbstractDescent):
+class Dogleg(AbstractDescent[_DoglegState]):
     gauss_newton: bool
     norm: Callable = two_norm
     solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
 
     def init_state(
         self,
-        problem: AbstractIterativeProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
-    ):
+        args: Any,
+        options: dict[str, Any],
+    ) -> _DoglegState:
         if operator is None:
             assert False
-        return DoglegState(vector, operator)
+        return _DoglegState(vector, operator)
 
     def update_state(
         self,
-        descent_state: DoglegState,
+        descent_state: _DoglegState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return DoglegState(vector, operator)
+        options: dict[str, Any],
+    ) -> _DoglegState:
+        return _DoglegState(vector, operator)
 
     def __call__(
         self,
         delta: Scalar,
-        descent_state: DoglegState,
+        descent_state: _DoglegState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> tuple[PyTree[Array], RESULTS]:
 
         if self.gauss_newton:
             # this is just to compute the normalization in the proper direction,
@@ -115,10 +115,10 @@ class Dogleg(AbstractDescent):
     def predicted_reduction(
         self,
         diff: PyTree[Array],
-        descent_state: DoglegState,
+        descent_state: _DoglegState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> Scalar:
         # same as IndirectIterativeDual
         # The predicted reduction of the iterative dual. This is the model quadratic
         # model function of classical trust region methods localized around f(x).

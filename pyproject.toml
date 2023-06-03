@@ -1,0 +1,61 @@
+[project]
+name = "optimistix"
+version = "0.0.1"
+description = "Nonlinear optimisation in JAX and Equinox."
+readme = "README.md"
+requires-python ="~=3.9"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Jason Rader", email = "raderjason@outlook.com"},
+  {name = "Patrick Kidger", email = "contact@kidger.site"},
+]
+keywords = [
+    "jax",
+    "optimization",
+    "neural-networks",
+    "deep-learning",
+    "equinox",
+    "nonlinear-programming",
+    "numerical-optimization",
+    "levenberg-marquardt",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+urls = {repository = "https://github.com/google/optimistix" }
+dependencies = ["jax>=0.4.11", "jaxtyping>=0.2.20", "equinox>=0.10.5", "typing_extensions>=4.5.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = ["lineax/*"]
+
+[tool.pytest.ini_options]
+addopts = "--jaxtyping-packages=lineax,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
+
+[tool.ruff]
+select = ["E", "F", "I001"]
+ignore = ["E402", "E721", "E731", "E741", "F722"]
+ignore-init-module-imports = true
+
+[tool.ruff.isort]
+combine-as-imports = true
+lines-after-imports = 2
+extra-standard-library = ["typing_extensions"]
+order-by-type = false
+
+[tool.pyright]
+reportIncompatibleMethodOverride = true
+include = ["lineax", "tests"]

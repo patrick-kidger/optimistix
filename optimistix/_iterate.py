@@ -1,17 +1,32 @@
 import abc
-from typing import Any, Callable, FrozenSet, Generic, Optional, Tuple, TypeVar
+from typing import (
+    Any,
+    Callable,
+    FrozenSet,
+    Generic,
+    Optional,
+    Sequence,
+    TYPE_CHECKING,
+    Union,
+)
 
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
+import jax.core
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import Array, PyTree
+from jaxtyping import Array, Bool, PyTree
 
 from ._adjoint import AbstractAdjoint
-from ._custom_types import sentinel
-from ._misc import NoneAux
+from ._custom_types import Aux, Fn, Out, SolverState, Y
 from ._solution import RESULTS, Solution
+
+
+if TYPE_CHECKING:
+    _Node = Any
+else:
+    _Node = eqxi.doc_repr(Any, "Node")
 
 
 class _AuxError:
@@ -20,9 +35,6 @@ class _AuxError:
 
 
 aux_error = _AuxError()
-
-_SolverState = TypeVar("_SolverState")
-_Aux = TypeVar("_Aux")
 
 
 def _is_jaxpr(x):
@@ -33,54 +45,49 @@ def _is_array_or_jaxpr(x):
     return _is_jaxpr(x) or eqx.is_array(x)
 
 
-_F = TypeVar("_F")
-
-
-class AbstractIterativeProblem(eqx.Module, Generic[_F]):
-    fn: _F
-    has_aux: bool = False
-
-
-class AbstractIterativeSolver(eqx.Module):
+class AbstractIterativeSolver(eqx.Module, Generic[SolverState, Y, Out, Aux]):
     @abc.abstractmethod
     def init(
         self,
-        problem: AbstractIterativeProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
-    ) -> _SolverState:
+        tags: frozenset[object],
+    ) -> SolverState:
         ...
 
     @abc.abstractmethod
     def step(
         self,
-        problem: AbstractIterativeProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _SolverState,
-    ) -> Tuple[PyTree[Array], _SolverState, _Aux]:
+        state: SolverState,
+        tags: frozenset[object],
+    ) -> tuple[Y, SolverState, Aux]:
         ...
 
     @abc.abstractmethod
     def terminate(
         self,
-        problem: AbstractIterativeProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _SolverState,
-    ) -> bool:
+        state: SolverState,
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
         ...
 
     @abc.abstractmethod
     def buffers(
         self,
-        state: _SolverState,
-    ) -> Callable:
+        state: SolverState,
+    ) -> Union[_Node, Sequence[_Node]]:
         ...
 
 
@@ -92,7 +99,7 @@ def _zero(x):
 
 
 def _iterate(inputs, while_loop):
-    problem, args, solver, y0, options, max_steps, f_struct, aux_struct = inputs
+    fn, args, solver, y0, options, max_steps, f_struct, aux_struct, tags = inputs
     del inputs
     static_leaf = lambda x: isinstance(x, eqxi.Static)
     f_struct = jtu.tree_map(lambda x: x.value, f_struct, is_leaf=static_leaf)
@@ -101,19 +108,8 @@ def _iterate(inputs, while_loop):
     if options is None:
         options = {}
 
-    if not problem.has_aux:
-        problem = eqx.tree_at(
-            lambda p: (p.fn, p.has_aux), problem, (NoneAux(problem.fn), aux_error)
-        )
-
-    if aux_struct is sentinel:
-        assert f_struct is sentinel
-        f_struct, aux_struct = eqx.filter_eval_shape(problem.fn, y0, args)
-    else:
-        assert f_struct is not sentinel
-
     init_aux = jtu.tree_map(_zero, aux_struct)
-    init_state = solver.init(problem, y0, args, options, f_struct, aux_struct)
+    init_state = solver.init(fn, y0, args, options, f_struct, aux_struct, tags)
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
 
     init_carry = (y0, 0, dynamic_init_state, init_aux)
@@ -121,13 +117,13 @@ def _iterate(inputs, while_loop):
     def cond_fun(carry):
         y, _, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        terminate, _ = solver.terminate(problem, y, args, options, state)
+        terminate, _ = solver.terminate(fn, y, args, options, state, tags)
         return jnp.invert(terminate)
 
     def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        new_y, new_state, aux = solver.step(problem, y, args, options, state)
+        new_y, new_state, aux = solver.step(fn, y, args, options, state, tags)
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
 
         new_static_state_no_jaxpr = eqx.filter(
@@ -147,7 +143,7 @@ def _iterate(inputs, while_loop):
 
     final_y, num_steps, final_state, aux = final_carry
     _final_state = eqx.combine(static_state, final_state)
-    terminate, result = solver.terminate(problem, final_y, args, options, _final_state)
+    terminate, result = solver.terminate(fn, final_y, args, options, _final_state, tags)
     result = RESULTS.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
         RESULTS.max_steps_reached,
@@ -157,7 +153,7 @@ def _iterate(inputs, while_loop):
 
 
 def iterative_solve(
-    problem: AbstractIterativeProblem,
+    fn: Fn[Y, Out, Aux],
     solver: AbstractIterativeSolver,
     y0: PyTree[Array],
     args: PyTree = None,
@@ -168,12 +164,12 @@ def iterative_solve(
     adjoint: AbstractAdjoint,
     throw: bool,
     tags: FrozenSet[object],
-    f_struct: PyTree[jax.ShapeDtypeStruct] = sentinel,
-    aux_struct: PyTree[jax.ShapeDtypeStruct] = sentinel,
+    f_struct: PyTree[jax.ShapeDtypeStruct],
+    aux_struct: PyTree[jax.ShapeDtypeStruct],
 ) -> Solution:
     f_struct = jtu.tree_map(eqxi.Static, f_struct)
     aux_struct = jtu.tree_map(eqxi.Static, aux_struct)
-    inputs = problem, args, solver, y0, options, max_steps, f_struct, aux_struct
+    inputs = fn, args, solver, y0, options, max_steps, f_struct, aux_struct, tags
     out, (num_steps, result, final_state, aux) = adjoint.apply(
         _iterate, rewrite_fn, inputs, tags
     )

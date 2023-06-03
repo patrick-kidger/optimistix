@@ -8,9 +8,10 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Float, Int, PyTree, Scalar
 
-from .._least_squares import AbstractLeastSquaresSolver, LeastSquaresProblem
-from .._line_search import AbstractDescent, OneDimensionalFunction
-from .._minimise import AbstractMinimiser, minimise, MinimiseProblem
+from .._custom_types import Aux, Fn, Out, Y
+from .._least_squares import AbstractLeastSquaresSolver
+from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFunction
+from .._minimise import AbstractMinimiser, minimise
 from .._misc import max_norm, tree_full_like
 from .._solution import RESULTS
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
@@ -18,7 +19,7 @@ from .misc import compute_jac_residual, two_norm
 from .trust_region import ClassicalTrustRegion
 
 
-class GNState(eqx.Module):
+class _GNState(eqx.Module):
     descent_state: PyTree
     vector: PyTree[ArrayLike]
     operator: lx.AbstractLinearOperator
@@ -33,30 +34,29 @@ class GNState(eqx.Module):
     step: Int[Array, ""]
 
 
-class AbstractGaussNewton(AbstractLeastSquaresSolver):
+class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
     rtol: float
     atol: float
-    line_search: AbstractMinimiser
+    line_search: AbstractLineSearch
     descent: AbstractDescent
     norm: Callable
     converged_tol: float
 
     def init(
         self,
-        problem: LeastSquaresProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         args: Any,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
-    ):
+        tags: frozenset[object],
+    ) -> _GNState:
         del options, f_struct, aux_struct
         f0 = jnp.array(jnp.inf)
-        vector, operator, aux = compute_jac_residual(problem, y, args)
-        descent_state = self.descent.init_state(
-            problem, y, vector, operator, None, args, {}
-        )
-        return GNState(
+        vector, operator, aux = compute_jac_residual(fn, y, args)
+        descent_state = self.descent.init_state(fn, y, vector, operator, None, args, {})
+        return _GNState(
             descent_state=descent_state,
             vector=vector,
             operator=operator,
@@ -73,12 +73,13 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
 
     def step(
         self,
-        problem: LeastSquaresProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         args: Any,
         options: dict[str, Any],
-        state: GNState,
-    ):
+        state: _GNState,
+        tags: frozenset[object],
+    ) -> tuple[Y, _GNState, Aux]:
         descent = eqx.Partial(
             self.descent,
             descent_state=state.descent_state,
@@ -86,13 +87,11 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             options=options,
         )
 
-        def line_search_problem(x, args):
-            residual, aux = problem.fn(x, args)
+        def line_search_fn(x, args):
+            residual, aux = fn(x, args)
             return two_norm(residual), aux
 
-        problem_1d = MinimiseProblem(
-            OneDimensionalFunction(line_search_problem, descent, y), has_aux=True
-        )
+        problem_1d = OneDimensionalFunction(line_search_fn, descent, y)
         line_search_options = {
             "f0": state.f_val,
             "compute_f0": (state.step == 0),
@@ -114,9 +113,10 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             state.next_init,
         )
         line_sol = minimise(
-            problem_1d,
-            self.line_search,
-            init,
+            fn=problem_1d,
+            has_aux=True,
+            solver=self.line_search,
+            y0=init,
             args=args,
             options=line_search_options,
             max_steps=100,
@@ -124,13 +124,13 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         )
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
         new_y = (ω(y) + ω(diff)).ω
-        vector, operator, _ = compute_jac_residual(problem, new_y, args)
+        vector, operator, _ = compute_jac_residual(fn, new_y, args)
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         diffsize = self.norm((ω(diff) / ω(scale)).ω)
         descent_state = self.descent.update_state(
             state.descent_state, state.diff, vector, operator, None, options
         )
-        new_state = GNState(
+        new_state = _GNState(
             descent_state=descent_state,
             vector=vector,
             operator=operator,
@@ -152,11 +152,12 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
 
     def terminate(
         self,
-        problem: LeastSquaresProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         args: Any,
         options: dict[str, Any],
-        state: GNState,
+        state: _GNState,
+        tags: frozenset[object],
     ):
         at_least_two = state.step >= 2
         f_diff = jnp.abs(state.f_val - state.f_prev)
@@ -166,7 +167,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         result = RESULTS.where(linsolve_fail, state.result, RESULTS.successful)
         return terminate, result
 
-    def buffers(self, state: GNState):
+    def buffers(self, state: _GNState) -> tuple[()]:
         return ()
 
 

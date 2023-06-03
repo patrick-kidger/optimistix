@@ -1,5 +1,5 @@
 import math
-from typing import Any, Callable, NewType, Optional, Union
+from typing import Any, Callable, NewType
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -11,10 +11,8 @@ import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Shaped
 
-from .._least_squares import LeastSquaresProblem
-from .._minimise import MinimiseProblem
+from .._custom_types import Aux, Fn, Out, Y
 from .._misc import tree_inner_prod, two_norm
-from .._root_find import RootFindProblem
 
 
 # these are just to avoid large try-except blocks in the line search code,
@@ -26,7 +24,7 @@ def quadratic_predicted_reduction(
     diff: PyTree[Array],
     descent_state: PyTree,
     args: Any,
-    options: Optional[dict[str, Any]],
+    options: dict[str, Any],
 ):
     # The predicted reduction of a quadratic model function.
     # This is the model quadratic model function of classical trust region
@@ -80,10 +78,8 @@ class _NoAuxOut(eqx.Module):
         return f
 
 
-def compute_hess_grad(
-    problem: Union[MinimiseProblem, RootFindProblem], y: PyTree[Array], args: Any
-):
-    jrev = jax.jacrev(problem.fn, has_aux=True)
+def compute_hess_grad(fn: Fn[Y, Out, Aux], y: PyTree[Array], args: Any):
+    jrev = jax.jacrev(fn, has_aux=True)
     grad, aux = jrev(y, args)
     hessian, _ = jax.jacfwd(jrev, has_aux=True)(y, args)
     hessian = lx.PyTreeLinearOperator(
@@ -93,12 +89,10 @@ def compute_hess_grad(
     return grad, hessian, aux
 
 
-def compute_jac_residual(problem: LeastSquaresProblem, y: PyTree[Array], args: Any):
-    residual, aux = problem.fn(y, args)
-    problem.tags
-    jacobian = lx.JacobianLinearOperator(
-        problem.fn, y, args, tags=problem.tags, _has_aux=True
-    )
+def compute_jac_residual(fn: Fn[Y, Out, Aux], y: PyTree[Array], args: Any):
+    residual, aux = fn(y, args)
+    # can we pass tags here?
+    jacobian = lx.JacobianLinearOperator(fn, y, args, _has_aux=True)
     return residual, jacobian, aux
 
 

@@ -7,36 +7,63 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar
 
-from ._iterate import AbstractIterativeProblem
+from ._custom_types import Aux, Fn, LineSearchAux, Out, SolverState, Y
+from ._minimise import AbstractMinimiser
+from ._solution import RESULTS
 
 
 _DescentState = TypeVar("_DescentState")
+
+
+class OneDimensionalFunction(eqx.Module, Generic[Y, Aux]):
+    fn: Fn[Y, Scalar, Aux]
+    descent: Callable
+    y: Y
+
+    def __call__(
+        self, delta: Float[Array, ""], args: PyTree
+    ) -> tuple[Scalar, LineSearchAux]:
+        diff, result = self.descent(delta)
+        new_y = (self.y**ω + diff**ω).ω
+        f_val, aux = self.fn(new_y, args)
+        return f_val, (f_val, diff, aux, result, jnp.array(0.0))
+
+
+class AbstractLineSearch(AbstractMinimiser[SolverState, Scalar, LineSearchAux]):
+    @abc.abstractmethod
+    def first_init(
+        self,
+        vector: PyTree[Array],
+        operator: lx.AbstractLinearOperator,
+        options: dict[str, Any],
+    ) -> Scalar:
+        ...
 
 
 class AbstractDescent(eqx.Module, Generic[_DescentState]):
     @abc.abstractmethod
     def init_state(
         self,
-        problem: AbstractIterativeProblem,
+        fn: Fn[Y, Out, Aux],
         y: PyTree[Array],
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Optional[Any],
-        options: Optional[dict[str, Any]],
-    ):
+        args: Any,
+        options: dict[str, Any],
+    ) -> _DescentState:
         ...
 
     @abc.abstractmethod
     def update_state(
         self,
         descent_state: _DescentState,
-        prev_diff: Optional[PyTree[Array]],
+        diff_prev: Optional[PyTree[Array]],
         vector: Optional[PyTree[Array]],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        options: Optional[dict[str, Any]],
-    ):
+        options: dict[str, Any],
+    ) -> _DescentState:
         ...
 
     @abc.abstractmethod
@@ -45,8 +72,8 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         delta: Scalar,
         descent_state: _DescentState,
         args: PyTree,
-        options: Optional[dict[str, Any]],
-    ):
+        options: dict[str, Any],
+    ) -> tuple[PyTree[Array], RESULTS]:
         ...
 
     @abc.abstractmethod
@@ -55,28 +82,6 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         diff: PyTree[Array],
         descent_state: _DescentState,
         args: PyTree,
-        options: Optional[dict[str, Any]],
-    ) -> PyTree[Array]:
+        options: dict[str, Any],
+    ) -> Scalar:
         ...
-
-
-class OneDimensionalFunction(eqx.Module):
-    fn: Callable
-    descent: Callable
-    y: PyTree[Array]
-
-    def __init__(
-        self,
-        fn: Callable[[PyTree[Array], PyTree], Scalar],
-        descent: Callable,
-        y: PyTree[Array],
-    ):
-        self.fn = fn
-        self.descent = descent
-        self.y = y
-
-    def __call__(self, delta: Float[Array, ""], args: PyTree):
-        diff, result = self.descent(delta)
-        new_y = (self.y**ω + diff**ω).ω
-        fn, aux = self.fn(new_y, args)
-        return fn, (fn, diff, aux, result, jnp.array(0.0))

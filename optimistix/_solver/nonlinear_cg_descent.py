@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional
+from typing import Any, Callable, cast, Optional
 
 import equinox as eqx
 import jax.lax as lax
@@ -8,21 +8,25 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
-from .._iterate import AbstractIterativeProblem
+from .._custom_types import Aux, Fn, Out, Y
 from .._line_search import AbstractDescent
 from .._misc import tree_inner_prod, tree_where, two_norm
 from .._solution import RESULTS
 
 
-def _sum_leaves(tree):
+def _sum_leaves(tree: PyTree[Array]):
     return jtu.tree_reduce(lambda x, y: x + y, tree)
 
 
-def _gradient_step(vector, vector_prev, diff_prev):
+def _gradient_step(
+    vector: PyTree[Array], vector_prev: PyTree[Array], diff_prev: PyTree[Array]
+) -> Scalar:
     return jnp.array(0.0)
 
 
-def fletcher_reeves(vector, vector_prev, diff_prev):
+def fletcher_reeves(
+    vector: PyTree[Array], vector_prev: PyTree[Array], diff_prev: PyTree[Array]
+) -> Scalar:
     numerator = two_norm(vector) ** 2
     denominator = two_norm(vector_prev) ** 2
     pred = denominator > jnp.finfo(denominator.dtype).eps
@@ -30,16 +34,22 @@ def fletcher_reeves(vector, vector_prev, diff_prev):
     return jnp.where(pred, numerator / safe_denom, jnp.inf)
 
 
-def polak_ribiere(vector, vector_prev, diff_prev):
+def polak_ribiere(
+    vector: PyTree[Array], vector_prev: PyTree[Array], diff_prev: PyTree[Array]
+) -> Scalar:
     numerator = tree_inner_prod(vector, (vector**ω - vector_prev**ω).ω)
     denominator = two_norm(vector_prev) ** 2
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    beta = jnp.where(pred, jnp.clip(numerator / safe_denom, a_min=0), jnp.inf)
+    beta = cast(
+        Scalar, jnp.where(pred, jnp.clip(numerator / safe_denom, a_min=0), jnp.inf)
+    )
     return beta
 
 
-def hestenes_stiefel(vector, vector_prev, diff_prev):
+def hestenes_stiefel(
+    vector: PyTree[Array], vector_prev: PyTree[Array], diff_prev: PyTree[Array]
+) -> Scalar:
     grad_diff = (vector**ω - vector_prev**ω).ω
     numerator = tree_inner_prod(vector, grad_diff)
     denominator = tree_inner_prod(diff_prev, grad_diff)
@@ -48,7 +58,9 @@ def hestenes_stiefel(vector, vector_prev, diff_prev):
     return jnp.where(pred, numerator / safe_denom, jnp.inf)
 
 
-def dai_yuan(vector, vector_prev, diff_prev):
+def dai_yuan(
+    vector: PyTree[Array], vector_prev: PyTree[Array], diff_prev: PyTree[Array]
+) -> Scalar:
     numerator = two_norm(vector) ** 2
     denominator = tree_inner_prod(diff_prev, (vector**ω - vector_prev**ω).ω)
     pred = denominator > jnp.finfo(denominator.dtype).eps
@@ -68,13 +80,13 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
 
     def init_state(
         self,
-        problem: AbstractIterativeProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = {},
+        args: Any,
+        options: dict[str, Any],
     ):
         return NonlinearCGState(vector, vector, vector, jnp.array(0))
 
@@ -85,7 +97,7 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        options: Optional[dict[str, Any]] = None,
+        options: dict[str, Any],
     ):
         # not sure of a better way to do this at the moment
         beta = lax.cond(
@@ -107,7 +119,7 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         descent_state: NonlinearCGState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> tuple[PyTree[Array], RESULTS]:
         beta = lax.cond(
             descent_state.step > 1,
             self.method,

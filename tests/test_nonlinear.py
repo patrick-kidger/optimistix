@@ -9,14 +9,15 @@ from equinox.internal import ω
 import optimistix as optx
 
 from .helpers import (
-    bisection_problem_init_options_args,
+    bisection_fn_init_options_args,
     finite_difference_jvp,
-    fixed_point_problem_init_args,
-    least_squares_problem_minima_init_args,
-    minimisation_problem_minima_init_args,
+    fixed_point_fn_init_args,
+    least_squares_fn_minima_init_args,
+    minimisation_fn_minima_init_args,
     shaped_allclose,
     simple_nn,
     trigonometric,
+    trivial,
     variably_dimensioned,
 )
 
@@ -163,11 +164,9 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 
 @pytest.mark.parametrize("solver", _lsqr_minimisers)
-@pytest.mark.parametrize(
-    "_problem, minimum, init, args", least_squares_problem_minima_init_args
-)
+@pytest.mark.parametrize("_fn, minimum, init, args", least_squares_fn_minima_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_least_squares(solver, _problem, minimum, init, args, has_aux):
+def test_least_squares(solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-4
     ignore_solver = (
         isinstance(solver, optx.IndirectLevenbergMarquardt)
@@ -180,29 +179,25 @@ def test_least_squares(solver, _problem, minimum, init, args, has_aux):
             & isinstance(solver.descent, optx.NormalisedGradient)
         )
     )
-    ignore_problem = (_problem.fn == trigonometric) or (
-        _problem.fn == variably_dimensioned
-    )
+    ignore_problem = (_fn == trigonometric) or (_fn == variably_dimensioned)
     if ignore_solver or ignore_problem:
         pytest.skip()
 
     if has_aux:
-
-        def aux_problem(x, args):
-            return _problem.fn(x, args), smoke_aux
-
-        problem = optx.LeastSquaresProblem(aux_problem, True, _problem.tags)
+        fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
-        problem = _problem
+        fn = _fn
+
     optx_argmin = optx.least_squares(
-        problem,
+        fn,
         solver,
         init,
+        has_aux=has_aux,
         args=args,
-        max_steps=100_000,
+        max_steps=10_000,
         throw=False,
     ).value
-    out = problem.fn(optx_argmin, args)
+    out = fn(optx_argmin, args)
     if has_aux:
         lst_sqr, _ = out
     else:
@@ -214,11 +209,9 @@ def test_least_squares(solver, _problem, minimum, init, args, has_aux):
 
 
 @pytest.mark.parametrize("solver", _minimisers)
-@pytest.mark.parametrize(
-    "_problem, minimum, init, args", minimisation_problem_minima_init_args
-)
+@pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_minimise(solver, _problem, minimum, init, args, has_aux):
+def test_minimise(solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-4
 
     if isinstance(solver, optx.BFGS) & isinstance(
@@ -227,17 +220,13 @@ def test_minimise(solver, _problem, minimum, init, args, has_aux):
         pytest.skip()
 
     if has_aux:
-
-        def aux_problem(x, args):
-            return _problem.fn(x, args), smoke_aux
-
-        problem = optx.MinimiseProblem(aux_problem, True, _problem.tags)
+        fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
-        problem = _problem
+        fn = _fn
     optx_argmin = optx.minimise(
-        problem, solver, init, args=args, max_steps=10_000, throw=False
+        fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
     ).value
-    out = problem.fn(optx_argmin, args)
+    out = fn(optx_argmin, args)
     if has_aux:
         optx_min, _ = out
     else:
@@ -246,22 +235,18 @@ def test_minimise(solver, _problem, minimum, init, args, has_aux):
 
 
 @pytest.mark.parametrize("solver", _fp_solvers)
-@pytest.mark.parametrize("_problem, init, args", fixed_point_problem_init_args)
+@pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_fixed_point(solver, _problem, init, args, has_aux):
+def test_fixed_point(solver, _fn, init, args, has_aux):
     atol = rtol = 1e-4
     if has_aux:
-
-        def aux_problem(x, args):
-            return _problem.fn(x, args), smoke_aux
-
-        problem = optx.FixedPointProblem(aux_problem, True)
+        fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
-        problem = _problem
+        fn = _fn
     optx_fp = optx.fixed_point(
-        problem, solver, init, args=args, max_steps=10_000, throw=False
+        fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
     ).value
-    out = problem.fn(optx_fp, args)
+    out = fn(optx_fp, args)
     if has_aux:
         f_val, _ = out
     else:
@@ -270,27 +255,23 @@ def test_fixed_point(solver, _problem, init, args, has_aux):
 
 
 @pytest.mark.parametrize("solver", _root_finders)
-@pytest.mark.parametrize("_problem, init, args", fixed_point_problem_init_args)
+@pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_root_find(solver, _problem, init, args, has_aux):
+def test_root_find(solver, _fn, init, args, has_aux):
     atol = rtol = 1e-4
 
     def root_find_problem(y, args):
-        f_val = _problem.fn(y, args)
+        f_val = _fn(y, args)
         return (f_val**ω - y**ω).ω
 
-    def root_find_problem_aux(y, args):
-        f_val = _problem.fn(y, args)
-        return (f_val**ω - y**ω).ω, smoke_aux
-
     if has_aux:
-        problem = optx.RootFindProblem(root_find_problem_aux, has_aux=True)
+        fn = lambda x, args: (root_find_problem(x, args), smoke_aux)
     else:
-        problem = optx.RootFindProblem(root_find_problem, has_aux=False)
+        fn = root_find_problem
     optx_fp = optx.root_find(
-        problem, solver, init, args=args, max_steps=10_000, throw=False
+        fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
     ).value
-    out = problem.fn(optx_fp, args)
+    out = fn(optx_fp, args)
     if has_aux:
         f_val, _ = out
     else:
@@ -300,47 +281,37 @@ def test_root_find(solver, _problem, init, args, has_aux):
 
 
 @pytest.mark.parametrize(
-    "_problem, init, bisection_options, args", bisection_problem_init_options_args
+    "_fn, init, bisection_options, args", bisection_fn_init_options_args
 )
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_bisection(_problem, init, bisection_options, args, has_aux):
+def test_bisection(_fn, init, bisection_options, args, has_aux):
     solver = optx.Bisection(rtol=1e-6, atol=1e-6)
     atol = rtol = 1e-4
 
-    if isinstance(_problem, optx.RootFindProblem):
-        if has_aux:
+    def root_find_problem(y, args):
+        f_val = _fn(y, args)
+        return (f_val**ω - y**ω).ω
 
-            def aux_problem(x, args):
-                return _problem.fn(x, args), smoke_aux
-
-            problem = optx.RootFindProblem(aux_problem, True)
-        else:
-            problem = _problem
+    if _fn == trivial:
+        bisection_problem = _fn
     else:
-
-        def root_find_problem(y, args):
-            f_val = _problem.fn(y, args)
-            return (f_val**ω - y**ω).ω
-
-        def root_find_problem_aux(y, args):
-            f_val = _problem.fn(y, args)
-            return (f_val**ω - y**ω).ω, smoke_aux
-
-        if has_aux:
-            problem = optx.RootFindProblem(root_find_problem_aux, has_aux=True)
-        else:
-            problem = optx.RootFindProblem(root_find_problem, has_aux=False)
+        bisection_problem = root_find_problem
+    if has_aux:
+        fn = lambda x, args: (bisection_problem(x, args), smoke_aux)
+    else:
+        fn = bisection_problem
 
     optx_fp = optx.root_find(
-        problem,
+        fn,
         solver,
         init,
+        has_aux=has_aux,
         args=args,
         options=bisection_options,
         max_steps=10_000,
         throw=False,
     ).value
-    out = problem.fn(optx_fp, args)
+    out = fn(optx_fp, args)
     if has_aux:
         f_val, _ = out
     else:
@@ -350,11 +321,9 @@ def test_bisection(_problem, init, bisection_options, args, has_aux):
 
 
 @pytest.mark.parametrize("solver", _lsqr_minimisers)
-@pytest.mark.parametrize(
-    "_problem, minimum, init, args", least_squares_problem_minima_init_args
-)
+@pytest.mark.parametrize("_fn, minimum, init, args", least_squares_fn_minima_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_least_squares_jvp(getkey, solver, _problem, minimum, init, args, has_aux):
+def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-2
     ignore_solver = (
         isinstance(solver, optx.IndirectLevenbergMarquardt)
@@ -367,19 +336,13 @@ def test_least_squares_jvp(getkey, solver, _problem, minimum, init, args, has_au
             & isinstance(solver.descent, optx.NormalisedGradient)
         )
     )
-    ignore_problem = (_problem.fn == trigonometric) or (
-        _problem.fn == variably_dimensioned
-    )
+    ignore_problem = (_fn == trigonometric) or (_fn == variably_dimensioned)
     if ignore_solver or ignore_problem:
         pytest.skip()
     if has_aux:
-
-        def aux_problem(x, args):
-            return _problem.fn(x, args), smoke_aux
-
-        problem = optx.LeastSquaresProblem(aux_problem, True, _problem.tags)
+        fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
-        problem = _problem
+        fn = _fn
 
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
     t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
@@ -388,21 +351,21 @@ def test_least_squares_jvp(getkey, solver, _problem, minimum, init, args, has_au
     def least_squares(x, dynamic_args):
         args = eqx.combine(dynamic_args, static_args)
 
-        if _problem.fn == simple_nn:
+        if _fn == simple_nn:
             adjoint = optx.ImplicitAdjoint(lx.AutoLinearSolver(well_posed=False))
         else:
             adjoint = optx.ImplicitAdjoint()
 
-        out = optx.least_squares(
-            problem,
+        return optx.least_squares(
+            fn,
             solver,
             x,
+            has_aux=has_aux,
             args=args,
             adjoint=adjoint,
             max_steps=10_000,
             throw=False,
-        )
-        return out.value
+        ).value
 
     optx_argmin = least_squares(init, args)
     expected_out, t_expected_out = finite_difference_jvp(
@@ -415,11 +378,9 @@ def test_least_squares_jvp(getkey, solver, _problem, minimum, init, args, has_au
 
 
 @pytest.mark.parametrize("solver", _minimisers)
-@pytest.mark.parametrize(
-    "_problem, minimum, init, args", minimisation_problem_minima_init_args
-)
+@pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_minimise_jvp(getkey, solver, _problem, minimum, init, args, has_aux):
+def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-4
 
     if isinstance(solver, optx.BFGS) & isinstance(
@@ -428,13 +389,9 @@ def test_minimise_jvp(getkey, solver, _problem, minimum, init, args, has_aux):
         pytest.skip()
 
     if has_aux:
-
-        def aux_problem(x, args):
-            return _problem.fn(x, args), smoke_aux
-
-        problem = optx.MinimiseProblem(aux_problem, True, _problem.tags)
+        fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
-        problem = _problem
+        fn = _fn
 
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
     t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
@@ -442,10 +399,9 @@ def test_minimise_jvp(getkey, solver, _problem, minimum, init, args, has_aux):
 
     def minimise(x, dynamic_args):
         args = eqx.combine(dynamic_args, static_args)
-        out = optx.minimise(
-            problem, solver, x, args=args, max_steps=10_000, throw=False
-        )
-        return out.value
+        return optx.minimise(
+            fn, solver, x, has_aux=has_aux, args=args, max_steps=10_000, throw=False
+        ).value
 
     optx_argmin = minimise(init, dynamic_args)
     expected_out, t_expected_out = finite_difference_jvp(
@@ -458,18 +414,14 @@ def test_minimise_jvp(getkey, solver, _problem, minimum, init, args, has_aux):
 
 
 @pytest.mark.parametrize("solver", _fp_solvers)
-@pytest.mark.parametrize("_problem, init, args", fixed_point_problem_init_args)
+@pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_fixed_point_jvp(getkey, solver, _problem, init, args, has_aux):
+def test_fixed_point_jvp(getkey, solver, _fn, init, args, has_aux):
     atol = rtol = 1e-4
     if has_aux:
-
-        def aux_problem(x, args):
-            return _problem.fn(x, args), smoke_aux
-
-        problem = optx.FixedPointProblem(aux_problem, True)
+        fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
-        problem = _problem
+        fn = _fn
 
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
     t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
@@ -477,7 +429,9 @@ def test_fixed_point_jvp(getkey, solver, _problem, init, args, has_aux):
 
     def fixed_point(x, dynamic_args):
         args = eqx.combine(dynamic_args, static_args)
-        return optx.fixed_point(problem, solver, x, args=args, max_steps=10_000).value
+        return optx.fixed_point(
+            fn, solver, x, has_aux=has_aux, args=args, max_steps=10_000
+        ).value
 
     optx_fp = fixed_point(init, dynamic_args)
     expected_out, t_expected_out = finite_difference_jvp(
@@ -490,23 +444,19 @@ def test_fixed_point_jvp(getkey, solver, _problem, init, args, has_aux):
 
 
 @pytest.mark.parametrize("solver", _root_finders)
-@pytest.mark.parametrize("_problem, init, args", fixed_point_problem_init_args)
+@pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
-def test_root_find_jvp(getkey, solver, _problem, init, args, has_aux):
+def test_root_find_jvp(getkey, solver, _fn, init, args, has_aux):
     atol = rtol = 1e-4
 
     def root_find_problem(y, args):
-        f_val = _problem.fn(y, args)
+        f_val = _fn(y, args)
         return (f_val**ω - y**ω).ω
 
-    def root_find_problem_aux(y, args):
-        f_val = _problem.fn(y, args)
-        return (f_val**ω - y**ω).ω, smoke_aux
-
     if has_aux:
-        problem = optx.RootFindProblem(root_find_problem_aux, has_aux=True)
+        fn = lambda x, args: (root_find_problem(x, args), smoke_aux)
     else:
-        problem = optx.RootFindProblem(root_find_problem, has_aux=False)
+        fn = root_find_problem
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
     t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
     t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
@@ -517,7 +467,7 @@ def test_root_find_jvp(getkey, solver, _problem, init, args, has_aux):
     def root_find(x, dynamic_args):
         args = eqx.combine(dynamic_args, static_args)
         return optx.root_find(
-            problem, solver, x, args=args, max_steps=10_000, throw=False
+            fn, solver, x, has_aux=has_aux, args=args, max_steps=10_000, throw=False
         ).value
 
     optx_root = root_find(init, dynamic_args)

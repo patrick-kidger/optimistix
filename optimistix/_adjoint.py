@@ -5,7 +5,7 @@ from typing import Callable, FrozenSet, Optional
 import equinox as eqx
 import equinox.internal as eqxi
 import lineax as lx
-from jaxtyping import PyTree
+from jaxtyping import Array, PyTree
 
 from ._ad import implicit_jvp
 
@@ -18,7 +18,7 @@ class AbstractAdjoint(eqx.Module):
         rewrite_fn: Callable,
         inputs: PyTree,
         tags: FrozenSet[object],
-    ):
+    ) -> PyTree[Array]:
         ...
 
 

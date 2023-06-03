@@ -13,7 +13,7 @@ from jaxtyping import Array, ArrayLike, Bool, Float, PyTree, Scalar
 def two_norm(x: PyTree) -> Scalar:
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
-        return 0
+        return jnp.array(0.0)
     return _two_norm(x)
 
 
@@ -39,7 +39,7 @@ def _two_norm_jvp(x, tx):
 def rms_norm(x: PyTree) -> Scalar:
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
-        return 0
+        return jnp.array(0.0)
     return _rms_norm(x)
 
 
@@ -149,7 +149,7 @@ def cached_eval_shape(fn, *args, **kwargs):
 
 
 def default_floating_dtype():
-    if jax.config.jax_enable_x64:
+    if jax.config.jax_enable_x64:  # pyright: ignore
         return jnp.float64
     else:
         return jnp.float32

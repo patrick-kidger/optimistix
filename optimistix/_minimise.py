@@ -1,38 +1,28 @@
-from typing import Any, FrozenSet, Optional, TypeVar
+from typing import Any, Optional
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import Array, PyTree
+from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._iterate import AbstractIterativeProblem, AbstractIterativeSolver, iterative_solve
+from ._custom_types import Aux, Fn, SolverState, Y
+from ._iterate import AbstractIterativeSolver, iterative_solve
+from ._misc import NoneAux
 from ._solution import Solution
 
 
-_SolverState = TypeVar("_SolverState")
-
-MinimiseFunction = TypeVar("MinimiseFunction")
-
-
-class MinimiseProblem(AbstractIterativeProblem[MinimiseFunction]):
-    tags: FrozenSet[object] = frozenset()
-
-
-class AbstractMinimiser(AbstractIterativeSolver):
+class AbstractMinimiser(AbstractIterativeSolver[SolverState, Y, Scalar, Aux]):
     pass
 
 
 def _minimum(optimum, _, inputs):
-    minimise_prob, args, *_ = inputs
+    minimise_fn, args, *_ = inputs
     del inputs
 
     def min_no_aux(x):
-        if minimise_prob.has_aux:
-            out, _ = minimise_prob.fn(x, args)
-        else:
-            out = minimise_prob.fn(x, args)
+        out, _ = minimise_fn(x, args)
         return out
 
     return jax.grad(min_no_aux)(optimum)
@@ -40,28 +30,30 @@ def _minimum(optimum, _, inputs):
 
 @eqx.filter_jit
 def minimise(
-    problem: MinimiseProblem,
+    fn: Fn[Y, Scalar, Aux],
     solver: AbstractMinimiser,
-    y0: PyTree[Array],
+    y0: Y,
     args: PyTree = None,
     options: Optional[dict[str, Any]] = None,
     *,
+    has_aux: bool = False,
     max_steps: Optional[int] = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
+    tags: frozenset[object] = frozenset(),
 ) -> Solution:
     y0 = jtu.tree_map(jnp.asarray, y0)
-    struct = jax.eval_shape(lambda: problem.fn(y0, args))
-    if problem.has_aux:
-        struct, aux_struct = struct
-    else:
-        aux_struct = None
 
-    if not (isinstance(struct, jax.ShapeDtypeStruct) and struct.shape == ()):
+    if not has_aux:
+        fn = NoneAux(fn)
+
+    f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
+
+    if not (isinstance(f_struct, jax.ShapeDtypeStruct) and f_struct.shape == ()):
         raise ValueError("minimisation function must output a single scalar.")
 
     return iterative_solve(
-        problem,
+        fn,
         solver,
         y0,
         args,
@@ -70,7 +62,7 @@ def minimise(
         max_steps=max_steps,
         adjoint=adjoint,
         throw=throw,
-        tags=problem.tags,
+        tags=tags,
         aux_struct=aux_struct,
-        f_struct=struct,
+        f_struct=f_struct,
     )

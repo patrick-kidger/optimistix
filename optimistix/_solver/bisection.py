@@ -1,11 +1,12 @@
-from typing import cast
+from typing import Any, cast
 
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, Int, Scalar
+from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
+from .._custom_types import Aux, Fn
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
 
@@ -18,11 +19,20 @@ class _BisectionState(eqx.Module):
     step: Int[Array, ""]
 
 
-class Bisection(AbstractRootFinder):
+class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
     rtol: float
     atol: float
 
-    def init(self, root_prob, y: Scalar, args, options, f_struct, aux_struct):
+    def init(
+        self,
+        fn: Fn[Scalar, Scalar, Aux],
+        y: Scalar,
+        args: Any,
+        options: dict[str, Any],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        tags: frozenset[object],
+    ) -> _BisectionState:
         del f_struct, aux_struct
         upper = options["upper"]
         lower = options["lower"]
@@ -31,7 +41,7 @@ class Bisection(AbstractRootFinder):
                 "Bisection can only be used to find the roots of a function taking a "
                 "scalar input"
             )
-        out_struct, _ = jax.eval_shape(root_prob.fn, y, args)
+        out_struct, _ = jax.eval_shape(fn, y, args)
         if not isinstance(out_struct, jax.ShapeDtypeStruct) or out_struct.shape != ():
             raise ValueError(
                 "Bisection can only be used to find the roots of a function producing "
@@ -40,7 +50,7 @@ class Bisection(AbstractRootFinder):
         # This computes a range such that `f(0.5 * (a+b))` is
         # the user-passed `lower` on the first step, and the user
         # passed `upper` on the second step. This saves us from
-        # compiling `problem.fn` two extra times in the init.
+        # compiling `fn` two extra times in the init.
         range = upper - lower
         extended_upper = upper + range
         extended_range = extended_upper - lower
@@ -53,10 +63,18 @@ class Bisection(AbstractRootFinder):
             step=jnp.array(0),
         )
 
-    def step(self, root_prob, y: Scalar, args, options, state: _BisectionState):
+    def step(
+        self,
+        fn: Fn[Scalar, Scalar, Aux],
+        y: Scalar,
+        args: Any,
+        options: dict[str, Any],
+        state: _BisectionState,
+        tags: frozenset[object],
+    ) -> tuple[Scalar, _BisectionState, Aux]:
         del y, options
         new_y = state.lower + 0.5 * (state.upper - state.lower)
-        error, aux = root_prob.fn(new_y, args)
+        error, aux = fn(new_y, args)
         too_large = cast(Bool[Array, ""], state.flip ^ (error < 0))
         too_large = jnp.where(state.step == 0, True, too_large)
         too_large = jnp.where(state.step == 1, False, too_large)
@@ -76,10 +94,18 @@ class Bisection(AbstractRootFinder):
         )
         return new_y, new_state, aux
 
-    def terminate(self, root_prob, y: Scalar, args, options, state):
-        del root_prob, args, options
+    def terminate(
+        self,
+        fn: Fn[Scalar, Scalar, Aux],
+        y: Scalar,
+        args: Any,
+        options: dict[str, Any],
+        state: _BisectionState,
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
+        del fn, args, options
         scale = self.atol + self.rtol * jnp.abs(y)
         return jnp.abs(state.error) < scale, RESULTS.successful
 
-    def buffers(self, state: _BisectionState):
+    def buffers(self, state: _BisectionState) -> tuple[()]:
         return ()

@@ -10,8 +10,9 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._line_search import AbstractDescent, OneDimensionalFunction
-from .._minimise import AbstractMinimiser, minimise, MinimiseProblem
+from .._custom_types import Aux, Fn, Y
+from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFunction
+from .._minimise import AbstractMinimiser, minimise
 from .._misc import (
     max_norm,
     tree_full,
@@ -47,10 +48,10 @@ def _std_basis(pytree):
     return jtu.tree_unflatten(eye_structure, eye_leaves)
 
 
-class BFGSState(eqx.Module):
+class _BFGSState(eqx.Module):
     descent_state: PyTree
     vector: PyTree[Array]
-    operator: lx.AbstractLinearOperator
+    operator: lx.PyTreeLinearOperator
     diff: PyTree[Array]
     diffsize: Scalar
     diffsize_prev: Scalar
@@ -68,10 +69,10 @@ class BFGSState(eqx.Module):
 # `B_k p = g`. We could just as well update `Binv_k -> Binv_(k + 1)`, ie.
 # `p = Binv_k g` is just the matrix vector product.
 #
-class BFGS(AbstractMinimiser):
+class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
     rtol: float
     atol: float
-    line_search: AbstractMinimiser
+    line_search: AbstractLineSearch
     descent: AbstractDescent = UnnormalisedNewton(gauss_newton=False)
     norm: Callable = max_norm
     converged_tol: float = 1e-3
@@ -79,17 +80,18 @@ class BFGS(AbstractMinimiser):
 
     def init(
         self,
-        problem: MinimiseProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
         args: Any,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
-    ):
+        tags: frozenset[object],
+    ) -> _BFGSState:
         f0 = tree_full(f_struct, jnp.inf)
         aux = tree_zeros(aux_struct)
         # can this be removed?
-        jrev = jax.jacrev(problem.fn, has_aux=True)
+        jrev = jax.jacrev(fn, has_aux=True)
         vector, aux = jrev(y, args)
         # create an identity operator which we can update with BFGS
         # update/Woodbury identity
@@ -98,14 +100,14 @@ class BFGS(AbstractMinimiser):
         )
         if self.use_inverse:
             descent_state = self.descent.init_state(
-                problem, y, vector, None, operator, args, {}
+                fn, y, vector, None, operator, args, options
             )
         else:
             descent_state = self.descent.init_state(
-                problem, y, vector, operator, None, args, {}
+                fn, y, vector, operator, None, args, options
             )
 
-        return BFGSState(
+        return _BFGSState(
             descent_state=descent_state,
             vector=vector,
             operator=operator,
@@ -123,21 +125,20 @@ class BFGS(AbstractMinimiser):
 
     def step(
         self,
-        problem: MinimiseProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
         args: Any,
         options: dict[str, Any],
-        state: BFGSState,
-    ):
+        state: _BFGSState,
+        tags: frozenset[object],
+    ) -> tuple[Y, _BFGSState, Aux]:
         descent = eqx.Partial(
             self.descent,
             descent_state=state.descent_state,
             args=args,
             options=options,
         )
-        problem_1d = MinimiseProblem(
-            OneDimensionalFunction(problem.fn, descent, y), has_aux=True
-        )
+        problem_1d = OneDimensionalFunction(fn, descent, y)
         line_search_options = {
             "f0": state.f_val,
             "compute_f0": (state.step == 0),
@@ -160,8 +161,9 @@ class BFGS(AbstractMinimiser):
             state.next_init,
         )
         line_sol = minimise(
-            problem_1d,
-            self.line_search,
+            fn=problem_1d,
+            has_aux=True,
+            solver=self.line_search,
             y0=init,
             args=args,
             options=line_search_options,
@@ -170,7 +172,7 @@ class BFGS(AbstractMinimiser):
         )
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
         new_y = (ω(y) + ω(diff)).ω
-        new_grad, _ = jax.jacrev(problem.fn)(new_y, args)
+        new_grad, _ = jax.jacrev(fn)(new_y, args)
         grad_diff = (ω(new_grad) - ω(state.vector)).ω
         inner = tree_inner_prod(grad_diff, diff)
         inner_nonzero = inner > jnp.finfo(inner.dtype).eps
@@ -222,18 +224,18 @@ class BFGS(AbstractMinimiser):
 
         if self.use_inverse:
             descent_state = self.descent.update_state(
-                state.descent_state, diff, new_grad, None, new_hess, {}
+                state.descent_state, diff, new_grad, None, new_hess, options
             )
         else:
             descent_state = self.descent.update_state(
-                state.descent_state, diff, new_grad, new_hess, None, {}
+                state.descent_state, diff, new_grad, new_hess, None, options
             )
         result = RESULTS.where(
             line_sol.result == RESULTS.max_steps_reached,
             RESULTS.successful,
             line_sol.result,
         )
-        new_state = BFGSState(
+        new_state = _BFGSState(
             descent_state=descent_state,
             vector=new_grad,
             operator=new_hess,
@@ -257,12 +259,13 @@ class BFGS(AbstractMinimiser):
 
     def terminate(
         self,
-        problem: MinimiseProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
         args: Any,
         options: dict[str, Any],
-        state: BFGSState,
-    ):
+        state: _BFGSState,
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
         at_least_two = state.step >= 2
         f_diff = jnp.abs(state.f_val - state.f_prev)
         converged = f_diff < self.rtol * jnp.abs(state.f_prev) + self.atol
@@ -273,5 +276,5 @@ class BFGS(AbstractMinimiser):
         result = RESULTS.where(linsolve_fail, state.result, RESULTS.successful)
         return terminate, result
 
-    def buffers(self, state: BFGSState):
+    def buffers(self, state: _BFGSState) -> tuple[()]:
         return ()

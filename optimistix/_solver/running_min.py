@@ -1,21 +1,25 @@
-from typing import Any
+from typing import Any, Sequence, TYPE_CHECKING, Union
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, PyTree
+from jaxtyping import PyTree, Scalar
 
-from .._minimise import AbstractMinimiser, MinimiseProblem
+from .._custom_types import Aux, Fn, Y
+from .._minimise import AbstractMinimiser
 from .._misc import tree_where
 
 
-def _auxmented(fn, has_aux, x, args):
-    if has_aux:
-        z, original_aux = fn(x, args)
-        aux = (z, original_aux)
-    else:
-        z = fn(x, args)
-        aux = z
+if TYPE_CHECKING:
+    _Node = Any
+else:
+    _Node = eqxi.doc_repr(Any, "Node")
+
+
+def _auxmented(fn, x, args):
+    z, original_aux = fn(x, args)
+    aux = (z, original_aux)
     return z, aux
 
 
@@ -24,39 +28,35 @@ class RunningMinMinimiser(AbstractMinimiser):
 
     def init(
         self,
-        problem: MinimiseProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
         args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct] | None,
+        tags: frozenset[object],
     ):
-        auxmented = eqx.Partial(_auxmented, problem.fn, problem.has_aux)
-        pipethrough_problem = MinimiseProblem(
-            auxmented, has_aux=True, tags=problem.tags
-        )
+        auxmented = eqx.Partial(_auxmented, fn)
         return self.minimiser.init(
-            pipethrough_problem, y, args, options, f_struct, aux_struct
+            auxmented, y, args, options, f_struct, aux_struct, tags
         )
 
     def step(
         self,
-        problem: MinimiseProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
         args: PyTree,
         options: dict[str, Any],
         state: PyTree,
+        tags: frozenset[object],
     ):
         # Keep track of the running min and output this. keep track of the running
         # iterate through state instead and manage this by augmenting the auxiliary
         # output.
         minimiser_state, state_y, f_min = state
-        auxmented = eqx.Partial(_auxmented, problem.fn, problem.has_aux)
-        pipethrough_problem = MinimiseProblem(
-            auxmented, has_aux=True, tags=problem.tags
-        )
+        auxmented = eqx.Partial(_auxmented, fn)
         y_new, minimiser_state_new, (f_val, aux) = self.minimiser.step(
-            pipethrough_problem, state_y, args, options, minimiser_state
+            auxmented, state_y, args, options, minimiser_state, tags
         )
         new_best = f_val < f_min
         y_min = tree_where(new_best, y_new, y)
@@ -66,17 +66,18 @@ class RunningMinMinimiser(AbstractMinimiser):
 
     def terminate(
         self,
-        problem: MinimiseProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
         args: PyTree,
         options: dict[str, Any],
         state: PyTree,
+        tags: frozenset[object],
     ):
         minimiser_state, state_y, _ = state
         return self.minimiser.terminate(
-            problem, state_y, args, options, minimiser_state
+            fn, state_y, args, options, minimiser_state, tags
         )
 
-    def buffers(self, state: PyTree):
+    def buffers(self, state: PyTree) -> Union[_Node, Sequence[_Node]]:
         minimiser_state, *_ = state
         return self.minimiser.buffers(minimiser_state)

@@ -4,16 +4,16 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from jaxtyping import Array, Bool, Float, Int, PyTree
+from jaxtyping import Array, Bool, Float, Int, PyTree, Scalar
 
-from .._line_search import OneDimensionalFunction
-from .._minimise import AbstractMinimiser, MinimiseProblem
+from .._custom_types import Fn, LineSearchAux
+from .._line_search import AbstractLineSearch
 from .._misc import tree_full, tree_inner_prod, tree_where, tree_zeros_like
 from .._solution import RESULTS
 from .misc import get_vector_operator
 
 
-class BacktrackingState(eqx.Module):
+class _BacktrackingState(eqx.Module):
     f_delta: Float[Array, ""]
     f0: Float[Array, ""]
     running_min: Array
@@ -26,34 +26,40 @@ class BacktrackingState(eqx.Module):
     step: Int[Array, ""]
 
 
-class BacktrackingArmijo(AbstractMinimiser):
+class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
     gauss_newton: bool
     backtrack_slope: float
     decrease_factor: float
 
-    def first_init(self, vector, operator, options):
+    def __post_init__(self):
+        eps = jnp.finfo(jnp.float64).eps
+        if self.decrease_factor < eps:
+            raise ValueError(
+                "The decrease factor of linesearch must be greater than 0!"
+            )
+
+    def first_init(
+        self,
+        vector: PyTree[Array],
+        operator: lx.AbstractLinearOperator,
+        options: dict[str, Any],
+    ) -> Scalar:
         try:
             init_size = options["init_line_search"]
         except KeyError:
-            if jax.config.jax_enable_x64:
-                eps = jnp.finfo(jnp.float64).eps
-            else:
-                eps = jnp.finfo(jnp.float64).eps
-            if self.decrease_factor < eps:
-                raise ValueError("The decrease factor of linesearch must be nonzero!")
-            init_size = 1 / self.decrease_factor
+            init_size = jnp.array(1 / self.decrease_factor)
         return init_size
-        ...
 
     def init(
         self,
-        problem: MinimiseProblem[OneDimensionalFunction],
-        y: Array,
-        args: Any,
+        fn: Fn[Scalar, Scalar, LineSearchAux],
+        y: Scalar,
+        args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
-    ):
+        tags: frozenset[object],
+    ) -> _BacktrackingState:
         f0 = tree_full(f_struct, jnp.inf)
         vector, operator = get_vector_operator(options)
         try:
@@ -67,7 +73,7 @@ class BacktrackingArmijo(AbstractMinimiser):
         except KeyError:
             compute_f0 = jnp.array(True)
 
-        return BacktrackingState(
+        return _BacktrackingState(
             f_delta=f0,
             f0=f0,
             running_min=f0,
@@ -82,20 +88,21 @@ class BacktrackingArmijo(AbstractMinimiser):
 
     def step(
         self,
-        problem: MinimiseProblem[OneDimensionalFunction],
-        y: Array,
+        fn: Fn[Scalar, Scalar, LineSearchAux],
+        y: Scalar,
         args: Any,
         options: dict[str, Any],
-        state: BacktrackingState,
-    ):
+        state: _BacktrackingState,
+        tags: frozenset[object],
+    ) -> tuple[Scalar, _BacktrackingState, LineSearchAux]:
         delta = jnp.where(state.compute_f0, jnp.array(0.0), y)
-        (f_delta, (_, diff, aux, result, _)) = problem.fn(delta, args)
+        (f_delta, (_, diff, aux, result, _)) = fn(delta, args)
         f0 = jnp.where(state.compute_f0, f_delta, state.f0)
         running_min = jnp.where(f_delta < state.running_min, f_delta, state.running_min)
         running_min_diff = tree_where(
             f_delta < state.running_min, diff, state.running_min_diff
         )
-        new_state = BacktrackingState(
+        new_state = _BacktrackingState(
             f_delta,
             f0,
             running_min,
@@ -116,16 +123,17 @@ class BacktrackingArmijo(AbstractMinimiser):
 
     def terminate(
         self,
-        problem: MinimiseProblem[OneDimensionalFunction],
-        y: Array,
+        fn: Fn[Scalar, Scalar, LineSearchAux],
+        y: Scalar,
         args: Any,
         options: dict[str, Any],
-        state: BacktrackingState,
-    ):
+        state: _BacktrackingState,
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
         result = RESULTS.where(
             jnp.isfinite(y),
             state.result,
-            RESULTS.nonlinear_divergence,  # pyright: ignore
+            RESULTS.nonlinear_divergence,
         )
         if self.gauss_newton:
             grad = state.operator.transpose().mv(state.vector)
@@ -137,5 +145,5 @@ class BacktrackingArmijo(AbstractMinimiser):
         finished = finished & (state.step > 1)
         return finished, result
 
-    def buffers(self, state: BacktrackingState):
+    def buffers(self, state: _BacktrackingState) -> tuple[()]:
         return ()

@@ -5,106 +5,106 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
-from .._iterate import AbstractIterativeProblem
+from .._custom_types import Aux, Fn, Out, Y
 from .._line_search import AbstractDescent
 from .._misc import tree_inner_prod, two_norm
 from .._solution import RESULTS
 from .misc import quadratic_predicted_reduction
 
 
-class GradientState(eqx.Module):
+class _GradientState(eqx.Module):
     vector: PyTree[Array]
 
 
-class UnnormalisedGradient(AbstractDescent[GradientState]):
+class UnnormalisedGradient(AbstractDescent[_GradientState]):
     def init_state(
         self,
-        problem: AbstractIterativeProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         vector: PyTree[Array],
-        operator: Optional[lx.AbstractLinearOperator] = None,
-        operator_inv: Optional[lx.AbstractLinearOperator] = None,
-        args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return GradientState(vector)
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
+        args: Any,
+        options: dict[str, Any],
+    ) -> _GradientState:
+        return _GradientState(vector)
 
     def update_state(
         self,
-        descent_state: GradientState,
+        descent_state: _GradientState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[lx.AbstractLinearOperator] = None,
-        operator_inv: Optional[lx.AbstractLinearOperator] = None,
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return GradientState(vector)
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
+        options: dict[str, Any],
+    ) -> _GradientState:
+        return _GradientState(vector)
 
     def __call__(
         self,
         delta: Scalar,
-        descent_state: GradientState,
+        descent_state: _GradientState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> tuple[PyTree[Array], RESULTS]:
         diff = (-delta * ω(descent_state.vector)).ω
         return diff, RESULTS.successful
 
     def predicted_reduction(
         self,
         diff: PyTree[Array],
-        descent_state: GradientState,
+        descent_state: _GradientState,
         args: PyTree,
-        options: Optional[dict[str, Any]],
-    ):
+        options: dict[str, Any],
+    ) -> Scalar:
         return tree_inner_prod(descent_state.vector, diff)
 
 
-class NormalisedGradient(AbstractDescent[GradientState]):
+class NormalisedGradient(AbstractDescent[_GradientState]):
     def init_state(
         self,
-        problem: AbstractIterativeProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         vector: PyTree[Array],
-        operator: Optional[lx.AbstractLinearOperator] = None,
-        operator_inv: Optional[lx.AbstractLinearOperator] = None,
-        args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return GradientState(vector)
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
+        args: Any,
+        options: dict[str, Any],
+    ) -> _GradientState:
+        return _GradientState(vector)
 
     def update_state(
         self,
-        descent_state: GradientState,
+        descent_state: _GradientState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[lx.AbstractLinearOperator] = None,
-        operator_inv: Optional[lx.AbstractLinearOperator] = None,
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return GradientState(vector)
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
+        options: dict[str, Any],
+    ) -> _GradientState:
+        return _GradientState(vector)
 
     def __call__(
         self,
         delta: Scalar,
-        descent_state: GradientState,
+        descent_state: _GradientState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> tuple[PyTree[Array], RESULTS]:
         diff = ((-delta * descent_state.vector**ω) / two_norm(descent_state.vector)).ω
         return diff, RESULTS.successful
 
     def predicted_reduction(
         self,
         diff: PyTree[Array],
-        descent_state: GradientState,
+        descent_state: _GradientState,
         args: PyTree,
-        options: Optional[dict[str, Any]],
-    ):
+        options: dict[str, Any],
+    ) -> Scalar:
         return tree_inner_prod(descent_state.vector, diff)
 
 
-class NewtonState(eqx.Module):
+class _NewtonState(eqx.Module):
     vector: PyTree[Array]
     operator: Optional[lx.AbstractLinearOperator]
     operator_inv: Optional[lx.AbstractLinearOperator]
@@ -126,39 +126,39 @@ class NewtonState(eqx.Module):
 # vector or the Jacobian and residual. In line-searches which do not use
 # this, there is no difference between `gauss_newton=True` and `gauss_newton=False`.
 #
-class UnnormalisedNewton(AbstractDescent[NewtonState]):
+class UnnormalisedNewton(AbstractDescent[_NewtonState]):
     gauss_newton: bool = False
 
     def init_state(
         self,
-        problem: AbstractIterativeProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return NewtonState(vector, operator, operator_inv)
+        args: Any,
+        options: dict[str, Any],
+    ) -> _NewtonState:
+        return _NewtonState(vector, operator, operator_inv)
 
     def update_state(
         self,
-        descent_state: NewtonState,
+        descent_state: _NewtonState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
-        operator: Optional[lx.AbstractLinearOperator] = None,
-        operator_inv: Optional[lx.AbstractLinearOperator] = None,
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return NewtonState(vector, operator, operator_inv)
+        operator: Optional[lx.AbstractLinearOperator],
+        operator_inv: Optional[lx.AbstractLinearOperator],
+        options: dict[str, Any],
+    ) -> _NewtonState:
+        return _NewtonState(vector, operator, operator_inv)
 
     def __call__(
         self,
         delta: Scalar,
-        descent_state: NewtonState,
+        descent_state: _NewtonState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> tuple[PyTree[Array], RESULTS]:
         if descent_state.operator_inv is not None:
             newton = descent_state.operator_inv.mv(descent_state.vector)
             result = RESULTS.successful
@@ -182,48 +182,48 @@ class UnnormalisedNewton(AbstractDescent[NewtonState]):
     def predicted_reduction(
         self,
         diff: PyTree[Array],
-        descent_state: NewtonState,
+        descent_state: _NewtonState,
         args: PyTree,
-        options: Optional[dict[str, Any]],
-    ):
+        options: dict[str, Any],
+    ) -> Scalar:
         return quadratic_predicted_reduction(
             self.gauss_newton, diff, descent_state, args, options
         )
 
 
-class NormalisedNewton(AbstractDescent[NewtonState]):
+class NormalisedNewton(AbstractDescent[_NewtonState]):
     gauss_newton: bool = False
 
     def init_state(
         self,
-        problem: AbstractIterativeProblem,
-        y: PyTree[Array],
+        fn: Fn[Y, Out, Aux],
+        y: Y,
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Optional[Any] = None,
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return NewtonState(vector, operator, operator_inv)
+        args: Any,
+        options: dict[str, Any],
+    ) -> _NewtonState:
+        return _NewtonState(vector, operator, operator_inv)
 
     def update_state(
         self,
-        descent_state: NewtonState,
+        descent_state: _NewtonState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        options: Optional[dict[str, Any]] = None,
-    ):
-        return NewtonState(vector, operator, operator_inv)
+        options: dict[str, Any],
+    ) -> _NewtonState:
+        return _NewtonState(vector, operator, operator_inv)
 
     def __call__(
         self,
         delta: Scalar,
-        descent_state: NewtonState,
+        descent_state: _NewtonState,
         args: Any,
         options: dict[str, Any],
-    ):
+    ) -> tuple[PyTree[Array], RESULTS]:
         if descent_state.operator_inv is not None:
             newton = descent_state.operator_inv.mv(descent_state.vector)
             result = RESULTS.successful
@@ -247,10 +247,10 @@ class NormalisedNewton(AbstractDescent[NewtonState]):
     def predicted_reduction(
         self,
         diff: PyTree[Array],
-        descent_state: NewtonState,
+        descent_state: _NewtonState,
         args: PyTree,
-        options: Optional[dict[str, Any]],
-    ):
+        options: dict[str, Any],
+    ) -> Scalar:
         return quadratic_predicted_reduction(
             self.gauss_newton, diff, descent_state, args, options
         )

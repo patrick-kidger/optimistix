@@ -4,15 +4,15 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from jaxtyping import Array, Bool, Int, PyTree
+from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
-from .._line_search import OneDimensionalFunction
-from .._minimise import AbstractMinimiser, MinimiseProblem
+from .._custom_types import Fn, LineSearchAux
+from .._line_search import AbstractLineSearch
 from .._misc import tree_full, tree_where, tree_zeros_like, two_norm
 from .._solution import RESULTS
 
 
-class TRState(eqx.Module):
+class _TrustRegionState(eqx.Module):
     f0: Array
     running_min: Array
     running_min_diff: PyTree[Array]
@@ -22,7 +22,7 @@ class TRState(eqx.Module):
     step: Int[Array, ""]
 
 
-def _get_predicted_reduction(options, diff):
+def _get_predicted_reduction(options: dict[str, Any], diff: PyTree[Array]) -> Scalar:
     # This just exists for readibility, and because it may be
     # moved to solver/misc in the future
     try:
@@ -49,7 +49,7 @@ def _get_predicted_reduction(options, diff):
 # -(true decrease) < const * -(predicted decrease) instead.
 # This is for numerical reasons, as it avoids an uneccessary subtraction and division
 #
-class ClassicalTrustRegion(AbstractMinimiser):
+class ClassicalTrustRegion(AbstractLineSearch[_TrustRegionState]):
     high_cutoff: float = 0.99
     low_cutoff: float = 0.01
     high_constant: float = 3.5
@@ -57,7 +57,12 @@ class ClassicalTrustRegion(AbstractMinimiser):
     # This choice of default parameters comes from Gould et al.
     # "Sensitivity of trust region algorithms to their parameters."
 
-    def first_init(self, vector, operator, options):
+    def first_init(
+        self,
+        vector: PyTree[Array],
+        operator: lx.AbstractLinearOperator,
+        options: dict[str, Any],
+    ) -> Scalar:
         # The natural init for quasi-Newton methods using trust regions
         # is to set the initial trust region to the full quasi-Newton step. This
         # turns the first use of the trust region algorithm into a standard
@@ -76,13 +81,14 @@ class ClassicalTrustRegion(AbstractMinimiser):
 
     def init(
         self,
-        problem: MinimiseProblem[OneDimensionalFunction],
-        y: PyTree[Array],
+        fn: Fn[Scalar, Scalar, LineSearchAux],
+        y: Scalar,
         args: Any,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
-    ):
+        tags: frozenset[object],
+    ) -> _TrustRegionState:
         try:
             f0 = options["f0"]
             compute_f0 = options["compute_f0"]
@@ -95,7 +101,7 @@ class ClassicalTrustRegion(AbstractMinimiser):
         except KeyError:
             assert False
 
-        state = TRState(
+        state = _TrustRegionState(
             f0=f0,
             running_min=f0,
             running_min_diff=diff0,
@@ -108,14 +114,15 @@ class ClassicalTrustRegion(AbstractMinimiser):
 
     def step(
         self,
-        problem: MinimiseProblem[OneDimensionalFunction],
-        y: PyTree[Array],
+        fn: Fn[Scalar, Scalar, LineSearchAux],
+        y: Scalar,
         args: Any,
         options: dict[str, Any],
-        state: TRState,
-    ):
+        state: _TrustRegionState,
+        tags: frozenset[object],
+    ) -> tuple[Scalar, _TrustRegionState, LineSearchAux]:
         y_or_zero = cast(Array, jnp.where(state.compute_f0, jnp.array(0.0), y))
-        (f_new, (_, diff, aux, result, _)) = problem.fn(y_or_zero, args)
+        (f_new, (_, diff, aux, result, _)) = fn(y_or_zero, args)
         predicted_reduction = _get_predicted_reduction(options, diff)
         # This is to make sure that `finished` and `good` are false on the first step.
         f0 = jnp.where(state.compute_f0, -jnp.inf, state.f0)
@@ -134,12 +141,14 @@ class ClassicalTrustRegion(AbstractMinimiser):
         new_y = jnp.where(good, y * self.high_constant, y)
         new_y = jnp.where(bad, y * self.low_constant, new_y)
         new_y = jnp.where(state.compute_f0, y, new_y)
-        running_min = jnp.where(f_new < state.running_min, f_new, state.running_min)
+        running_min = cast(
+            Array, jnp.where(f_new < state.running_min, f_new, state.running_min)
+        )
         running_min_diff = tree_where(
             f_new < state.running_min, diff, state.running_min_diff
         )
         f0 = jnp.where(state.compute_f0, f_new, state.f0)
-        new_state = TRState(
+        new_state = _TrustRegionState(
             f0=f0,
             running_min=running_min,
             running_min_diff=running_min_diff,
@@ -152,12 +161,13 @@ class ClassicalTrustRegion(AbstractMinimiser):
 
     def terminate(
         self,
-        problem: MinimiseProblem[OneDimensionalFunction],
-        y: PyTree[Array],
+        fn: Fn[Scalar, Scalar, LineSearchAux],
+        y: Scalar,
         args: Any,
         options: dict[str, Any],
-        state: TRState,
-    ):
+        state: _TrustRegionState,
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
         result = RESULTS.where(
             jnp.isfinite(y),
             state.result,
@@ -165,5 +175,5 @@ class ClassicalTrustRegion(AbstractMinimiser):
         )
         return state.finished, result
 
-    def buffers(self, state: TRState):
+    def buffers(self, state: _TrustRegionState) -> tuple[()]:
         return ()

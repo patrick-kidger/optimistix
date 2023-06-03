@@ -1,5 +1,5 @@
 import functools as ft
-from typing import Callable, Tuple
+from typing import Any, Callable, Tuple
 
 import equinox as eqx
 import jax
@@ -7,8 +7,9 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import ArrayLike, Bool, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
+from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
 from .._misc import max_norm
 from .._solution import RESULTS
@@ -101,7 +102,16 @@ class NelderMead(AbstractMinimiser):
     rdelta: float = 5e-2
     adelta: float = 2.5e-4
 
-    def init(self, problem, y, args, options, f_struct, aux_struct):
+    def init(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        args: Any,
+        options: dict[str, Any],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        tags: frozenset[object],
+    ) -> _NelderMeadState:
         del f_struct
         try:
             y0_simplex = options["y0_simplex"]
@@ -118,8 +128,8 @@ class NelderMead(AbstractMinimiser):
             size = sum(sizes)
             if n_vertices != size + 1:
                 raise ValueError(
-                    f"The PyTree must form a valid simplex. Got \
-                {n_vertices} vertices but dimension {size}."
+                    "The PyTree must form a valid simplex. Got"
+                    f"{n_vertices} vertices but dimension {size}."
                 )
             if any(n_vertices != leaf_shape for leaf_shape in leaf_vertices[1:]):
                 raise ValueError(
@@ -193,7 +203,15 @@ class NelderMead(AbstractMinimiser):
             first_pass=jnp.array(True),
         )
 
-    def step(self, problem, y, args, options, state):
+    def step(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        args: Any,
+        options: dict[str, Any],
+        state: _NelderMeadState,
+        tags: frozenset[object],
+    ) -> tuple[Y, _NelderMeadState, Aux]:
         # This will later be replaced with the more general line search api.
         reflect_const = 2
         expand_const = 3
@@ -219,6 +237,7 @@ class NelderMead(AbstractMinimiser):
                 jtu.tree_map(lambda _, x: x[0], y, simplex),
                 f_new_vertex,
                 state.stats,
+                None,
             )
 
         def main_step(state):
@@ -293,7 +312,11 @@ class NelderMead(AbstractMinimiser):
                     )
 
                     stats = _update_stats(
-                        stats, reflect, inner_contract, outer_contract, expand
+                        stats,
+                        reflect,
+                        inner_contract,
+                        outer_contract,  # pyright: ignore
+                        expand,
                     )
                     return new_vertex, stats
 
@@ -304,7 +327,7 @@ class NelderMead(AbstractMinimiser):
                     *(f_vertex, stats),
                 )
 
-                return (out, problem.fn(out, args), stats), None
+                return (out, fn(out, args), stats), None
 
             #
             # We'd like to avoid making two calls to problem.fn in the step to
@@ -330,9 +353,9 @@ class NelderMead(AbstractMinimiser):
                 jnp.arange(2),
             )
 
-            return (state, state.simplex, new_vertex, f_new_vertex, stats)
+            return (state, state.simplex, new_vertex, f_new_vertex, stats, aux)
 
-        state, simplex, new_vertex, f_new_vertex, stats = lax.cond(
+        state, simplex, new_vertex, f_new_vertex, stats, aux = lax.cond(
             state.first_pass, init_step, main_step, state
         )
         new_best = f_new_vertex < f_best
@@ -367,7 +390,7 @@ class NelderMead(AbstractMinimiser):
             # compute f_simplex, return simplex
             simplex = _tree_where(first_pass, simplex, simplex, shrink_simplex)
             unwrapped_simplex = jtu.tree_map(lambda _, x: x[...], y, simplex)
-            f_simplex, _ = jax.vmap(lambda x: problem.fn(x, args))(unwrapped_simplex)
+            f_simplex, _ = jax.vmap(lambda x: fn(x, args))(unwrapped_simplex)
             return f_simplex, simplex
 
         def update_simplex(best, new_vertex, simplex, first_pass):
@@ -425,9 +448,17 @@ class NelderMead(AbstractMinimiser):
         else:
             out = best
 
-        return out, new_state, None
+        return out, new_state, aux
 
-    def terminate(self, problem, y, args, options, state):
+    def terminate(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        args: Any,
+        options: dict[str, Any],
+        state: _NelderMeadState,
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
         # TODO(raderj): only check terminate every k
         (f_best,), (best_index,) = lax.top_k(-state.f_simplex, 1)
         f_best = -f_best
@@ -459,5 +490,5 @@ class NelderMead(AbstractMinimiser):
         )
         return terminate, result
 
-    def buffers(self, state):
+    def buffers(self, state: _NelderMeadState) -> PyTree[Array]:
         return state.simplex
