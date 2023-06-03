@@ -76,7 +76,7 @@ class BacktrackingArmijo(AbstractMinimiser):
             operator=operator,
             diff=diff0,
             compute_f0=compute_f0,
-            result=jnp.array(RESULTS.successful),
+            result=RESULTS.successful,
             step=jnp.array(0),
         )
 
@@ -122,7 +122,7 @@ class BacktrackingArmijo(AbstractMinimiser):
         options: dict[str, Any],
         state: BacktrackingState,
     ):
-        result = jnp.where(
+        result = RESULTS.where(
             jnp.isfinite(y),
             state.result,
             RESULTS.nonlinear_divergence,  # pyright: ignore

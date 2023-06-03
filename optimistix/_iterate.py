@@ -148,7 +148,7 @@ def _iterate(inputs, while_loop):
     final_y, num_steps, final_state, aux = final_carry
     _final_state = eqx.combine(static_state, final_state)
     terminate, result = solver.terminate(problem, final_y, args, options, _final_state)
-    result = jnp.where(
+    result = RESULTS.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
         RESULTS.max_steps_reached,
         result,
@@ -179,10 +179,6 @@ def iterative_solve(
     )
     stats = {"num_steps": num_steps, "max_steps": max_steps}
     sol = Solution(value=out, result=result, state=final_state, aux=aux, stats=stats)
-    sol = eqxi.branched_error_if(
-        sol,
-        throw & (result != RESULTS.successful),
-        result,
-        RESULTS.reverse_lookup,
-    )
+    if throw:
+        sol = result.error_if(sol, result != RESULTS.successful)
     return sol

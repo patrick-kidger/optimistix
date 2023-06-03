@@ -112,7 +112,7 @@ class BFGS(AbstractMinimiser):
             diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf, dtype=x.dtype), y),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
-            result=jnp.array(RESULTS.successful),
+            result=RESULTS.successful,
             f_val=f0,
             f_prev=f0,
             next_init=jnp.array(1.0),
@@ -165,7 +165,7 @@ class BFGS(AbstractMinimiser):
             y0=init,
             args=args,
             options=line_search_options,
-            max_steps=1000,
+            max_steps=100,
             throw=False,
         )
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
@@ -228,8 +228,7 @@ class BFGS(AbstractMinimiser):
             descent_state = self.descent.update_state(
                 state.descent_state, diff, new_grad, new_hess, None, {}
             )
-
-        result = jnp.where(
+        result = RESULTS.where(
             line_sol.result == RESULTS.max_steps_reached,
             RESULTS.successful,
             line_sol.result,
@@ -271,9 +270,7 @@ class BFGS(AbstractMinimiser):
         terminate = (
             linsolve_fail | state.zero_inner_product | (converged & at_least_two)
         )
-        result = jnp.where(
-            linsolve_fail, state.result, RESULTS.successful
-        )  # pyright: ignore
+        result = RESULTS.where(linsolve_fail, state.result, RESULTS.successful)
         return terminate, result
 
     def buffers(self, state: BFGSState):

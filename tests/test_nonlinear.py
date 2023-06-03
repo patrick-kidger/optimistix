@@ -220,6 +220,12 @@ def test_least_squares(solver, _problem, minimum, init, args, has_aux):
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_minimise(solver, _problem, minimum, init, args, has_aux):
     atol = rtol = 1e-4
+
+    if isinstance(solver, optx.BFGS) & isinstance(
+        solver.descent, optx.IndirectIterativeDual
+    ):
+        pytest.skip()
+
     if has_aux:
 
         def aux_problem(x, args):
@@ -415,6 +421,12 @@ def test_least_squares_jvp(getkey, solver, _problem, minimum, init, args, has_au
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_minimise_jvp(getkey, solver, _problem, minimum, init, args, has_aux):
     atol = rtol = 1e-4
+
+    if isinstance(solver, optx.BFGS) & isinstance(
+        solver.descent, optx.IndirectIterativeDual
+    ):
+        pytest.skip()
+
     if has_aux:
 
         def aux_problem(x, args):

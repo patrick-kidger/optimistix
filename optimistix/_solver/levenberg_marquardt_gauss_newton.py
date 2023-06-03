@@ -63,7 +63,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             diff=tree_full_like(y, jnp.inf),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(0.0),
-            result=jnp.array(RESULTS.successful),
+            result=RESULTS.successful,
             f_val=f0,
             f_prev=f0,
             next_init=jnp.array(1.0),
@@ -137,7 +137,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
             diff=diff,
             diffsize=diffsize,
             diffsize_prev=state.diffsize,
-            result=jnp.array(RESULTS.successful),
+            result=RESULTS.successful,
             f_val=f_val,
             f_prev=state.f_val,
             next_init=next_init,
@@ -162,8 +162,8 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver):
         f_diff = jnp.abs(state.f_val - state.f_prev)
         converged = f_diff < self.rtol * jnp.abs(state.f_prev) + self.atol
         linsolve_fail = state.result != RESULTS.successful
-        terminate = linsolve_fail | (converged & at_least_two)
-        result = jnp.where(linsolve_fail, state.result, RESULTS.successful)
+        terminate = linsolve_fail | (at_least_two & converged)
+        result = RESULTS.where(linsolve_fail, state.result, RESULTS.successful)
         return terminate, result
 
     def buffers(self, state: GNState):

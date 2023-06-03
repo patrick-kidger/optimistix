@@ -101,7 +101,7 @@ class ClassicalTrustRegion(AbstractMinimiser):
             running_min_diff=diff0,
             finished=jnp.array(False),
             compute_f0=compute_f0,
-            result=jnp.array(RESULTS.successful),
+            result=RESULTS.successful,
             step=jnp.array(0),
         )
         return state
@@ -158,10 +158,10 @@ class ClassicalTrustRegion(AbstractMinimiser):
         options: dict[str, Any],
         state: TRState,
     ):
-        result = jnp.where(
+        result = RESULTS.where(
             jnp.isfinite(y),
-            state.result,  # pyright: ignore
-            RESULTS.nonlinear_divergence,  # pyright: ignore
+            state.result,
+            RESULTS.nonlinear_divergence,
         )
         return state.finished, result
 
