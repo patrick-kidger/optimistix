@@ -67,8 +67,6 @@ class _BFGSState(eqx.Module):
     vector: PyTree[Array]
     operator: lx.PyTreeLinearOperator
     diff: PyTree[Array]
-    diffsize: Scalar
-    diffsize_prev: Scalar
     result: RESULTS
     f_val: PyTree[Array]
     f_prev: PyTree[Array]
@@ -126,8 +124,6 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
             vector=vector,
             operator=operator,
             diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf, dtype=x.dtype), y),
-            diffsize=jnp.array(0.0),
-            diffsize_prev=jnp.array(0.0),
             result=RESULTS.successful,
             f_val=f0,
             f_prev=f0,
@@ -218,8 +214,6 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
                 operator_ip = tree_inner_prod(diff, state.operator.mv(diff))
                 term1 = (diff_outer**ω / inner).ω
                 term2 = (hess_outer**ω / operator_ip).ω
-            scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
-            diffsize = self.norm((diff**ω / scale**ω).ω)
             return term1, term2, diffsize
 
         def zero_inner(diff):
@@ -255,7 +249,6 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
             operator=new_hess,
             diff=diff,
             diffsize=diffsize,
-            diffsize_prev=state.diffsize,
             result=result,
             f_val=f_val,
             f_prev=state.f_val,
@@ -281,8 +274,11 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         at_least_two = state.step >= 2
-        f_diff = jnp.abs(state.f_val - state.f_prev)
-        converged = f_diff < self.rtol * jnp.abs(state.f_prev) + self.atol
+        y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
+        y_converged = self.norm((state.diff**ω / y_scale**ω).ω) < 1
+        f_scale = self.rtol * jnp.abs(state.f_prev) + self.atol
+        f_converged = (jnp.abs(state.f_val - state.f_prev) / f_scale) < 1
+        converged = y_converged & f_converged
         linsolve_fail = state.result != RESULTS.successful
         terminate = (
             linsolve_fail | state.zero_inner_product | (converged & at_least_two)

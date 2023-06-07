@@ -39,8 +39,6 @@ class _GradOnlyState(eqx.Module):
     vector: PyTree[Array]
     operator: lx.AbstractLinearOperator
     diff: PyTree[Array]
-    diffsize: Scalar
-    diffsize_prev: Scalar
     result: RESULTS
     f_val: PyTree[Array]
     f_prev: PyTree[Array]
@@ -83,8 +81,6 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
             vector=y_zeros,
             operator=operator,
             diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf), y),
-            diffsize=jnp.array(0.0),
-            diffsize_prev=jnp.array(0.0),
             result=RESULTS.successful,
             f_val=f0,
             f_prev=f0,
@@ -161,8 +157,6 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
         )
         new_y = (y**ω + diff**ω).ω
         new_grad, _ = jax.jacrev(fn, has_aux=True)(new_y, args)
-        scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
-        diffsize = self.norm((ω(diff) / ω(scale)).ω)
         descent_state = self.descent.update_state(
             state.descent_state, diff, new_grad, state.operator, None, options
         )
@@ -174,8 +168,6 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
             vector=new_grad,
             operator=state.operator,
             diff=diff,
-            diffsize=diffsize,
-            diffsize_prev=state.diffsize,
             result=result,
             f_val=f_val,
             f_prev=state.f_val,
@@ -195,10 +187,13 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         at_least_two = state.step >= 2
-        f_diff = jnp.abs(state.f_val - state.f_prev)
-        converged = f_diff < self.rtol * jnp.abs(state.f_prev) + self.atol
+        y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
+        y_converged = self.norm((state.diff**ω / y_scale**ω).ω) < 1
+        f_scale = self.rtol * jnp.abs(state.f_prev) + self.atol
+        f_converged = (jnp.abs(state.f_val - state.f_prev) / f_scale) < 1
+        converged = y_converged & f_converged
         linsolve_fail = state.result != RESULTS.successful
-        terminate = linsolve_fail | (at_least_two & converged)
+        terminate = linsolve_fail | (converged & at_least_two)
         result = RESULTS.where(linsolve_fail, state.result, RESULTS.successful)
         return terminate, result
 
