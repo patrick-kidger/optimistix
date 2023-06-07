@@ -5,6 +5,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Float, Int, PyTree, Scalar
 
@@ -175,7 +176,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
 class GaussNewton(AbstractGaussNewton):
     rtol: float
     atol: float
-    line_search: AbstractMinimiser = LearningRate(jnp.array(1.0))
+    line_search: AbstractMinimiser = LearningRate(np.array(1.0))
     descent: AbstractDescent = UnnormalisedNewton(gauss_newton=True)
     norm: Callable = max_norm
 

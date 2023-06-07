@@ -196,7 +196,7 @@ def test_least_squares(solver, _fn, minimum, init, args, has_aux):
         init,
         has_aux=has_aux,
         args=args,
-        max_steps=100_000,
+        max_steps=10_000,
         throw=False,
     ).value
     out = fn(optx_argmin, args)

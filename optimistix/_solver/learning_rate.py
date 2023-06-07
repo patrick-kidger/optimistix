@@ -1,6 +1,5 @@
-from typing import Any, Sequence, TYPE_CHECKING, Union
+from typing import Any
 
-import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -9,12 +8,6 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 from .._custom_types import Fn, LineSearchAux
 from .._line_search import AbstractLineSearch
 from .._solution import RESULTS
-
-
-if TYPE_CHECKING:
-    _Node = Any
-else:
-    _Node = eqxi.doc_repr(Any, "Node")
 
 
 class LearningRate(AbstractLineSearch[Bool[Array, ""]]):
@@ -69,5 +62,5 @@ class LearningRate(AbstractLineSearch[Bool[Array, ""]]):
     ) -> tuple[Bool[Array, ""], RESULTS]:
         return state, RESULTS.successful
 
-    def buffers(self, state: Bool[Array, ""]) -> Union[_Node, Sequence[_Node]]:
+    def buffers(self, state: Bool[Array, ""]) -> tuple[()]:
         return ()

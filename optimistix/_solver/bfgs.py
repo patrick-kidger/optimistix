@@ -1,8 +1,7 @@
 import functools as ft
-from typing import Any, Callable, TYPE_CHECKING
+from typing import Any, Callable
 
 import equinox as eqx
-import equinox.internal as eqxi
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
@@ -25,12 +24,6 @@ from .._misc import (
 )
 from .._solution import RESULTS
 from .descent import UnnormalisedNewton
-
-
-if TYPE_CHECKING:
-    _Node = Any
-else:
-    _Node = eqxi.doc_repr(Any, "Node")
 
 
 def _outer(tree1, tree2):
