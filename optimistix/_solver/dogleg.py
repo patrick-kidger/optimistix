@@ -8,7 +8,7 @@ from jaxtyping import Array, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Out, Y
 from .._line_search import AbstractDescent
-from .._misc import tree_full_like, tree_inner_prod, tree_where, two_norm
+from .._misc import max_norm, sum_squares, tree_full_like, tree_inner_prod, tree_where
 from .._solution import RESULTS
 
 
@@ -27,7 +27,7 @@ class _DoglegState(eqx.Module):
 
 class Dogleg(AbstractDescent[_DoglegState]):
     gauss_newton: bool
-    norm: Callable = two_norm
+    norm: Callable = max_norm
     solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
 
     def init_state(
@@ -75,7 +75,7 @@ class Dogleg(AbstractDescent[_DoglegState]):
             grad = descent_state.vector
             mvp = descent_state.operator.mv(grad)
 
-        numerator = two_norm(grad) ** 2
+        numerator = sum_squares(grad)
         denominator = tree_inner_prod(grad, mvp)
         pred = denominator > jnp.finfo(denominator.dtype).eps
         safe_denom = jnp.where(pred, denominator, 1)
@@ -95,7 +95,7 @@ class Dogleg(AbstractDescent[_DoglegState]):
         # if neither, interpolate between them. We can calculate the exact
         # scalar for this by solving a quadratic equation. See section 4.1 of
         # Nocedal Wright "Numerical Optimization" for details.
-        a = two_norm((newton**ω - cauchy**ω).ω) ** 2
+        a = sum_squares((newton**ω - cauchy**ω).ω)
         b = 2 * tree_inner_prod(cauchy, (newton**ω - cauchy**ω).ω)
         c = cauchy_norm**2 - b - a - delta**2
         linear_interp = _quadratic_solve(a, b, c)
@@ -130,12 +130,9 @@ class Dogleg(AbstractDescent[_DoglegState]):
         # ```0.5 * [(Jp - r)^T (Jp - r) - r^T r]```
         # which is equivalent when `B = J^T J` and `g = J^T r`.
         if self.gauss_newton:
-            rtr = two_norm(descent_state.vector) ** 2
-            jacobian_term = (
-                two_norm(
-                    (ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω
-                )
-                ** 2
+            rtr = sum_squares(descent_state.vector)
+            jacobian_term = sum_squares(
+                (ω(descent_state.operator.mv(diff)) - ω(descent_state.vector)).ω
             )
             return 0.5 * (jacobian_term - rtr)
         else:

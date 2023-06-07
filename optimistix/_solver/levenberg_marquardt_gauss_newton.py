@@ -13,12 +13,12 @@ from .._custom_types import Aux, Fn, Out, Y
 from .._least_squares import AbstractLeastSquaresSolver
 from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFunction
 from .._minimise import AbstractMinimiser, minimise
-from .._misc import max_norm, tree_full_like
+from .._misc import max_norm, sum_squares, tree_full_like
 from .._solution import RESULTS
 from .descent import UnnormalisedNewton
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .learning_rate import LearningRate
-from .misc import compute_jac_residual, two_norm
+from .misc import compute_jac_residual
 from .trust_region import ClassicalTrustRegion
 
 
@@ -91,7 +91,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
 
         def line_search_fn(x, args):
             residual, aux = fn(x, args)
-            return two_norm(residual), aux
+            return sum_squares(residual), aux
 
         problem_1d = OneDimensionalFunction(line_search_fn, descent, y)
         line_search_options = {

@@ -10,7 +10,7 @@ from jaxtyping import Array, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Out, Y
 from .._line_search import AbstractDescent
-from .._misc import tree_inner_prod, tree_where, two_norm
+from .._misc import sum_squares, tree_inner_prod, tree_where
 from .._solution import RESULTS
 
 
@@ -27,8 +27,8 @@ def _gradient_step(
 def fletcher_reeves(
     vector: PyTree[Array], vector_prev: PyTree[Array], diff_prev: PyTree[Array]
 ) -> Scalar:
-    numerator = two_norm(vector) ** 2
-    denominator = two_norm(vector_prev) ** 2
+    numerator = sum_squares(vector)
+    denominator = sum_squares(vector_prev)
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
     return jnp.where(pred, numerator / safe_denom, jnp.inf)
@@ -38,7 +38,7 @@ def polak_ribiere(
     vector: PyTree[Array], vector_prev: PyTree[Array], diff_prev: PyTree[Array]
 ) -> Scalar:
     numerator = tree_inner_prod(vector, (vector**ω - vector_prev**ω).ω)
-    denominator = two_norm(vector_prev) ** 2
+    denominator = sum_squares(vector_prev)
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
     beta = cast(
@@ -61,7 +61,7 @@ def hestenes_stiefel(
 def dai_yuan(
     vector: PyTree[Array], vector_prev: PyTree[Array], diff_prev: PyTree[Array]
 ) -> Scalar:
-    numerator = two_norm(vector) ** 2
+    numerator = sum_squares(vector)
     denominator = tree_inner_prod(diff_prev, (vector**ω - vector_prev**ω).ω)
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)

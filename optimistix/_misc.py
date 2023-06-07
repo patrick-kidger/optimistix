@@ -10,6 +10,12 @@ from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Float, PyTree, Scalar
 
 
+def sum_squares(x: PyTree) -> Scalar:
+    return jtu.tree_reduce(
+        lambda a, b: a + b, jtu.tree_map(lambda c: jnp.sum(jnp.square(c)), x)
+    )
+
+
 def two_norm(x: PyTree) -> Scalar:
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:

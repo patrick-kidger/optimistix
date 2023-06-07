@@ -12,7 +12,7 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree, Shaped
 
 from .._custom_types import Aux, Fn, Out, Y
-from .._misc import tree_inner_prod, two_norm
+from .._misc import sum_squares, tree_inner_prod
 
 
 # these are just to avoid large try-except blocks in the line search code,
@@ -41,10 +41,9 @@ def quadratic_predicted_reduction(
             "`operator_inv` cannot be used with predicted_reduction."
         )
     if gauss_newton:
-        rtr = two_norm(descent_state.vector) ** 2
-        jacobian_term = (
-            two_norm((ω(descent_state.operator.mv(diff)) + ω(descent_state.vector)).ω)
-            ** 2
+        rtr = sum_squares(descent_state.vector)
+        jacobian_term = sum_squares(
+            (ω(descent_state.operator.mv(diff)) + ω(descent_state.vector)).ω
         )
         reduction = 0.5 * (jacobian_term - rtr)
     else:
