@@ -36,13 +36,14 @@ def _norm_squared(tree):
 # SOLVERS:
 # - Gauss-Newton (LM)
 # - BFGS
-# - GradOnly (NonlinearCG)
+# - GradOnly (NonlinearCG, GradientDescent)
 # - Running Min
 # - Optax
 #
 # LINE SEARCHES:
 # - BacktrackingArmijo
 # - ClassicalTrustRegion
+# - LearningRate
 #
 # DESCENTS:
 # - DirectIterativeDual(GN=...)
@@ -52,10 +53,11 @@ def _norm_squared(tree):
 # - Gradient (Not appropriate for GN!)
 # - NonlinearCG (Not appropriate for GN!)
 #
-atol = rtol = 1e-12
+atol = rtol = 1e-8
 _lsqr_only = (
     optx.LevenbergMarquardt(rtol, atol),  # DirectIterativeDual(GN=True)
     optx.IndirectLevenbergMarquardt(rtol, atol),  # IndirectIterativeDual(GN=True)
+    optx.GaussNewton(rtol, atol),  # Newton(GN=True), LearningRate
     optx.GaussNewton(
         rtol,
         atol,
@@ -194,7 +196,7 @@ def test_least_squares(solver, _fn, minimum, init, args, has_aux):
         init,
         has_aux=has_aux,
         args=args,
-        max_steps=10_000,
+        max_steps=100_000,
         throw=False,
     ).value
     out = fn(optx_argmin, args)

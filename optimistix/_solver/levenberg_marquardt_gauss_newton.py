@@ -14,7 +14,9 @@ from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFu
 from .._minimise import AbstractMinimiser, minimise
 from .._misc import max_norm, tree_full_like
 from .._solution import RESULTS
+from .descent import UnnormalisedNewton
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
+from .learning_rate import LearningRate
 from .misc import compute_jac_residual, two_norm
 from .trust_region import ClassicalTrustRegion
 
@@ -40,7 +42,6 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
     line_search: AbstractLineSearch
     descent: AbstractDescent
     norm: Callable
-    converged_tol: float
 
     def init(
         self,
@@ -174,51 +175,43 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
 class GaussNewton(AbstractGaussNewton):
     rtol: float
     atol: float
-    line_search: AbstractMinimiser
-    descent: AbstractDescent
+    line_search: AbstractMinimiser = LearningRate(jnp.array(1.0))
+    descent: AbstractDescent = UnnormalisedNewton(gauss_newton=True)
     norm: Callable = max_norm
-    converged_tol: float = 1e-2
-
-
-class IndirectLevenbergMarquardt(AbstractGaussNewton):
-    line_search: AbstractMinimiser
-    descent: AbstractDescent
-    converged_tol: float
-
-    def __init__(
-        self,
-        rtol: float,
-        atol: float,
-        norm=max_norm,
-        converged_tol: float = 1e-2,
-        lambda_0: Float[ArrayLike, ""] = 1e-3,
-    ):
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
-        self.converged_tol = converged_tol
-        self.line_search = ClassicalTrustRegion()
-        self.descent = IndirectIterativeDual(
-            gauss_newton=True,
-            lambda_0=lambda_0,
-        )
 
 
 class LevenbergMarquardt(AbstractGaussNewton):
-    converged_tol: float
-
     def __init__(
         self,
         rtol: float,
         atol: float,
         norm=max_norm,
-        converged_tol: float = 1e-2,
         backtrack_slope: float = 0.1,
         decrease_factor: float = 0.5,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.converged_tol = converged_tol
         self.descent = DirectIterativeDual(gauss_newton=True)
         self.line_search = ClassicalTrustRegion()
+
+
+class IndirectLevenbergMarquardt(AbstractGaussNewton):
+    line_search: AbstractMinimiser
+    descent: AbstractDescent
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm=max_norm,
+        lambda_0: Float[ArrayLike, ""] = 1e-3,
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.line_search = ClassicalTrustRegion()
+        self.descent = IndirectIterativeDual(
+            gauss_newton=True,
+            lambda_0=lambda_0,
+        )

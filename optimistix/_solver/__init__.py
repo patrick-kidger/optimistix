@@ -13,6 +13,7 @@ from .iterative_dual import (
     DirectIterativeDual as DirectIterativeDual,
     IndirectIterativeDual as IndirectIterativeDual,
 )
+from .learning_rate import LearningRate as LearningRate
 from .levenberg_marquardt_gauss_newton import (
     AbstractGaussNewton as AbstractGaussNewton,
     GaussNewton as GaussNewton,
@@ -20,7 +21,11 @@ from .levenberg_marquardt_gauss_newton import (
     LevenbergMarquardt as LevenbergMarquardt,
 )
 from .newton_chord import Chord as Chord, Newton as Newton
-from .nonlinear_cg import GradOnly as GradOnly, NonlinearCG as NonlinearCG
+from .nonlinear_cg import (
+    GradientDescent as GradientDescent,
+    GradOnly as GradOnly,
+    NonlinearCG as NonlinearCG,
+)
 from .nonlinear_cg_descent import (
     dai_yuan as dai_yuan,
     fletcher_reeves as fletcher_reeves,

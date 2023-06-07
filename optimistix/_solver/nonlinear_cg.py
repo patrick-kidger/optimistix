@@ -15,6 +15,8 @@ from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFu
 from .._minimise import AbstractMinimiser, minimise
 from .._misc import max_norm, tree_full, tree_zeros, tree_zeros_like
 from .._solution import RESULTS
+from .descent import UnnormalisedGradient
+from .learning_rate import LearningRate
 from .nonlinear_cg_descent import hestenes_stiefel, NonlinearCGDescent
 
 
@@ -44,7 +46,6 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
     line_search: AbstractLineSearch
     descent: AbstractDescent
     norm: Callable = max_norm
-    converged_tol: float = 1e-2
 
     def init(
         self,
@@ -195,6 +196,21 @@ class GradOnly(AbstractGradOnly):
     pass
 
 
+class GradientDescent(AbstractGradOnly):
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        learning_rate: float,
+        norm: Callable = max_norm,
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.line_search = LearningRate(learning_rate)
+        self.descent = UnnormalisedGradient()
+        self.norm = norm
+
+
 class NonlinearCG(AbstractGradOnly):
     def __init__(
         self,
@@ -202,12 +218,10 @@ class NonlinearCG(AbstractGradOnly):
         atol: float,
         line_search: AbstractLineSearch,
         norm: Callable = max_norm,
-        converged_tol: float = 1e-2,
         method: Callable = hestenes_stiefel,
     ):
         self.rtol = rtol
         self.atol = atol
         self.line_search = line_search
-        self.norm = norm
-        self.converged_tol = converged_tol
         self.descent = NonlinearCGDescent(method)
+        self.norm = norm
