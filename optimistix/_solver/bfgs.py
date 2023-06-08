@@ -214,17 +214,15 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
                 operator_ip = tree_inner_prod(diff, state.operator.mv(diff))
                 term1 = (diff_outer**ω / inner).ω
                 term2 = (hess_outer**ω / operator_ip).ω
-            return term1, term2, diffsize
+            return term1, term2
 
         def zero_inner(diff):
             # not sure this is any better than just materialising
             # `state.operator`.
             term1 = term2 = tree_zeros_like(_outer(diff, diff))
-            return term1, term2, jnp.array(0.0)
+            return term1, term2
 
-        term1, term2, diffsize = lax.cond(
-            inner_nonzero, nonzero_inner, zero_inner, diff
-        )
+        term1, term2 = lax.cond(inner_nonzero, nonzero_inner, zero_inner, diff)
         new_hess = lx.PyTreeLinearOperator(
             (state.operator.pytree**ω + term1**ω - term2**ω).ω,
             state.operator.out_structure(),
@@ -248,7 +246,6 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
             vector=new_grad,
             operator=new_hess,
             diff=diff,
-            diffsize=diffsize,
             result=result,
             f_val=f_val,
             f_prev=state.f_val,

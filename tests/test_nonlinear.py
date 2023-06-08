@@ -184,16 +184,8 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_least_squares(solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-4
-    ignore_solver = (
-        isinstance(solver, optx.IndirectLevenbergMarquardt)
-        or (
-            isinstance(solver, optx.BFGS)
-            & isinstance(solver.descent, optx.IndirectIterativeDual)
-        )
-        or (
-            isinstance(solver, optx.GradOnly)
-            & isinstance(solver.descent, optx.NormalisedGradient)
-        )
+    ignore_solver = isinstance(solver, optx.GradOnly) & isinstance(
+        solver.descent, optx.NormalisedGradient
     )
     ignore_problem = (_fn == trigonometric) or (_fn == variably_dimensioned)
     if ignore_solver or ignore_problem:
@@ -229,12 +221,6 @@ def test_least_squares(solver, _fn, minimum, init, args, has_aux):
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_minimise(solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-4
-
-    if isinstance(solver, optx.BFGS) & isinstance(
-        solver.descent, optx.IndirectIterativeDual
-    ):
-        pytest.skip()
-
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
@@ -341,16 +327,8 @@ def test_bisection(_fn, init, bisection_options, args, has_aux):
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-2
-    ignore_solver = (
-        isinstance(solver, optx.IndirectLevenbergMarquardt)
-        or (
-            isinstance(solver, optx.BFGS)
-            & isinstance(solver.descent, optx.IndirectIterativeDual)
-        )
-        or (
-            isinstance(solver, optx.GradOnly)
-            & isinstance(solver.descent, optx.NormalisedGradient)
-        )
+    ignore_solver = isinstance(solver, optx.GradOnly) & isinstance(
+        solver.descent, optx.NormalisedGradient
     )
     ignore_problem = (_fn == trigonometric) or (_fn == variably_dimensioned)
     if ignore_solver or ignore_problem:
@@ -398,12 +376,6 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-4
-
-    if isinstance(solver, optx.BFGS) & isinstance(
-        solver.descent, optx.IndirectIterativeDual
-    ):
-        pytest.skip()
-
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:

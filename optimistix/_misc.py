@@ -120,7 +120,7 @@ def tree_where(
     return jtu.tree_map(keep, true, false)
 
 
-def max_norm(x: PyTree) -> Scalar:
+def max_norm(x: PyTree[Array]) -> Scalar:
     leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)]
     return jtu.tree_reduce(jnp.maximum, leaf_maxes)
 
