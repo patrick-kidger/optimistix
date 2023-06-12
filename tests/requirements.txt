@@ -1,4 +1,5 @@
 beartype
-lineax
+equinox
 pytest
+pytest-xdist
 jaxlib
