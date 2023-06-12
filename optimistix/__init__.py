@@ -60,6 +60,7 @@ from ._solver import (
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
     LearningRate as LearningRate,
     LevenbergMarquardt as LevenbergMarquardt,
+    NelderMead as NelderMead,
     Newton as Newton,
     NonlinearCG as NonlinearCG,
     NonlinearCGDescent as NonlinearCGDescent,

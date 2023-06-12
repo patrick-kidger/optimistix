@@ -132,6 +132,7 @@ _lsqr_only = (
 # NOTE: Should we parametrize the nonlinearCG method?
 atol = rtol = 1e-8
 minimisers = (
+    optx.NelderMead(rtol, atol),
     optx.BFGS(rtol, atol),
     optx.BFGS(
         rtol,

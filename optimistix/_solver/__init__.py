@@ -34,6 +34,7 @@ from .levenberg_marquardt_gauss_newton import (
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
     LevenbergMarquardt as LevenbergMarquardt,
 )
+from .nelder_mead import NelderMead as NelderMead
 from .newton_chord import Chord as Chord, Newton as Newton
 from .nonlinear_cg import (
     GradientDescent as GradientDescent,

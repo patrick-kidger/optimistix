@@ -25,7 +25,7 @@ from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
-from .._misc import max_norm
+from .._misc import max_norm, tree_zeros
 from .._solution import RESULTS
 
 
@@ -80,10 +80,11 @@ class _NelderMeadState(eqx.Module):
     best: tuple[Scalar, PyTree, Scalar]
     worst: tuple[Scalar, PyTree, Scalar]
     second_worst: Scalar
-    step: Scalar
     stats: _NMStats
     result: RESULTS
     first_pass: Bool[ArrayLike, ""]
+    aux: PyTree[Array]
+    step: Scalar
 
 
 def _tree_where(pred, struct, true, false):
@@ -127,6 +128,7 @@ class NelderMead(AbstractMinimiser):
         tags: frozenset[object],
     ) -> _NelderMeadState:
         del f_struct
+        aux = tree_zeros(aux_struct)
         try:
             y0_simplex = options["y0_simplex"]
         except KeyError:
@@ -177,8 +179,10 @@ class NelderMead(AbstractMinimiser):
                     indices - running_size, shape=leaf.shape
                 )
                 indices = jnp.unravel_index(indices, shape=broadcast_leaves.shape)
-                broadcast_leaves = broadcast_leaves.at[indices].add(
-                    self.adelta + self.rdelta * leaf[relative_indices]
+                broadcast_leaves = broadcast_leaves.at[indices].set(
+                    broadcast_leaves[indices]
+                    + self.adelta
+                    + self.rdelta * leaf[relative_indices]
                 )
                 running_size = running_size + leaf_size
                 new_leaves.append(broadcast_leaves)
@@ -211,10 +215,11 @@ class NelderMead(AbstractMinimiser):
                 jnp.array(0, dtype=jnp.int32),
             ),
             second_worst=jnp.array(0.0),
-            step=jnp.array(0),
             stats=stats,
             result=RESULTS.successful,
             first_pass=jnp.array(True),
+            aux=aux,
+            step=jnp.array(0),
         )
 
     def step(
@@ -251,7 +256,7 @@ class NelderMead(AbstractMinimiser):
                 jtu.tree_map(lambda _, x: x[0], y, simplex),
                 f_new_vertex,
                 state.stats,
-                None,
+                state.aux,
             )
 
         def main_step(state):
@@ -299,7 +304,6 @@ class NelderMead(AbstractMinimiser):
                     # multiplication by a negative constant). However, if we start
                     # the search at worst both these issues are avoided.
                     #
-
                     expanded = jtu.tree_map(
                         lambda x, y: x + y,
                         worst,
@@ -310,21 +314,18 @@ class NelderMead(AbstractMinimiser):
                         worst,
                         _tree_prod(contract_const, search_direction),
                     )
-
                     new_vertex = _tree_where(
                         expand,
                         expanded,
                         expanded,
                         vertex,
                     )
-
                     new_vertex = _tree_where(
                         contract,
                         contracted,
                         contracted,
                         new_vertex,
                     )
-
                     stats = _update_stats(
                         stats,
                         reflect,
@@ -356,14 +357,9 @@ class NelderMead(AbstractMinimiser):
             #
             # TODO(raderj): pull out this entire thing into line  api.
             #
-            try:
-                aux_struct = options["aux_struct"]
-            except KeyError:
-                aux_struct = None
-
             (new_vertex, (f_new_vertex, aux), stats), _ = lax.scan(
                 eval_new_vertices,
-                (reflection, (jnp.array(0.0), aux_struct), state.stats),
+                (reflection, (jnp.array(0.0), state.aux), state.stats),
                 jnp.arange(2),
             )
 
@@ -387,11 +383,11 @@ class NelderMead(AbstractMinimiser):
         def shrink_simplex(best, new_vertex, simplex, first_pass):
             _tree_prod = lambda const, tree: jtu.tree_map(lambda z: const * z, tree)
             _set_add = lambda tree_1, tree_2, index: jtu.tree_map(
-                lambda _, a, b: a.at[index].add(b), best, tree_1, tree_2
+                lambda _, a, b: a.at[index].set(a[index] + b), best, tree_1, tree_2
             )
             _set_sub = lambda x, y, z: _set_add(x, _tree_prod(-1, y), z)
             _set_prod = lambda tree, const, index: jtu.tree_map(
-                lambda _, a: a.at[index].multiply(const), best, tree
+                lambda _, a: a.at[index].set(a[index] * const), best, tree
             )
 
             # computes best + shrink_const * (simplex - best) in place with buffers
@@ -446,10 +442,11 @@ class NelderMead(AbstractMinimiser):
             best=(f_best, best, best_index),
             worst=(f_worst, worst, worst_index),
             second_worst=f_second_worst,
-            step=state.step + 1,
             stats=stats,
             result=state.result,
             first_pass=jnp.array(False),
+            aux=aux,
+            step=state.step + 1,
         )
         try:
             y0_simplex = options["y0_simplex"]
