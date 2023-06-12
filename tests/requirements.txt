@@ -1,5 +1,6 @@
 beartype
 equinox
+lineax
 pytest
 pytest-xdist
 jaxlib
