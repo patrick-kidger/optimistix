@@ -12,32 +12,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
-from typing import Any, Callable, NewType
+from typing import Any
 
-import equinox as eqx
-import equinox.internal as eqxi
 import jax
-import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
-import numpy as np
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Shaped
+from jaxtyping import Array, PyTree
 
 from .._custom_types import Aux, Fn, Out, Y
-from .._misc import sum_squares, tree_inner_prod
+from .._misc import jacobian, sum_squares, tree_inner_prod
 
 
-# these are just to avoid large try-except blocks in the line search code,
-# making those algorithms easier to read
+def compute_hess_grad(fn: Fn[Y, Out, Aux], y: PyTree[Array], args: PyTree):
+    in_size = jtu.tree_reduce(lambda a, b: a + b, jtu.tree_map(lambda c: c.size, y))
+    jac = jacobian(fn, in_size, out_size=1, has_aux=True)
+    grad, aux = jac(y, args)
+    hessian, _ = jax.jacfwd(jac, has_aux=True)(y, args)
+    hessian = lx.PyTreeLinearOperator(
+        hessian,
+        output_structure=jax.eval_shape(lambda: grad),
+    )
+    return grad, hessian, aux
+
+
+def compute_jac_residual(fn: Fn[Y, Out, Aux], y: PyTree[Array], args: PyTree):
+    residual, aux = fn(y, args)
+    jacobian = lx.JacobianLinearOperator(fn, y, args, _has_aux=True)
+    return residual, jacobian, aux
 
 
 def quadratic_predicted_reduction(
     gauss_newton: bool,
     diff: PyTree[Array],
     descent_state: PyTree,
-    args: Any,
+    args: PyTree,
     options: dict[str, Any],
 ):
     # The predicted reduction of a quadratic model function.
@@ -67,88 +76,3 @@ def quadratic_predicted_reduction(
         steepest_descent = tree_inner_prod(descent_state.vector, diff)
         reduction = (operator_quadratic**ω + steepest_descent**ω).ω
     return reduction
-
-
-def get_vector_operator(options):
-    try:
-        vector = options["vector"]
-    except KeyError:
-        raise ValueError("vector must be passed vector " "via `options['vector']`")
-    try:
-        operator = options["operator"]
-    except KeyError:
-        raise ValueError(
-            "operator must be passed operator " "via `options['operator']`"
-        )
-    return vector, operator
-
-
-class _NoAuxOut(eqx.Module):
-    fn: Callable
-
-    def __call__(self, x, args):
-        f, _ = self.fn(x, args)
-        return f
-
-
-def compute_hess_grad(fn: Fn[Y, Out, Aux], y: PyTree[Array], args: Any):
-    jrev = jax.jacrev(fn, has_aux=True)
-    grad, aux = jrev(y, args)
-    hessian, _ = jax.jacfwd(jrev, has_aux=True)(y, args)
-    hessian = lx.PyTreeLinearOperator(
-        hessian,
-        output_structure=jax.eval_shape(lambda: grad),
-    )
-    return grad, hessian, aux
-
-
-def compute_jac_residual(fn: Fn[Y, Out, Aux], y: PyTree[Array], args: Any):
-    residual, aux = fn(y, args)
-    # can we pass tags here?
-    jacobian = lx.JacobianLinearOperator(fn, y, args, _has_aux=True)
-    return residual, jacobian, aux
-
-
-PackedStructures = NewType("PackedStructures", eqxi.Static)
-
-
-def pack_structures(operator: lx.AbstractLinearOperator) -> PackedStructures:
-    structures = operator.out_structure(), operator.in_structure()
-    leaves, treedef = jtu.tree_flatten(structures)  # handle nonhashable pytrees
-    return PackedStructures(eqxi.Static((leaves, treedef)))
-
-
-def ravel_vector(
-    pytree: PyTree[Array], packed_structures: PackedStructures
-) -> Shaped[Array, " size"]:
-    leaves, treedef = packed_structures.value
-    out_structure, _ = jtu.tree_unflatten(treedef, leaves)
-    # `is` in case `tree_equal` returns a Tracer.
-    if eqx.tree_equal(jax.eval_shape(lambda: pytree), out_structure) is not True:
-        raise ValueError("pytree does not match out_structure")
-    # not using `ravel_pytree` as that doesn't come with guarantees about order
-    leaves = jtu.tree_leaves(pytree)
-    dtype = jnp.result_type(*leaves)
-    return jnp.concatenate([x.astype(dtype).reshape(-1) for x in leaves])
-
-
-def unravel_solution(
-    solution: Shaped[Array, " size"], packed_structures: PackedStructures
-) -> PyTree[Array]:
-    leaves, treedef = packed_structures.value
-    _, in_structure = jtu.tree_unflatten(treedef, leaves)
-    leaves, treedef = jtu.tree_flatten(in_structure)
-    sizes = np.cumsum([math.prod(x.shape) for x in leaves[:-1]])
-    split = jnp.split(solution, sizes)
-    assert len(split) == len(leaves)
-    shaped = [x.reshape(y.shape).astype(y.dtype) for x, y in zip(split, leaves)]
-    return jtu.tree_unflatten(treedef, shaped)
-
-
-def transpose_packed_structures(
-    packed_structures: PackedStructures,
-) -> PackedStructures:
-    leaves, treedef = packed_structures.value
-    out_structure, in_structure = jtu.tree_unflatten(treedef, leaves)
-    leaves, treedef = jtu.tree_flatten((in_structure, out_structure))
-    return eqxi.Static((leaves, treedef))

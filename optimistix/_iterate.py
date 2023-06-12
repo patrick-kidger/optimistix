@@ -43,14 +43,6 @@ else:
     _Node = eqxi.doc_repr(Any, "Node")
 
 
-class _AuxError:
-    def __bool__(self):
-        raise ValueError("")
-
-
-aux_error = _AuxError()
-
-
 def _is_jaxpr(x):
     return isinstance(x, (jax.core.Jaxpr, jax.core.ClosedJaxpr))
 
@@ -121,11 +113,9 @@ def _iterate(inputs, while_loop):
 
     if options is None:
         options = {}
-
     init_aux = jtu.tree_map(_zero, aux_struct)
     init_state = solver.init(fn, y0, args, options, f_struct, aux_struct, tags)
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
-
     init_carry = (y0, 0, dynamic_init_state, init_aux)
 
     def cond_fun(carry):
@@ -154,7 +144,6 @@ def _iterate(inputs, while_loop):
     final_carry = while_loop(
         cond_fun, body_fun, init_carry, max_steps=max_steps, buffers=buffers
     )
-
     final_y, num_steps, final_state, aux = final_carry
     _final_state = eqx.combine(static_state, final_state)
     terminate, result = solver.terminate(fn, final_y, args, options, _final_state, tags)

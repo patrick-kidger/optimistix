@@ -24,11 +24,10 @@ from .._custom_types import Fn, LineSearchAux
 from .._line_search import AbstractLineSearch
 from .._misc import tree_full, tree_inner_prod, tree_where, tree_zeros_like
 from .._solution import RESULTS
-from .misc import get_vector_operator
 
 
 class _BacktrackingState(eqx.Module):
-    f_delta: Float[Array, ""]
+    f_val: Float[Array, ""]
     f0: Float[Array, ""]
     running_min: Array
     running_min_diff: PyTree[Array]
@@ -74,21 +73,28 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _BacktrackingState:
-        f0 = tree_full(f_struct, jnp.inf)
-        vector, operator = get_vector_operator(options)
+        try:
+            vector = options["vector"]
+        except KeyError:
+            raise ValueError("vector must be passed vector " "via `options['vector']`")
+        try:
+            operator = options["operator"]
+        except KeyError:
+            raise ValueError(
+                "operator must be passed operator " "via `options['operator']`"
+            )
         try:
             diff0 = tree_zeros_like(options["diff"])
         except KeyError:
             assert False
-
         try:
             f0 = options["f0"]
             compute_f0 = options["compute_f0"]
         except KeyError:
+            f0 = tree_full(f_struct, jnp.inf)
             compute_f0 = jnp.array(True)
-
         return _BacktrackingState(
-            f_delta=f0,
+            f_val=f0,
             f0=f0,
             running_min=f0,
             running_min_diff=diff0,
@@ -104,20 +110,23 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
         self,
         fn: Fn[Scalar, Scalar, LineSearchAux],
         y: Scalar,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _BacktrackingState,
         tags: frozenset[object],
     ) -> tuple[Scalar, _BacktrackingState, LineSearchAux]:
         delta = jnp.where(state.compute_f0, jnp.array(0.0), y)
-        (f_delta, (_, diff, aux, result, _)) = fn(delta, args)
-        f0 = jnp.where(state.compute_f0, f_delta, state.f0)
-        running_min = jnp.where(f_delta < state.running_min, f_delta, state.running_min)
+        (f_val, (_, diff, aux, result, _)) = fn(delta, args)
+        f0 = jnp.where(state.compute_f0, f_val, state.f0)
+
+        running_min = jnp.where(f_val < state.running_min, f_val, state.running_min)
         running_min_diff = tree_where(
-            f_delta < state.running_min, diff, state.running_min_diff
+            f_val < state.running_min, diff, state.running_min_diff
         )
+
+        new_y = self.decrease_factor * y
         new_state = _BacktrackingState(
-            f_delta,
+            f_val,
             f0,
             running_min,
             running_min_diff,
@@ -128,18 +137,23 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
             result,
             state.step + 1,
         )
-        new_y = self.decrease_factor * y
         return (
             new_y,
             new_state,
-            (running_min, running_min_diff, aux, result, jnp.array(1.0)),
+            (
+                running_min,
+                running_min_diff,
+                aux,
+                result,
+                jnp.array(1 / self.decrease_factor),
+            ),
         )
 
     def terminate(
         self,
         fn: Fn[Scalar, Scalar, LineSearchAux],
         y: Scalar,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _BacktrackingState,
         tags: frozenset[object],
@@ -149,14 +163,17 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
             state.result,
             RESULTS.nonlinear_divergence,
         )
+        # `J^T r` is the grad in a Gauss-Newton problem, where J is the Jacobian
+        # and r the residual
         if self.gauss_newton:
             grad = state.operator.transpose().mv(state.vector)
         else:
             grad = state.vector
+        # Reduction should be at least linear, this is the Armijo condition
         predicted_reduction = tree_inner_prod(grad, state.diff)
-        predicted_reduction = jnp.minimum(predicted_reduction, 0)
-        finished = state.f_delta < state.f0 + self.backtrack_slope * predicted_reduction
-        finished = finished & (state.step > 1)
+        predicted_reduction_is_neg = predicted_reduction < 0
+        finished = state.f_val < state.f0 + self.backtrack_slope * predicted_reduction
+        finished = finished & (state.step > 1) & predicted_reduction_is_neg
         return finished, result
 
     def buffers(self, state: _BacktrackingState) -> tuple[()]:

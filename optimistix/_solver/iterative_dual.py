@@ -29,7 +29,7 @@ from jaxtyping import Array, Float, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Out, Y
 from .._line_search import AbstractDescent
-from .._misc import max_norm, tree_where
+from .._misc import tree_where, two_norm
 from .._root_find import AbstractRootFinder, root_find
 from .._solution import RESULTS
 from .misc import quadratic_predicted_reduction
@@ -44,7 +44,7 @@ from .newton_chord import Newton
 #
 # Iterative dual is a method of solving for the descent direction given a
 # trust region radius. It does this by solving the dual problem
-# `(B + lambda I) p = r` for `p`, where `B` is the quasi-Newton matrix,
+# `(B + λ I) p = r` for `p`, where `B` is the quasi-Newton matrix,
 # lambda is the dual parameter (the dual parameterisation of the
 # trust region radius), `I` is the identity, and `r` is the vector of residuals.
 #
@@ -61,22 +61,22 @@ from .newton_chord import Newton
 #
 
 
+class _Damped(eqx.Module):
+    fn: Callable
+    damping: Float[Array, " "]
+
+    def __call__(self, y: PyTree[Array], args: PyTree):
+        damping = jnp.sqrt(self.damping)
+        f, aux = self.fn(y, args)
+        damped = jtu.tree_map(lambda yi: damping * yi, y)
+        return (f, damped), aux
+
+
 class _IterativeDualState(eqx.Module):
     y: PyTree[Array]
     fn: Fn[Scalar, Scalar, Any]
     vector: PyTree[Array]
     operator: lx.AbstractLinearOperator
-
-
-class _Damped(eqx.Module):
-    fn: Callable
-    damping: Float[Array, " "]
-
-    def __call__(self, y: PyTree[Array], args: Any):
-        damping = jnp.sqrt(self.damping)
-        f, aux = self.fn(y, args)
-        damped = jtu.tree_map(lambda yi: damping * yi, y)
-        return (f, damped), aux
 
 
 class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
@@ -89,7 +89,7 @@ class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> _IterativeDualState:
         if operator is None:
@@ -111,7 +111,7 @@ class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
         self,
         delta: Scalar,
         descent_state: _IterativeDualState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
         if self.gauss_newton:
@@ -136,7 +136,7 @@ class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
         self,
         diff: PyTree[Array],
         descent_state: _IterativeDualState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> Scalar:
         return quadratic_predicted_reduction(
@@ -144,15 +144,35 @@ class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
         )
 
 
+#
+# Note that the damping (aka Levenberg-Marquard parameter) of `_DirectIterativeDual` is
+# `delta`, but in `DirectIterativeDual` it is `1/delta`. It is easier to find the
+# correct damping using a Newton solve with the former, but for line searches we
+# usually assume that the smaller the value of `delta` the smaller the step that we
+# take.
+#
+# In particular, if we do the eigendecomposition
+# `p = -(B + λ I)^(-1) g = -U (Λ + λ I) U^T g`
+# then the square of the two norm of `p` as a function of `λ` is
+# ```
+# ||p||**2 = sum [U g]_i/((λ_i + λ)**2)
+# ```
+# where `λ_i = Λ_i` is the ith eigenvector of `B` and `[U g]_i` is the `ith` element
+# of the vector `U g`.
+# From this we see that the parameterising `1/delta` can be viewed as
+# approximately controlling the norm of `p`.
+#
 class DirectIterativeDual(_DirectIterativeDual):
     def __call__(
         self,
         delta: Scalar,
         descent_state: _IterativeDualState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
         if descent_state.operator is None:
+            # TODO(raderj): support passing operator_inv. Should be easy with
+            # Woodbury identity.
             raise ValueError(
                 "`operator` must be passed to `DirectIterativeDual`. "
                 "Note that `operator_inv` is not currently supported for this descent."
@@ -182,13 +202,16 @@ class DirectIterativeDual(_DirectIterativeDual):
         return diff, RESULTS.promote(linear_soln.result)
 
 
+# `norm` has nothing to do with convergence here, unlike in our solvers. There is no
+# notion of termination/convergence for `IndirectIterativeDual`. Instead, this controls
+# the shape of the trust region. The default of `two_norm` is standard.
 class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
     gauss_newton: bool
     lambda_0: Float[Array, ""]
     root_finder: AbstractRootFinder = Newton(rtol=1e-2, atol=1e-2, lower=1e-5)
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
     tr_reg: Optional[lx.PyTreeLinearOperator] = None
-    norm: Callable = max_norm
+    norm: Callable = two_norm
 
     def init_state(
         self,
@@ -197,7 +220,7 @@ class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> _IterativeDualState:
         if operator is None:
@@ -219,16 +242,16 @@ class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
         self,
         delta: Scalar,
         descent_state: _IterativeDualState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
         if descent_state.operator is None:
+            # TODO(raderj): support operator_inv.
             raise ValueError(
                 "`operator` must be passed to "
                 " `IndirectDirectIterativeDual`. Note that `operator_inv` is "
                 "not currently supported for this descent."
             )
-
         direct_dual = eqx.Partial(
             _DirectIterativeDual(self.gauss_newton),
             descent_state=descent_state,
@@ -241,20 +264,18 @@ class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
             self.linear_solver,
             throw=False,
         )
-        # NOTE: try delta = delta * self.norm(newton_step).
-        # this scales the trust and sets the natural bound `delta = 1`.
         newton_step = (-ω(newton_soln.value)).ω
         newton_result = RESULTS.promote(newton_soln.result)
-        tr_reg = self.tr_reg
-
-        if tr_reg is None:
-            tr_reg = lx.IdentityLinearOperator(jax.eval_shape(lambda: newton_step))
+        if self.tr_reg is None:
+            lx.IdentityLinearOperator(jax.eval_shape(lambda: newton_step))
+        else:
+            pass
 
         def comparison_fn(
             lambda_i: Scalar,
-            args: Any,
+            args: PyTree,
         ):
-            (step, _) = direct_dual(lambda_i)
+            step, _ = direct_dual(lambda_i)
             return self.norm(step) - delta
 
         def accept_newton():
@@ -285,7 +306,7 @@ class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
         self,
         diff: PyTree[Array],
         descent_state: _IterativeDualState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> Scalar:
         return quadratic_predicted_reduction(

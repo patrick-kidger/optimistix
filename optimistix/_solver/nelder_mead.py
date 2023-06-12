@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import functools as ft
-from typing import Any, Callable, Tuple
+from typing import Any, Callable
 
 import equinox as eqx
 import jax
@@ -77,8 +77,8 @@ class _NelderMeadState(eqx.Module):
 
     simplex: PyTree
     f_simplex: PyTree
-    best: Tuple[Scalar, PyTree, Scalar]
-    worst: Tuple[Scalar, PyTree, Scalar]
+    best: tuple[Scalar, PyTree, Scalar]
+    worst: tuple[Scalar, PyTree, Scalar]
     second_worst: Scalar
     step: Scalar
     stats: _NMStats
@@ -120,7 +120,7 @@ class NelderMead(AbstractMinimiser):
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
@@ -221,7 +221,7 @@ class NelderMead(AbstractMinimiser):
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _NelderMeadState,
         tags: frozenset[object],
@@ -375,7 +375,6 @@ class NelderMead(AbstractMinimiser):
         new_best = f_new_vertex < f_best
         best = _tree_where(new_best, new_vertex, new_vertex, best)
         f_best = jnp.where(new_best, f_new_vertex, f_best)
-
         #
         # On the initial call, f_worst is initialized to 0. and f_new_vertex
         # is initialized to 1. This is to deliberately set shrink = True
@@ -468,7 +467,7 @@ class NelderMead(AbstractMinimiser):
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _NelderMeadState,
         tags: frozenset[object],

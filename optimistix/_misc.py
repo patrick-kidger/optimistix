@@ -24,13 +24,13 @@ from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Float, PyTree, Scalar
 
 
-def sum_squares(x: PyTree) -> Scalar:
+def sum_squares(x: PyTree[Array]) -> Scalar:
     return jtu.tree_reduce(
         lambda a, b: a + b, jtu.tree_map(lambda c: jnp.sum(jnp.square(c)), x)
     )
 
 
-def two_norm(x: PyTree) -> Scalar:
+def two_norm(x: PyTree[Array]) -> Scalar:
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
         return jnp.array(0.0)
@@ -56,7 +56,7 @@ def _two_norm_jvp(x, tx):
     return out, t_out
 
 
-def rms_norm(x: PyTree) -> Scalar:
+def rms_norm(x: PyTree[Array]) -> Scalar:
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
         return jnp.array(0.0)

@@ -18,6 +18,7 @@ from typing import Any, Callable
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 import lineax as lx
 import numpy as np
 from equinox.internal import ω
@@ -27,13 +28,23 @@ from .._custom_types import Aux, Fn, Out, Y
 from .._least_squares import AbstractLeastSquaresSolver
 from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFunction
 from .._minimise import AbstractMinimiser, minimise
-from .._misc import max_norm, sum_squares, tree_full_like
+from .._misc import (
+    max_norm,
+    sum_squares,
+    tree_full_like,
+    tree_where,
+    tree_zeros,
+)
 from .._solution import RESULTS
 from .descent import UnnormalisedNewton
 from .iterative_dual import DirectIterativeDual, IndirectIterativeDual
 from .learning_rate import LearningRate
 from .misc import compute_jac_residual
 from .trust_region import ClassicalTrustRegion
+
+
+def _is_struct(x):
+    return eqx.is_array(x) or isinstance(x, jax.ShapeDtypeStruct)
 
 
 class _GNState(eqx.Module):
@@ -60,15 +71,29 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
         self,
         fn: Fn[Y, Out, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _GNState:
-        del options, f_struct, aux_struct
+        del options
         f0 = jnp.array(jnp.inf)
-        vector, operator, aux = compute_jac_residual(fn, y, args)
+        aux = tree_zeros(aux_struct)
+        # Dummy vector and operator for first pass. Note that having `jnp.ones_like`
+        # is preferable to `jnp.zeros_like` as the latter can lead to linear solves
+        # of the form `0 x = 0` which can return `nan` values.
+        vector = jtu.tree_map(lambda x: jnp.ones(x.shape, x.dtype), f_struct)
+        operator_struct = eqx.filter_eval_shape(
+            lx.JacobianLinearOperator, fn, y, args, _has_aux=True
+        )
+        dynamic_operator_struct, static_operator = eqx.partition(
+            operator_struct, _is_struct
+        )
+        dynamic_operator = jtu.tree_map(
+            lambda x: jnp.ones(x.shape, x.dtype), dynamic_operator_struct
+        )
+        operator = eqx.combine(dynamic_operator, static_operator)
         descent_state = self.descent.init_state(fn, y, vector, operator, None, args, {})
         return _GNState(
             descent_state=descent_state,
@@ -87,7 +112,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
         self,
         fn: Fn[Y, Out, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _GNState,
         tags: frozenset[object],
@@ -105,22 +130,20 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
 
         problem_1d = OneDimensionalFunction(line_search_fn, descent, y)
         line_search_options = {
-            "f0": state.f_val,
-            "compute_f0": (state.step == 0),
+            "f0": jnp.where(state.step > 1, state.f_val, jnp.inf),
+            "compute_f0": (state.step == 1),
             "vector": state.vector,
             "operator": state.operator,
             "diff": y,
         }
-
         line_search_options["predicted_reduction"] = ft.partial(
             self.descent.predicted_reduction,
             descent_state=state.descent_state,
             args=args,
             options={},
         )
-
         init = jnp.where(
-            state.step == 0,
+            state.step <= 1,
             self.line_search.first_init(state.vector, state.operator, options),
             state.next_init,
         )
@@ -134,11 +157,20 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
             max_steps=100,
             throw=False,
         )
+        # `new_aux` and `f_val` are the output of of at `f` at step the
+        # end of the line search. ie. they are not `f(y)`, but rather
+        # `f(y_new)` where `y_new` is `y` in the next call of `step`. In
+        # other words, we use FSAL.
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
-        new_y = (ω(y) + ω(diff)).ω
+        new_y = tree_where(state.step > 0, (ω(y) + ω(diff)).ω, y)
         vector, operator, _ = compute_jac_residual(fn, new_y, args)
         descent_state = self.descent.update_state(
-            state.descent_state, state.diff, vector, operator, None, options
+            state.descent_state,
+            state.diff,
+            vector,
+            operator,
+            operator_inv=None,
+            options=options,
         )
         new_state = _GNState(
             descent_state=descent_state,
@@ -152,17 +184,18 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
             aux=new_aux,
             step=state.step + 1,
         )
-        # notice that this is state.aux, not new_state.aux or aux.
-        # we assume aux is the aux at f(y), but line_search returns
-        # aux at f(y_new), which is new_state.aux. So, we simply delay
-        # the return of aux for one eval
+        # Notice that this is `state.aux`, not `new_state.aux` or `aux`.
+        # we delay the return of `aux` by one step because of the FSAL
+        # in the line search.
+        # We want aux at `f(y)`, but line_search returns
+        # `aux` at `f(y_new)`
         return new_y, new_state, state.aux
 
     def terminate(
         self,
         fn: Fn[Y, Out, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _GNState,
         tags: frozenset[object],

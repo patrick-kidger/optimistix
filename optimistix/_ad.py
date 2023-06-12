@@ -116,9 +116,7 @@ def _implicit_impl_jvp(primals, tangents):
     )
     _, jvp_diff = jax.jvp(_for_jvp, (diff,), (t_inputs,))
 
-    t_root = lx.linear_solve(operator, jvp_diff, linear_solver).value
-    t_root = (-(t_root**ω)).ω
-
+    t_root = (-lx.linear_solve(operator, jvp_diff, linear_solver).value ** ω).ω
     t_residual = tree_zeros_like(residual)
 
     return (root, residual), (t_root, t_residual)

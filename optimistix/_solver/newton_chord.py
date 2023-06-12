@@ -21,7 +21,6 @@ from typing import (
 )
 
 import equinox as eqx
-import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -36,12 +35,8 @@ from .._solution import RESULTS
 
 if TYPE_CHECKING:
     from typing import ClassVar as AbstractClassVar
-
-    _Node = Any
 else:
     from equinox.internal import AbstractClassVar
-
-    _Node = eqxi.doc_repr(Any, "Node")
 
 
 def _small(diffsize: Scalar) -> Bool[ArrayLike, " "]:
@@ -61,10 +56,10 @@ def _converged(factor: Scalar, tol: float) -> Bool[ArrayLike, " "]:
 
 class _NewtonChordState(eqx.Module):
     linear_state: Optional[tuple[lx.AuxLinearOperator, PyTree]]
-    step: Scalar
     diffsize: Scalar
     diffsize_prev: Scalar
     result: RESULTS
+    step: Scalar
 
 
 class _NewtonChord(AbstractRootFinder[_NewtonChordState, Y, Out, Aux]):
@@ -82,7 +77,7 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState, Y, Out, Aux]):
         self,
         fn: Fn[Y, Out, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
@@ -97,17 +92,17 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState, Y, Out, Aux]):
             linear_state = (jac, self.linear_solver.init(jac, options={}))
         return _NewtonChordState(
             linear_state=linear_state,
-            step=jnp.array(0),
             diffsize=jnp.array(0.0),
             diffsize_prev=jnp.array(1.0),
             result=RESULTS.successful,
+            step=jnp.array(0),
         )
 
     def step(
         self,
         fn: Fn[Y, Out, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _NewtonChordState,
         tags: frozenset[object],
@@ -125,7 +120,7 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState, Y, Out, Aux]):
             )
         diff = sol.value
         new_y = (y**ω - diff**ω).ω
-        # this clip is very important for LM, as it keeps lambda > 0.
+        # This clip is very important for LM, as it keeps `lambda` > 0.
         if self.lower is not None:
             new_y = jnp.clip(new_y, a_min=self.lower)
         if self.upper is not None:
@@ -134,10 +129,10 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState, Y, Out, Aux]):
         diffsize = self.norm((diff**ω / scale**ω).ω)
         new_state = _NewtonChordState(
             linear_state=state.linear_state,
-            step=state.step + 1,
             diffsize=diffsize,
             diffsize_prev=state.diffsize,
             result=RESULTS.promote(sol.result),
+            step=state.step + 1,
         )
         return new_y, new_state, jac.aux
 
@@ -145,7 +140,7 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState, Y, Out, Aux]):
         self,
         fn: Fn[Y, Out, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _NewtonChordState,
         tags: frozenset[object],

@@ -31,11 +31,11 @@ class AbstractFixedPointSolver(AbstractIterativeSolver[SolverState, Y, Y, Aux]):
     pass
 
 
-def _fixed_point(root, _, inputs):
+def _fixed_point(fp, _, inputs):
     fixed_point_fn, args, *_ = inputs
     del inputs
-    f_val, _ = fixed_point_fn(root, args)
-    return (f_val**ω - root**ω).ω
+    f_val, _ = fixed_point_fn(fp, args)
+    return (f_val**ω - fp**ω).ω
 
 
 def _root(root, _, inputs):
@@ -79,9 +79,8 @@ def fixed_point(
         )
 
     if isinstance(solver, AbstractRootFinder):
-        root_fn = _ToRootFn(fn)
         return iterative_solve(
-            root_fn,
+            _ToRootFn(fn),
             solver,
             y0,
             args,

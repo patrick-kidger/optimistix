@@ -43,6 +43,17 @@ class OneDimensionalFunction(eqx.Module, Generic[Y, Aux]):
         return f_val, (f_val, diff, aux, result, jnp.array(0.0))
 
 
+#
+# note that in `options` we usually anticipate that `f0`, `compute_f0`,
+# 'vector'/'operator', and 'diff' are passed. `compute_f0` indicates that
+# this is the very first time that the line search has been called, and it
+# must compute `f(y)` before doing the line search. Note that the `aux` and
+# returned from the linesearch`f_val` are the output of of at `f`
+# END of the line search. ie. they are not `f(y)`, but rather
+# `f(y_new)` where `y_new` is `y` found which minimises the line search.
+# This is to exploit FSAL in all of our solvers, where the `f(y_new)` value is then
+# passed as `f0` in the next line search.
+#
 class AbstractLineSearch(AbstractMinimiser[SolverState, Scalar, LineSearchAux]):
     @abc.abstractmethod
     def first_init(
@@ -63,7 +74,7 @@ class AbstractDescent(eqx.Module, Generic[_DescentState]):
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> _DescentState:
         ...

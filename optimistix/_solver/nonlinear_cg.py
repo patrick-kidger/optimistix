@@ -29,9 +29,10 @@ from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFu
 from .._minimise import AbstractMinimiser, minimise
 from .._misc import max_norm, tree_full, tree_zeros, tree_zeros_like
 from .._solution import RESULTS
+from .backtracking import BacktrackingArmijo
 from .descent import UnnormalisedGradient
 from .learning_rate import LearningRate
-from .nonlinear_cg_descent import hestenes_stiefel, NonlinearCGDescent
+from .nonlinear_cg_descent import NonlinearCGDescent, polak_ribiere
 
 
 class _GradOnlyState(eqx.Module):
@@ -47,8 +48,8 @@ class _GradOnlyState(eqx.Module):
     step: Scalar
 
 
-# note that this is called "GradOnly" and not "VecOnly," despite us often referring
-# to the gradient and residual vectors by the name `vector`.
+# Note that this is called "GradOnly" and not "VecOnly," despite us often referring
+# to the gradient and residual vectors by the same name `vector`.
 # This is because it doesn't make sense to use this in the least squares setting
 # where `vector` is the residual vector, so we know we are always dealing with
 # gradients.
@@ -57,13 +58,13 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
     atol: float
     line_search: AbstractLineSearch
     descent: AbstractDescent
-    norm: Callable = max_norm
+    norm: Callable
 
     def init(
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
@@ -93,7 +94,7 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _GradOnlyState,
         tags: frozenset[object],
@@ -117,7 +118,6 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
                 "operator": state.operator,
                 "diff": y,
             }
-
             line_search_options["predicted_reduction"] = ft.partial(
                 self.descent.predicted_reduction,
                 descent_state=state.descent_state,
@@ -139,6 +139,10 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
                 max_steps=100,
                 throw=False,
             )
+            # `new_aux` and `f_val` are the output of of at `f` at step the
+            # end of the line search. ie. they are not `f(y)`, but rather
+            # `f(y_new)` where `y_new` is `y` in the next call of `step`. In
+            # other words, we use FSAL.
             (f_val, diff, new_aux, _, next_init) = line_sol.aux
             return f_val, diff, new_aux, line_sol.result, next_init
 
@@ -175,13 +179,18 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
             aux=new_aux,
             step=state.step + 1,
         )
-        return new_y, new_state, new_aux
+        # notice that this is state.aux, not new_state.aux or aux.
+        # we delay the return of `aux` by one step because of the FSAL
+        # in the line search.
+        # We want aux at `f(y)`, but line_search returns
+        # aux at `f(y_new)`
+        return new_y, new_state, state.aux
 
     def terminate(
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _GradOnlyState,
         tags: frozenset[object],
@@ -202,7 +211,7 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
 
 
 class GradOnly(AbstractGradOnly):
-    pass
+    norm: Callable = max_norm
 
 
 class GradientDescent(AbstractGradOnly):
@@ -220,14 +229,18 @@ class GradientDescent(AbstractGradOnly):
         self.norm = norm
 
 
+# TODO(raderj): switch out `BacktrackingArmijo` with a better
+# line search.
 class NonlinearCG(AbstractGradOnly):
     def __init__(
         self,
         rtol: float,
         atol: float,
-        line_search: AbstractLineSearch,
+        line_search: AbstractLineSearch = BacktrackingArmijo(
+            gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
+        ),
         norm: Callable = max_norm,
-        method: Callable = hestenes_stiefel,
+        method: Callable = polak_ribiere,
     ):
         self.rtol = rtol
         self.atol = atol

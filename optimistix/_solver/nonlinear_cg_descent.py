@@ -99,7 +99,7 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ):
         return NonlinearCGState(vector, vector, vector, jnp.array(0))
@@ -113,9 +113,9 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         operator_inv: Optional[lx.AbstractLinearOperator],
         options: dict[str, Any],
     ):
-        # not sure of a better way to do this at the moment
+        # Not sure of a better way to compute this at the moment
         beta = lax.cond(
-            descent_state.step > 1,
+            descent_state.step >= 1,
             self.method,
             _gradient_step,
             descent_state.vector,
@@ -131,11 +131,11 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         self,
         delta: Scalar,
         descent_state: NonlinearCGState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
         beta = lax.cond(
-            descent_state.step > 1,
+            descent_state.step >= 1,
             self.method,
             _gradient_step,
             descent_state.vector,
@@ -158,7 +158,7 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         self,
         diff: PyTree[Array],
         descent_state: NonlinearCGState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ):
         assert False

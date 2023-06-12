@@ -57,12 +57,11 @@ def _get_predicted_reduction(options: dict[str, Any], diff: PyTree[Array]) -> Sc
     return predicted_reduction
 
 
-#
-# NOTE: typically classical trust region methods compute
+# NOTE: typically trust region methods compute
 # (true decrease)/(predicted decrease) > const. We use
-# -(true decrease) < const * -(predicted decrease) instead.
-# This is for numerical reasons, as it avoids an uneccessary subtraction and division
-#
+# (true decrease) < const * (predicted decrease) instead (inequality flips because
+# we assume predicted reduction is negative.)
+# This is for numerical reasons, it avoids an uneccessary subtraction and division
 class ClassicalTrustRegion(AbstractLineSearch[_TrustRegionState]):
     high_cutoff: float = 0.99
     low_cutoff: float = 0.01
@@ -80,7 +79,7 @@ class ClassicalTrustRegion(AbstractLineSearch[_TrustRegionState]):
         # The natural init for quasi-Newton methods using trust regions
         # is to set the initial trust region to the full quasi-Newton step. This
         # turns the first use of the trust region algorithm into a standard
-        # backtrackinga algortihm with a (possibly) nonlinear predicted reduction.
+        # backtrackinga algortihm with a more general predicted reduction.
         # The user can pass `options["inti_line_search"]` to the overall solver
         # to set this explicitly.
         try:
@@ -97,7 +96,7 @@ class ClassicalTrustRegion(AbstractLineSearch[_TrustRegionState]):
         self,
         fn: Fn[Scalar, Scalar, LineSearchAux],
         y: Scalar,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
@@ -130,7 +129,7 @@ class ClassicalTrustRegion(AbstractLineSearch[_TrustRegionState]):
         self,
         fn: Fn[Scalar, Scalar, LineSearchAux],
         y: Scalar,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _TrustRegionState,
         tags: frozenset[object],
@@ -138,7 +137,7 @@ class ClassicalTrustRegion(AbstractLineSearch[_TrustRegionState]):
         y_or_zero = cast(Array, jnp.where(state.compute_f0, jnp.array(0.0), y))
         (f_new, (_, diff, aux, result, _)) = fn(y_or_zero, args)
         predicted_reduction = _get_predicted_reduction(options, diff)
-        # This is to make sure that `finished` and `good` are false on the first step.
+        # Make sure `finished` and `good` are false on the first step.
         f0 = jnp.where(state.compute_f0, -jnp.inf, state.f0)
         finished = f_new < f0 + self.low_cutoff * predicted_reduction
         good = f_new < f0 + self.high_cutoff * predicted_reduction
@@ -148,10 +147,11 @@ class ClassicalTrustRegion(AbstractLineSearch[_TrustRegionState]):
         # If `predicted_reduction` is greater than 0, then it doesn't matter if we
         # beat it, we may still have gotten worse and need to decrease the
         # trust region radius size.
-        predicted_reduction_neg = predicted_reduction < 0
-        finished = finished & predicted_reduction_neg
-        good = good & predicted_reduction_neg
-        bad = bad | jnp.invert(predicted_reduction_neg)
+        predicted_reduction_is_neg = predicted_reduction < 0
+        finished = finished & predicted_reduction_is_neg
+        good = good & predicted_reduction_is_neg
+        bad = bad | jnp.invert(predicted_reduction_is_neg)
+        # update y
         new_y = jnp.where(good, y * self.high_constant, y)
         new_y = jnp.where(bad, y * self.low_constant, new_y)
         new_y = jnp.where(state.compute_f0, y, new_y)
@@ -177,7 +177,7 @@ class ClassicalTrustRegion(AbstractLineSearch[_TrustRegionState]):
         self,
         fn: Fn[Scalar, Scalar, LineSearchAux],
         y: Scalar,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _TrustRegionState,
         tags: frozenset[object],

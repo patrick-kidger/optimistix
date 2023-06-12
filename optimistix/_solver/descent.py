@@ -38,7 +38,7 @@ class UnnormalisedGradient(AbstractDescent[_GradientState]):
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> _GradientState:
         return _GradientState(vector)
@@ -58,7 +58,7 @@ class UnnormalisedGradient(AbstractDescent[_GradientState]):
         self,
         delta: Scalar,
         descent_state: _GradientState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
         diff = (-delta * ω(descent_state.vector)).ω
@@ -82,7 +82,7 @@ class NormalisedGradient(AbstractDescent[_GradientState]):
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> _GradientState:
         return _GradientState(vector)
@@ -102,7 +102,7 @@ class NormalisedGradient(AbstractDescent[_GradientState]):
         self,
         delta: Scalar,
         descent_state: _GradientState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
         diff = ((-delta * descent_state.vector**ω) / two_norm(descent_state.vector)).ω
@@ -116,12 +116,6 @@ class NormalisedGradient(AbstractDescent[_GradientState]):
         options: dict[str, Any],
     ) -> Scalar:
         return tree_inner_prod(descent_state.vector, diff)
-
-
-class _NewtonState(eqx.Module):
-    vector: PyTree[Array]
-    operator: Optional[lx.AbstractLinearOperator]
-    operator_inv: Optional[lx.AbstractLinearOperator]
 
 
 #
@@ -140,6 +134,14 @@ class _NewtonState(eqx.Module):
 # vector or the Jacobian and residual. In line-searches which do not use
 # this, there is no difference between `gauss_newton=True` and `gauss_newton=False`.
 #
+
+
+class _NewtonState(eqx.Module):
+    vector: PyTree[Array]
+    operator: Optional[lx.AbstractLinearOperator]
+    operator_inv: Optional[lx.AbstractLinearOperator]
+
+
 class UnnormalisedNewton(AbstractDescent[_NewtonState]):
     gauss_newton: bool = False
 
@@ -150,7 +152,7 @@ class UnnormalisedNewton(AbstractDescent[_NewtonState]):
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> _NewtonState:
         return _NewtonState(vector, operator, operator_inv)
@@ -170,7 +172,7 @@ class UnnormalisedNewton(AbstractDescent[_NewtonState]):
         self,
         delta: Scalar,
         descent_state: _NewtonState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
         if descent_state.operator_inv is not None:
@@ -189,7 +191,6 @@ class UnnormalisedNewton(AbstractDescent[_NewtonState]):
                 "At least one of `operator` or `operator_inv` must be "
                 "passed to the UnnormalisedNewton descent."
             )
-
         diff = (-delta * newton**ω).ω
         return diff, result
 
@@ -215,7 +216,7 @@ class NormalisedNewton(AbstractDescent[_NewtonState]):
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> _NewtonState:
         return _NewtonState(vector, operator, operator_inv)
@@ -235,7 +236,7 @@ class NormalisedNewton(AbstractDescent[_NewtonState]):
         self,
         delta: Scalar,
         descent_state: _NewtonState,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
         if descent_state.operator_inv is not None:

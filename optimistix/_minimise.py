@@ -31,7 +31,7 @@ class AbstractMinimiser(AbstractIterativeSolver[SolverState, Y, Scalar, Aux]):
     pass
 
 
-def _minimum(optimum, _, inputs):
+def _minimum(minimum, _, inputs):
     minimise_fn, args, *_ = inputs
     del inputs
 
@@ -39,7 +39,7 @@ def _minimum(optimum, _, inputs):
         out, _ = minimise_fn(x, args)
         return out
 
-    return jax.grad(min_no_aux)(optimum)
+    return jax.grad(min_no_aux)(minimum)
 
 
 @eqx.filter_jit

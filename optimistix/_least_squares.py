@@ -16,8 +16,6 @@ from typing import Any, Callable, Optional, Union
 
 import equinox as eqx
 import jax
-import jax.flatten_util as jfu
-import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import PyTree
 
@@ -25,7 +23,7 @@ from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Aux, Fn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._minimise import AbstractMinimiser, minimise
-from ._misc import inexact_asarray, NoneAux
+from ._misc import inexact_asarray, NoneAux, sum_squares
 from ._solution import Solution
 
 
@@ -39,8 +37,7 @@ def _residual(optimum, _, inputs):
 
     def objective(_optimum):
         residual, _ = residual_fn(_optimum, args)
-        sum_squared = jtu.tree_map(lambda x: jnp.sum(x**2), residual)
-        return jtu.tree_reduce(lambda x, y: x + y, sum_squared)
+        return sum_squares(residual)
 
     return jax.grad(objective)(optimum)
 
@@ -49,10 +46,8 @@ class _ToMinimiseFn(eqx.Module):
     residual_fn: Callable
 
     def __call__(self, y, args):
-        out = self.residual_fn(y, args)
-        out, aux = out
-        out_ravel, _ = jfu.ravel_pytree(out)
-        return jnp.sum(out_ravel**2), aux
+        out, aux = self.residual_fn(y, args)
+        return sum_squares(out), aux
 
 
 @eqx.filter_jit
@@ -75,17 +70,15 @@ def least_squares(
         fn = NoneAux(fn)
 
     f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
-
     if isinstance(solver, AbstractMinimiser):
-        minimise_fn = _ToMinimiseFn(fn)
         return minimise(
-            fn=minimise_fn,
-            has_aux=True,
+            fn=_ToMinimiseFn(fn),
             solver=solver,
             y0=y0,
             tags=tags,
             args=args,
             options=options,
+            has_aux=True,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,

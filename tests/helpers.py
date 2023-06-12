@@ -27,6 +27,8 @@ import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
+import optimistix as optx
+
 
 def getkey():
     return jr.PRNGKey(random.randint(0, 2**31 - 1))
@@ -84,6 +86,108 @@ def finite_difference_jvp(fn, primals, tangents):
 
 
 #
+# NOTE: `GN` is shorthand for `gauss_newton`. We want to be sure we test every
+# branch of `GN=True` and `GN=False` for all of these solvers.
+#
+# UNCONSTRAINED MIN
+#
+# SOLVERS:
+# - Gauss-Newton (LM)
+# - BFGS
+# - GradOnly (NonlinearCG, GradientDescent)
+# - Optax
+#
+# LINE SEARCHES:
+# - BacktrackingArmijo
+# - ClassicalTrustRegion
+# - LearningRate
+#
+# DESCENTS:
+# - DirectIterativeDual(GN=...)
+# - IndirectIterativeDual(GN=...)
+# - Dogleg(GN=...)
+# - Newton(GN=...)
+# - Gradient (Not appropriate for GN!)
+# - NonlinearCG (Not appropriate for GN!)
+#
+atol = rtol = 1e-8
+_lsqr_only = (
+    optx.LevenbergMarquardt(rtol, atol),  # DirectIterativeDual(GN=True)
+    optx.IndirectLevenbergMarquardt(rtol, atol),  # IndirectIterativeDual(GN=True)
+    optx.GaussNewton(rtol, atol),  # Newton(GN=True), LearningRate
+    optx.GaussNewton(
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(),
+        descent=optx.Dogleg(gauss_newton=True),  # Dogleg(GN=True)
+    ),
+    optx.GaussNewton(
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(),
+        descent=optx.NormalisedNewton(gauss_newton=True),  # Newton(GN=True)
+    ),
+)
+# NOTE: Should we parametrize the line search algo?
+# NOTE: Should we parametrize the nonlinearCG method?
+atol = rtol = 1e-8
+minimisers = (
+    optx.BFGS(rtol, atol),
+    optx.BFGS(
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(),
+        descent=optx.DirectIterativeDual(
+            gauss_newton=False
+        ),  # DirectIterativeDual(GN=False)
+    ),
+    optx.BFGS(
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(),
+        descent=optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1.0),
+    ),  # IndirectIterativeDual(GN=False)
+    optx.BFGS(
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(),
+        descent=optx.Dogleg(gauss_newton=False),  # Dogleg(GN=False)
+    ),
+    optx.BFGS(
+        rtol,
+        atol,
+        line_search=optx.BacktrackingArmijo(
+            gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
+        ),
+        descent=optx.NormalisedNewton(gauss_newton=False),  # Newton(GN=False)
+    ),
+    optx.BFGS(
+        rtol,
+        atol,
+        line_search=optx.BacktrackingArmijo(
+            gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
+        ),
+        use_inverse=True,  # NewtonInverse
+    ),
+    optx.GradOnly(
+        rtol,
+        atol,
+        line_search=optx.BacktrackingArmijo(
+            gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
+        ),
+        descent=optx.NormalisedGradient(),  # Gradient
+    ),
+    optx.NonlinearCG(
+        rtol,
+        atol,
+    ),  # NonlinearCG
+)
+
+# the minimisers can handle least squares problems, but the least squares
+# solvers cannot handle general minimisation problems.
+least_squares_optimisers = _lsqr_only + minimisers
+
+#
 # MINIMISATION PROBLEMS
 #
 # Some standard test functions for nonlinear minimisation. Many of these can be found
@@ -116,7 +220,7 @@ def _rosenbrock(tree: PyTree[Array], args: Scalar):
     return (100 * (y[1:] - y[:-1]), const - y[:-1])
 
 
-def _himmelblau(tree: PyTree[Array], args: Any):
+def _himmelblau(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     const1, const2 = args
@@ -125,7 +229,7 @@ def _himmelblau(tree: PyTree[Array], args: Any):
     return (term1**ω + term2**ω).ω
 
 
-def _matyas(tree: PyTree[Array], args: Any):
+def _matyas(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     const1, const2 = args
@@ -134,7 +238,7 @@ def _matyas(tree: PyTree[Array], args: Any):
     return (term1**ω - term2**ω).ω
 
 
-def _eggholder(tree: PyTree[Array], args: Any):
+def _eggholder(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     # the composition sin . sqrt . abs
@@ -144,7 +248,7 @@ def _eggholder(tree: PyTree[Array], args: Any):
     return (term1**ω + term2**ω).ω
 
 
-def _beale(tree: PyTree[Array], args: Any):
+def _beale(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     const1, const2, const3 = args
@@ -154,23 +258,7 @@ def _beale(tree: PyTree[Array], args: Any):
     return (term1**ω + term2**ω + term3**ω).ω
 
 
-def penalty_ii(tree: PyTree[Array], args: Any):
-    # TUOS eqn 24
-    # least squares
-    (y, _) = jfu.ravel_pytree(tree)
-    y_0, y_i = y[0], y[1:]
-    y_i = jnp.exp(jnp.arange(2, jnp.size(y) + 1) / 10) + jnp.exp(
-        jnp.arange(1, jnp.size(y)) / 10
-    )
-    a = jnp.sqrt(1e-5)
-    term1 = y_0 - 0.2
-    term2 = a * (jnp.exp(y_i / 10) + jnp.exp(y[:-1] / 10) - y_i)
-    term3 = a * (jnp.exp(y_i / 10) - jnp.exp(-1 / 10))
-    term4 = jnp.sum(jnp.arange(jnp.size(y), 1, step=-1) * y[:-1] ** 2) - 1
-    return (term1, term2, term3, term4)
-
-
-def variably_dimensioned(tree: PyTree[Array], args: Any):
+def variably_dimensioned(tree: PyTree[Array], args: PyTree):
     # TUOS eqn 25
     # least squares
     (y, _) = jfu.ravel_pytree(tree)
@@ -182,7 +270,7 @@ def variably_dimensioned(tree: PyTree[Array], args: Any):
     return (term1, term2, term3)
 
 
-def trigonometric(tree: PyTree[Array], args: Any):
+def trigonometric(tree: PyTree[Array], args: PyTree):
     # TUOS eqn 26
     # least squares
     (y, _) = jfu.ravel_pytree(tree)
@@ -192,7 +280,7 @@ def trigonometric(tree: PyTree[Array], args: Any):
     return jnp.size(y) - sumcos + increasing * (const - jnp.cos(y)) - jnp.sin(y)
 
 
-def simple_nn(model_dynamic: PyTree[Array], args: Any):
+def simple_nn(model_dynamic: PyTree[Array], args: PyTree):
     # args is the activation functions in
     # the MLP.
     (model_static, data) = args
@@ -263,18 +351,6 @@ weight2 = jnp.array(
 bias2 = jnp.array([-2.16578771])
 new_ffn_init = eqx.tree_at(get_weights, ffn_init, (weight1, bias1, weight2, bias2))
 ffn_dynamic, ffn_static = eqx.partition(new_ffn_init, eqx.is_array)
-
-# TODO(raderj): patch or remove _penalty_ii
-# (
-#     _penalty_ii,
-#     jnp.array(2.93660e-4),
-#     0.5 * jnp.ones((2, 5)),
-# ),
-# (
-#     _penalty_ii,
-#     jnp.array(2.93660e-4),
-#     (({"a": 0.5 * jnp.ones(4)}), 0.5 * jnp.ones(3), (0.5 * jnp.ones(3), ())),
-# ),
 
 # _uncoupled_simple default args
 diagonal_bowl_init = ({"a": 0.05 * jnp.ones((2, 3, 3))}, (0.05 * jnp.ones(2)))
@@ -398,7 +474,7 @@ def _nonlinear_heat_pde_general(
     t0: Scalar,
     t1: Scalar,
     y: PyTree[Array],
-    args: Any,
+    args: PyTree,
 ):
     # A single step time `t0` to time `t1` of the Crank Nicolson scheme applied to
     # the nonlinear heat equation:
@@ -418,7 +494,7 @@ def _midpoint_y_general(
     y0: PyTree[Array],
     dt: Scalar,
     y: PyTree[Array],
-    args: Any,
+    args: PyTree,
 ):
     # Solve an implicit midpoint Runge-Kutta step with fixed point iteration
     # in "y space," ie. the typical representation of a Runge-Kutta method
@@ -431,7 +507,7 @@ def _midpoint_f_general(
     y0: PyTree[Array],
     dt: Scalar,
     y: PyTree[Array],
-    args: Any,
+    args: PyTree,
 ):
     # Solve an implicit Runge-Kutta step with fixed point iteration
     # in "f-space," ie. we apply `f` to both sides of the Runge-Kutta method
@@ -444,7 +520,7 @@ def _midpoint_k_general(
     y0: PyTree[Array],
     dt: Scalar,
     y: PyTree[Array],
-    args: Any,
+    args: PyTree,
 ):
     # Solve an implicit midpoint Runge-Kutta step with fixed point iteration
     # in "k-space," ie. we do the fixed point iterations directly on the `k` terms
@@ -471,17 +547,17 @@ class Robertson(eqx.Module):
 
 
 # PROBLEMS
-def _exponential(tree: PyTree[Array], args: Any):
+def _exponential(tree: PyTree[Array], args: PyTree):
     const = args
     return jtu.tree_map(lambda x: jnp.exp(-const * x), tree)
 
 
-def _sin(tree: PyTree[Array], args: Any):
+def _sin(tree: PyTree[Array], args: PyTree):
     const = args
     return jtu.tree_map(lambda x: jnp.sin(const * x), tree)
 
 
-def _nn(tree: PyTree[Array], args: Any):
+def _nn(tree: PyTree[Array], args: PyTree):
     (y, unflatten) = jfu.ravel_pytree(tree)
     size = _getsize(y)
     weight1, bias1, weight2, bias2 = args
@@ -497,7 +573,7 @@ def _nn(tree: PyTree[Array], args: Any):
     return unflatten(0.1 * model(y))
 
 
-def _nonlinear_heat_pde(y: PyTree[Array], args: Any):
+def _nonlinear_heat_pde(y: PyTree[Array], args: PyTree):
     # solve the nonlinear heat equation as above from "0" to "1" in a
     # single step.
     x = jnp.linspace(-1, 1, 100)
@@ -509,7 +585,7 @@ def _nonlinear_heat_pde(y: PyTree[Array], args: Any):
     )
 
 
-def _midpoint_y_linear(tree: PyTree[Array], args: Any):
+def _midpoint_y_linear(tree: PyTree[Array], args: PyTree):
     (y, unflatten) = jfu.ravel_pytree(tree)
     matrix = args
     f = lambda x, _: matrix @ x
@@ -519,7 +595,7 @@ def _midpoint_y_linear(tree: PyTree[Array], args: Any):
     return unflatten(midpoint)
 
 
-def _midpoint_f_linear(tree: PyTree[Array], args: Any):
+def _midpoint_f_linear(tree: PyTree[Array], args: PyTree):
     (y, unflatten) = jfu.ravel_pytree(tree)
     f = lambda x, args: jnp.dot(args, x)
     y0 = ω(y).call(jnp.zeros_like).ω
@@ -532,7 +608,7 @@ def _midpoint_f_linear(tree: PyTree[Array], args: Any):
     return unflatten(out)
 
 
-def _midpoint_k_linear(tree: PyTree[Array], args: Any):
+def _midpoint_k_linear(tree: PyTree[Array], args: PyTree):
     (y, unflatten) = jfu.ravel_pytree(tree)
     f = lambda x, args: jnp.dot(args, x)
     y0 = ω(y).call(jnp.zeros_like).ω
@@ -545,7 +621,7 @@ def _midpoint_k_linear(tree: PyTree[Array], args: Any):
     return unflatten(out)
 
 
-def _midpoint_y_nonlinear(y: PyTree[Array], args: Any):
+def _midpoint_y_nonlinear(y: PyTree[Array], args: PyTree):
     size = _getsize(y)
     assert size == 3
     const1, const2, const3 = args
@@ -555,7 +631,7 @@ def _midpoint_y_nonlinear(y: PyTree[Array], args: Any):
     return _midpoint_y_general(f, y0, dt, y, args)
 
 
-def _midpoint_f_nonlinear(y: PyTree[Array], args: Any):
+def _midpoint_f_nonlinear(y: PyTree[Array], args: PyTree):
     size = _getsize(y)
     assert size == 3
     const1, const2, const3 = args
@@ -565,7 +641,7 @@ def _midpoint_f_nonlinear(y: PyTree[Array], args: Any):
     return _midpoint_f_general(f, y0, dt, y, args)
 
 
-def _midpoint_k_nonlinear(y: PyTree[Array], args: Any):
+def _midpoint_k_nonlinear(y: PyTree[Array], args: PyTree):
     size = _getsize(y)
     assert size == 3
     const1, const2, const3 = args
@@ -575,7 +651,7 @@ def _midpoint_k_nonlinear(y: PyTree[Array], args: Any):
     return _midpoint_k_general(f, y0, dt, y, args)
 
 
-def trivial(y: Array, args: Any):
+def trivial(y: Array, args: PyTree):
     return y - 1
 
 

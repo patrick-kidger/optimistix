@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Tuple
+from typing import Any
 from typing_extensions import TypeAlias
 
 import equinox as eqx
@@ -31,7 +31,7 @@ _OptState: TypeAlias = tuple[Int[Array, ""], Any]
 
 class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
     optax_cls: _OptaxClass
-    args: Tuple[Any, ...]
+    args: tuple[Any, ...]
     kwargs: dict[str, Any]
     max_steps: int
 
@@ -45,7 +45,7 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
@@ -61,7 +61,7 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _OptState,
         tags: frozenset[object],
@@ -86,7 +86,7 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
-        args: Any,
+        args: PyTree,
         options: dict[str, Any],
         state: _OptState,
         tags: frozenset[object],
