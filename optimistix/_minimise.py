@@ -16,14 +16,13 @@ from typing import Any, Optional
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Aux, Fn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
-from ._misc import NoneAux
+from ._misc import inexact_asarray, NoneAux
 from ._solution import Solution
 
 
@@ -36,8 +35,8 @@ def _minimum(minimum, _, inputs):
     del inputs
 
     def min_no_aux(x):
-        out, _ = minimise_fn(x, args)
-        return out
+        f_val, _ = minimise_fn(x, args)
+        return f_val
 
     return jax.grad(min_no_aux)(minimum)
 
@@ -56,7 +55,7 @@ def minimise(
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
 ) -> Solution:
-    y0 = jtu.tree_map(jnp.asarray, y0)
+    y0 = jtu.tree_map(inexact_asarray, y0)
 
     if not has_aux:
         fn = NoneAux(fn)

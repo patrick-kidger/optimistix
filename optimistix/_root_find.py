@@ -32,8 +32,8 @@ class AbstractRootFinder(AbstractIterativeSolver[SolverState, Y, Out, Aux]):
 def _root(root, _, inputs):
     root_fn, args, *_ = inputs
     del inputs
-    out, _ = root_fn(root, args)
-    return out
+    f_val, _ = root_fn(root, args)
+    return f_val
 
 
 @eqx.filter_jit

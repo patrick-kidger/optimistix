@@ -75,9 +75,8 @@ class _BFGSState(eqx.Module):
     f_val: PyTree[Array]
     f_prev: PyTree[Array]
     next_init: Array
-    aux: Any
-    zero_inner_product: Bool[Array, ""]
     size: Scalar
+    aux: Any
     step: Scalar
 
 
@@ -106,39 +105,51 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
     ) -> _BFGSState:
         f0 = tree_full(f_struct, jnp.inf)
         aux = tree_zeros(aux_struct)
-        # This size is for passing to Jacobian later. It's easier to store the
-        # scalar than recompute it repeatedly.
+        diff = tree_full(y, jnp.inf)
+        # This size is not used here, but is used in the call to`jacobian` later to
+        # determine if we should use forward or backwards autodiff. It is easier
+        # to store the scalar now than recompute it repeatedly.
         size = jtu.tree_reduce(lambda a, b: a + b, jtu.tree_map(lambda c: c.size, y))
         # Dummy vector and operator for first pass. Note that having `jnp.ones_like`
         # is preferable to `jnp.zeros_like` as the latter can lead to linear solves
         # of the form `0 x = 0` which can return `nan` values.
         vector = jtu.tree_map(jnp.ones_like, y)
-        # `_std_basis` creates an identity operator which we can update with BFGS
+        # `_std_basis` creates an identity operator which we can update with the BFGS
         # update/Woodbury identity
         operator = lx.PyTreeLinearOperator(
             _std_basis(vector), output_structure=jax.eval_shape(lambda: vector)
         )
         if self.use_inverse:
             descent_state = self.descent.init_state(
-                fn, y, vector, None, operator, args, options
+                fn,
+                y,
+                vector,
+                operator=None,
+                operator_inv=operator,
+                args=args,
+                options=options,
             )
         else:
             descent_state = self.descent.init_state(
-                fn, y, vector, operator, None, args, options
+                fn,
+                y,
+                vector,
+                operator=operator,
+                operator_inv=None,
+                args=args,
+                options=options,
             )
-
         return _BFGSState(
             descent_state=descent_state,
             vector=vector,
             operator=operator,
-            diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf, dtype=x.dtype), y),
+            diff=diff,
             result=RESULTS.successful,
             f_val=f0,
             f_prev=f0,
-            next_init=jnp.array(1.0),
-            aux=aux,
-            zero_inner_product=jnp.array(False),
+            next_init=jnp.array(0.0),
             size=size,
+            aux=aux,
             step=jnp.array(0),
         )
 
@@ -158,11 +169,11 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
             options=options,
         )
         problem_1d = OneDimensionalFunction(fn, descent, y)
-        # For step 0 we are just getting the vector
-        # and don't care about the line search. So we want to pass `compute_f0 = True`
-        # on the first step where we actually care. We pass `f0=jnp.inf` the first two
-        # steps because we don't have an accurate value of `f0` until we have the
-        # correct `vector`/`operator`.
+        # For step 0 we are just getting the vector and don't care about the line
+        # search. So we want to pass `compute_f0 = True` on the first step where
+        # we actually care.
+        # We pass `f0=jnp.inf` the first two steps because we don't have an accurate
+        # value of `f0` until we have the correct `vector`/`operator`.
         line_search_options = {
             "f0": jnp.where(state.step > 1, state.f_val, jnp.inf),
             "compute_f0": (state.step == 1),
@@ -176,15 +187,9 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
             args=args,
             options={},
         )
-        # Note that `options` at the solver level is passed to line_search init!
-        # we anticipate a user may want to pass `options['init_line_search']` from
-        # outside the solver.
-        # Note: this `<=1` is atypical, but since we are passing `vector = 0`
-        # on the first iteration, there is a chance that the line search inits to
-        # 0 and we get stuck there.
         init = jnp.where(
             state.step <= 1,
-            self.line_search.first_init(state.vector, state.operator, options),
+            self.line_search.first_init(state.vector, state.operator, {}),
             state.next_init,
         )
         line_sol = minimise(
@@ -197,10 +202,9 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
             max_steps=100,
             throw=False,
         )
-        # `new_aux` and `f_val` are the output of of at `f` at step the
+        # `new_aux` and `f_val` are the output of `f` at the
         # end of the line search. ie. they are not `f(y)`, but rather
-        # `f(y_new)` where `y_new` is `y` in the next call of `step`. In
-        # other words, we use FSAL.
+        # `f(y_new)` where `y_new` is `y` in the next call of `step`.
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
         new_y = tree_where(state.step > 0, (ω(y) + ω(diff)).ω, y)
         fn_grad = jacobian(fn, in_size=state.size, out_size=1, has_aux=True)
@@ -209,12 +213,10 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
         inner = tree_inner_prod(grad_diff, diff)
         inner_nonzero = inner > jnp.finfo(inner.dtype).eps
         safe_inner = jnp.where(inner_nonzero, inner, jnp.array(1.0))
-        raise_divergence = jnp.invert(inner_nonzero)
 
-        def nonzero_inner(diff):
+        def bfgs_update(diff):
             if self.use_inverse:
-                # some complicated looking stuff, but it's just the application of
-                # Woodbury identity to rank-1 update of approximate Hessian.
+                # Use Woodbury identity for rank-1 update of approximate Hessian.
                 operator_ip = tree_inner_prod(grad_diff, state.operator.mv(grad_diff))
                 diff_outer = _outer(diff, diff)
                 term1 = tree_where(
@@ -240,18 +242,19 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
                 term2 = (hess_outer**ω / operator_ip).ω
             return term1, term2
 
-        def zero_inner(diff):
+        def no_update(diff):
             _outer(diff, diff)
             term1 = term2 = tree_zeros_like(_outer(diff, diff))
             return term1, term2
 
-        # This serves two purposes!
+        # This serves two purposes:
         # 1. In the init we set vector to a dummy value to save on a compilation of
         # `fn`. Because of this, we need to compute the actual `vector` before
         # taking any iterates, so we make no update to the BFGS matrix.
-        # 2. If the `grad_diff.T @ diff = 0` just set `term1 = term2 = 0` as all
+        # 2. If the `grad_diff.T @ diff = 0` just set `term1 = term2 = 0`. This inner
+        # product is zero when the gradient is, so we should have converged.
         term1, term2 = lax.cond(
-            inner_nonzero & (state.step > 0), nonzero_inner, zero_inner, diff
+            inner_nonzero & (state.step > 0), bfgs_update, no_update, diff
         )
         new_hess = lx.PyTreeLinearOperator(
             (state.operator.pytree**ω + term1**ω - term2**ω).ω,
@@ -259,11 +262,21 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
         )
         if self.use_inverse:
             descent_state = self.descent.update_state(
-                state.descent_state, diff, new_grad, None, new_hess, options
+                state.descent_state,
+                diff,
+                new_grad,
+                operator=None,
+                operator_inv=new_hess,
+                options=options,
             )
         else:
             descent_state = self.descent.update_state(
-                state.descent_state, diff, new_grad, new_hess, None, options
+                state.descent_state,
+                diff,
+                new_grad,
+                operator=new_hess,
+                operator_inv=None,
+                options=options,
             )
         result = RESULTS.where(
             (line_sol.result == RESULTS.max_steps_reached),
@@ -279,9 +292,8 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
             f_val=f_val,
             f_prev=state.f_val,
             next_init=next_init,
-            aux=new_aux,
-            zero_inner_product=raise_divergence,
             size=state.size,
+            aux=new_aux,
             step=state.step + 1,
         )
 

@@ -35,6 +35,11 @@ from ._minimise import (
     AbstractMinimiser as AbstractMinimiser,
     minimise as minimise,
 )
+from ._misc import (
+    max_norm as max_norm,
+    rms_norm as rms_norm,
+    two_norm as two_norm,
+)
 from ._root_find import (
     AbstractRootFinder as AbstractRootFinder,
     root_find as root_find,

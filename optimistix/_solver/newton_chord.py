@@ -120,7 +120,6 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState, Y, Out, Aux]):
             )
         diff = sol.value
         new_y = (y**ω - diff**ω).ω
-        # This clip is very important for LM, as it keeps `lambda` > 0.
         if self.lower is not None:
             new_y = jnp.clip(new_y, a_min=self.lower)
         if self.upper is not None:

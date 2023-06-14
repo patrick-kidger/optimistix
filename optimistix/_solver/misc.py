@@ -28,9 +28,9 @@ def compute_hess_grad(fn: Fn[Y, Out, Aux], y: PyTree[Array], args: PyTree):
     in_size = jtu.tree_reduce(lambda a, b: a + b, jtu.tree_map(lambda c: c.size, y))
     jac = jacobian(fn, in_size, out_size=1, has_aux=True)
     grad, aux = jac(y, args)
-    hessian, _ = jax.jacfwd(jac, has_aux=True)(y, args)
+    hessian_mat, _ = jax.jacfwd(jac, has_aux=True)(y, args)
     hessian = lx.PyTreeLinearOperator(
-        hessian,
+        hessian_mat,
         output_structure=jax.eval_shape(lambda: grad),
     )
     return grad, hessian, aux
@@ -55,8 +55,8 @@ def quadratic_predicted_reduction(
     # where `g` is the gradient, `B` the Quasi-Newton approximation to the
     # Hessian, and `p` the descent direction (diff).
     #
-    # in the Gauss-Newton setting we compute
-    # ```0.5 * [(Jp + r)^T (Jp + r) - r^T r]```
+    # In the Gauss-Newton setting we compute
+    # `0.5 * [(Jp + r)^T (Jp + r) - r^T r]`
     # which is equivalent when `B = J^T J` and `g = J^T r`.
     if descent_state.operator is None:
         raise ValueError(

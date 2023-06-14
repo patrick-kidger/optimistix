@@ -17,7 +17,6 @@ from typing import Any, Callable, cast, Optional
 import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
@@ -26,10 +25,6 @@ from .._custom_types import Aux, Fn, Out, Y
 from .._line_search import AbstractDescent
 from .._misc import sum_squares, tree_inner_prod, tree_where
 from .._solution import RESULTS
-
-
-def _sum_leaves(tree: PyTree[Array]):
-    return jtu.tree_reduce(lambda x, y: x + y, tree)
 
 
 def _gradient_step(
@@ -82,14 +77,14 @@ def dai_yuan(
     return jnp.where(pred, numerator / safe_denom, jnp.inf)
 
 
-class NonlinearCGState(eqx.Module):
+class _NonlinearCGState(eqx.Module):
     vector: PyTree[Array]
     vector_prev: PyTree[Array]
     diff_prev: PyTree[Array]
     step: PyTree[Array]
 
 
-class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
+class NonlinearCGDescent(AbstractDescent[_NonlinearCGState]):
     method: Callable
 
     def init_state(
@@ -102,18 +97,18 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         args: PyTree,
         options: dict[str, Any],
     ):
-        return NonlinearCGState(vector, vector, vector, jnp.array(0))
+        return _NonlinearCGState(vector, vector, vector, jnp.array(0))
 
     def update_state(
         self,
-        descent_state: NonlinearCGState,
+        descent_state: _NonlinearCGState,
         diff_prev: PyTree[Array],
         vector: PyTree[Array],
         operator: Optional[lx.AbstractLinearOperator],
         operator_inv: Optional[lx.AbstractLinearOperator],
         options: dict[str, Any],
     ):
-        # Not sure of a better way to compute this at the moment
+        # Not sure of a better method than just recomputing this at the moment
         beta = lax.cond(
             descent_state.step >= 1,
             self.method,
@@ -123,14 +118,14 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
             descent_state.diff_prev,
         )
         diff_prev = (-ω(descent_state.vector) + beta * ω(descent_state.diff_prev)).ω
-        return NonlinearCGState(
+        return _NonlinearCGState(
             vector, descent_state.vector, diff_prev, descent_state.step + 1
         )
 
     def __call__(
         self,
         delta: Scalar,
-        descent_state: NonlinearCGState,
+        descent_state: _NonlinearCGState,
         args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
@@ -146,19 +141,18 @@ class NonlinearCGDescent(AbstractDescent[NonlinearCGState]):
         nonlinear_cg_direction = (
             negative_gradient**ω + beta * descent_state.diff_prev**ω
         ).ω
-        is_descent_direction = (
-            tree_inner_prod(descent_state.vector, nonlinear_cg_direction) < 0
-        )
         diff = tree_where(
-            is_descent_direction, nonlinear_cg_direction, negative_gradient
+            tree_inner_prod(descent_state.vector, nonlinear_cg_direction) < 0,
+            nonlinear_cg_direction,
+            negative_gradient,
         )
         return (delta * diff**ω).ω, RESULTS.successful
 
     def predicted_reduction(
         self,
         diff: PyTree[Array],
-        descent_state: NonlinearCGState,
+        descent_state: _NonlinearCGState,
         args: PyTree,
         options: dict[str, Any],
     ):
-        assert False
+        raise ValueError("NonlinearCGDescent has no `predicted_reduction` method.")

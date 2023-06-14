@@ -31,18 +31,18 @@ class AbstractFixedPointSolver(AbstractIterativeSolver[SolverState, Y, Y, Aux]):
     pass
 
 
-def _fixed_point(fp, _, inputs):
+def _fixed_point(fixed_point, _, inputs):
     fixed_point_fn, args, *_ = inputs
     del inputs
-    f_val, _ = fixed_point_fn(fp, args)
-    return (f_val**ω - fp**ω).ω
+    f_val, _ = fixed_point_fn(fixed_point, args)
+    return (f_val**ω - fixed_point**ω).ω
 
 
 def _root(root, _, inputs):
     root_fn, args, *_ = inputs
     del inputs
-    out, _ = root_fn(root, args)
-    return out
+    f_val, _ = root_fn(root, args)
+    return f_val
 
 
 class _ToRootFn(eqx.Module):

@@ -70,12 +70,10 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
 
         @eqx.filter_grad
         def compute_grads(_y):
-            value = fn(_y, args)
-            value, aux = value
-            return value, aux
+            return fn(_y, args)
 
         grads, aux = compute_grads(y)
-        step_index, opt_state = state  # pyright: ignore
+        step_index, opt_state = state
         optim = self.optax_cls(*self.args, **self.kwargs)
         updates, new_opt_state = optim.update(grads, opt_state)
         new_y = eqx.apply_updates(y, updates)

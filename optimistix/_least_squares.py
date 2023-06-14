@@ -46,8 +46,8 @@ class _ToMinimiseFn(eqx.Module):
     residual_fn: Callable
 
     def __call__(self, y, args):
-        out, aux = self.residual_fn(y, args)
-        return sum_squares(out), aux
+        residual, aux = self.residual_fn(y, args)
+        return sum_squares(residual), aux
 
 
 @eqx.filter_jit
@@ -70,6 +70,7 @@ def least_squares(
         fn = NoneAux(fn)
 
     f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
+
     if isinstance(solver, AbstractMinimiser):
         return minimise(
             fn=_ToMinimiseFn(fn),

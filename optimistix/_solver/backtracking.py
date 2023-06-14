@@ -39,16 +39,28 @@ class _BacktrackingState(eqx.Module):
     step: Int[Array, ""]
 
 
+#
+# Note that in `options` we anticipate that `f0`, `compute_f0`,
+# 'vector', 'operator', and 'diff' are passed. `compute_f0` indicates that
+# this is the very first time that the line search has been called, and the search
+# must compute `f(y)` before continuing the search. Note that `aux` and
+# `f_val` are the output of `f` at the END of the line search.
+# ie. we don't return `f(y)`, but rather `f(y_new)` where `y_new` is the value
+# returned by the line search.
+# This is to exploit FSAL in our solvers, where the `f(y_new)` value is then
+# passed as `f0` in the next line search.
+#
 class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
     gauss_newton: bool
     backtrack_slope: float
     decrease_factor: float
+    backtracking_start_length: float = 1.0
 
     def __post_init__(self):
         eps = jnp.finfo(jnp.float64).eps
         if self.decrease_factor < eps:
             raise ValueError(
-                "The decrease factor of linesearch must be greater than 0!"
+                "`decrease_factor` of backtracking line search must be greater than 0."
             )
 
     def first_init(
@@ -57,11 +69,7 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
         operator: lx.AbstractLinearOperator,
         options: dict[str, Any],
     ) -> Scalar:
-        try:
-            init_size = options["init_line_search"]
-        except KeyError:
-            init_size = jnp.array(1 / self.decrease_factor)
-        return init_size
+        return jnp.array(self.backtracking_start_length)
 
     def init(
         self,
@@ -76,17 +84,21 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
         try:
             vector = options["vector"]
         except KeyError:
-            raise ValueError("vector must be passed vector " "via `options['vector']`")
+            raise ValueError(
+                "`vector` must be passed vector " "via `options['vector']`"
+            )
         try:
             operator = options["operator"]
         except KeyError:
             raise ValueError(
-                "operator must be passed operator " "via `options['operator']`"
+                "`operator` must be passed operator " "via `options['operator']`"
             )
         try:
             diff0 = tree_zeros_like(options["diff"])
         except KeyError:
-            assert False
+            raise ValueError(
+                "`diff` must be passed operator " "via `options['operator']`"
+            )
         try:
             f0 = options["f0"]
             compute_f0 = options["compute_f0"]
@@ -123,8 +135,8 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
         running_min_diff = tree_where(
             f_val < state.running_min, diff, state.running_min_diff
         )
-
-        new_y = self.decrease_factor * y
+        # When `state.compute_f0` is `True`, we pause the backtracking for that step.
+        new_y = jnp.where(state.compute_f0, y, self.decrease_factor * y)
         new_state = _BacktrackingState(
             f_val,
             f0,
@@ -145,7 +157,7 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
                 running_min_diff,
                 aux,
                 result,
-                jnp.array(1 / self.decrease_factor),
+                jnp.array(self.backtracking_start_length),  # `next_init`
             ),
         )
 
@@ -163,13 +175,14 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
             state.result,
             RESULTS.nonlinear_divergence,
         )
-        # `J^T r` is the grad in a Gauss-Newton problem, where J is the Jacobian
-        # and r the residual
+        # `J^T r` is the grad in a Gauss-Newton problem, where `J` is the Jacobian
+        # and `r` the residual. `state.vector` is `r` when `gauss_newton=True` and
+        # it is the gradient when `gauss_newton=False`.
         if self.gauss_newton:
             grad = state.operator.transpose().mv(state.vector)
         else:
             grad = state.vector
-        # Reduction should be at least linear, this is the Armijo condition
+        # Reduction should be at least linear, this is the Armijo condition.
         predicted_reduction = tree_inner_prod(grad, state.diff)
         predicted_reduction_is_neg = predicted_reduction < 0
         finished = state.f_val < state.f0 + self.backtrack_slope * predicted_reduction

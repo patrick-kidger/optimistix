@@ -25,7 +25,7 @@ from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
-from .._misc import max_norm, tree_zeros
+from .._misc import max_norm, tree_where, tree_zeros
 from .._solution import RESULTS
 
 
@@ -87,18 +87,13 @@ class _NelderMeadState(eqx.Module):
     step: Scalar
 
 
-def _tree_where(pred, struct, true, false):
-    keep = lambda a, b: jnp.where(pred, a, b)
-    return jtu.tree_map(lambda x, y, z: keep(y[...], z[...]), struct, true, false)
-
-
 def _update_stats(
     stats,
-    reflect=False,
-    inner_contract=False,
-    outer_contract=False,
-    expand=False,
-    shrink=False,
+    reflect: Bool[Array, ""],
+    inner_contract: Bool[Array, ""],
+    outer_contract: Bool[Array, ""],
+    expand: Bool[Array, ""],
+    shrink: Bool[Array, ""],
 ) -> _NMStats:
     return _NMStats(
         stats.n_reflect + jnp.where(reflect, 1, 0),
@@ -110,7 +105,6 @@ def _update_stats(
 
 
 class NelderMead(AbstractMinimiser):
-
     rtol: float
     atol: float
     norm: Callable = max_norm
@@ -155,7 +149,7 @@ class NelderMead(AbstractMinimiser):
                 )
         else:
             #
-            # The standard approach to creating the init simplex from a single vector
+            # The standard approach to creating the initial simplex from a single vector
             # is to add a small constant times each unit vector to the initial vector.
             # The constant is different if the unit vector is 0 in the direction of the
             # unit vector. Just because this is standard, does not mean it's well
@@ -231,7 +225,7 @@ class NelderMead(AbstractMinimiser):
         state: _NelderMeadState,
         tags: frozenset[object],
     ) -> tuple[Y, _NelderMeadState, Aux]:
-        # This will later be replaced with the more general line search api.
+        # TODO(raderj): update to line search api.
         reflect_const = 2
         expand_const = 3
         out_const = 1.5
@@ -242,14 +236,13 @@ class NelderMead(AbstractMinimiser):
         f_worst, worst, worst_index = state.worst
         f_second_worst = state.second_worst
         stats = state.stats
-
         (n_vertices,) = state.f_simplex.shape
 
         def init_step(state):
             simplex = state.simplex
             f_new_vertex = jnp.array(1.0, dtype=state.f_simplex.dtype)
-            # f_worst is 0., set this so that
-            # shrink = f_new_simplex > f_worst is True
+            # `f_worst` is 0., set this so that
+            # `shrink = f_new_simplex > f_worst is True`
             return (
                 state,
                 simplex,
@@ -262,8 +255,6 @@ class NelderMead(AbstractMinimiser):
         def main_step(state):
             # TODO(raderj): Calculate the centroid and search dir based upon
             # the prior one.
-
-            # tree map to handle buffers
             search_direction = jtu.tree_map(
                 lambda _, x, y: x[...] - y, y, state.simplex, worst
             )
@@ -272,12 +263,7 @@ class NelderMead(AbstractMinimiser):
                 .call(ft.partial(jnp.sum, axis=0))
                 .ω
             )
-
-            _tree_prod = lambda const, tree: jtu.tree_map(lambda z: const * z, tree)
-
-            reflection = jtu.tree_map(
-                lambda x, y: x + y, worst, _tree_prod(reflect_const, search_direction)
-            )
+            reflection = (worst**ω + reflect_const * search_direction**ω).ω
 
             def eval_new_vertices(vertex_carry, i):
                 vertex, (f_vertex, _), stats = vertex_carry
@@ -289,7 +275,6 @@ class NelderMead(AbstractMinimiser):
                     outer_contract = jnp.invert(expand | contract)
                     reflect = (f_vertex > f_best) & (f_vertex < f_second_worst)
                     contract_const = jnp.where(inner_contract, in_const, out_const)
-
                     #
                     # NOTE: Throughout, we use worst + const * search_direction, not
                     # centroid + const * search direction! The latter
@@ -304,25 +289,15 @@ class NelderMead(AbstractMinimiser):
                     # multiplication by a negative constant). However, if we start
                     # the search at worst both these issues are avoided.
                     #
-                    expanded = jtu.tree_map(
-                        lambda x, y: x + y,
-                        worst,
-                        _tree_prod(expand_const, search_direction),
-                    )
-                    contracted = jtu.tree_map(
-                        lambda x, y: x + y,
-                        worst,
-                        _tree_prod(contract_const, search_direction),
-                    )
-                    new_vertex = _tree_where(
+                    expanded = (worst**ω + expand_const * search_direction**ω).ω
+                    contracted = (worst**ω + contract_const * search_direction**ω).ω
+                    new_vertex = tree_where(
                         expand,
-                        expanded,
                         expanded,
                         vertex,
                     )
-                    new_vertex = _tree_where(
+                    new_vertex = tree_where(
                         contract,
-                        contracted,
                         contracted,
                         new_vertex,
                     )
@@ -330,8 +305,9 @@ class NelderMead(AbstractMinimiser):
                         stats,
                         reflect,
                         inner_contract,
-                        outer_contract,  # pyright: ignore
+                        outer_contract,
                         expand,
+                        shrink=jnp.array(False),
                     )
                     return new_vertex, stats
 
@@ -341,7 +317,6 @@ class NelderMead(AbstractMinimiser):
                     lambda x, y: (vertex, stats),
                     *(f_vertex, stats),
                 )
-
                 return (out, fn(out, args), stats), None
 
             #
@@ -362,14 +337,13 @@ class NelderMead(AbstractMinimiser):
                 (reflection, (jnp.array(0.0), state.aux), state.stats),
                 jnp.arange(2),
             )
-
             return (state, state.simplex, new_vertex, f_new_vertex, stats, aux)
 
         state, simplex, new_vertex, f_new_vertex, stats, aux = lax.cond(
             state.first_pass, init_step, main_step, state
         )
         new_best = f_new_vertex < f_best
-        best = _tree_where(new_best, new_vertex, new_vertex, best)
+        best = tree_where(new_best, new_vertex, best)
         f_best = jnp.where(new_best, f_new_vertex, f_best)
         #
         # On the initial call, f_worst is initialized to 0. and f_new_vertex
@@ -378,38 +352,35 @@ class NelderMead(AbstractMinimiser):
         # shrink simplex, which reduces compile time
         #
         shrink = f_new_vertex > f_worst
-        stats = _update_stats(stats, shrink=shrink)
+        stats = _update_stats(
+            stats,
+            reflect=jnp.array(False),
+            inner_contract=jnp.array(False),
+            outer_contract=jnp.array(False),
+            expand=jnp.array(False),
+            shrink=shrink,
+        )
 
         def shrink_simplex(best, new_vertex, simplex, first_pass):
-            _tree_prod = lambda const, tree: jtu.tree_map(lambda z: const * z, tree)
-            _set_add = lambda tree_1, tree_2, index: jtu.tree_map(
-                lambda _, a, b: a.at[index].set(a[index] + b), best, tree_1, tree_2
+            # This is just `best + shrink_const * (simplex - best)` but returns
+            # a buffer. `best` is passed t
+            shrink_simplex = jtu.tree_map(
+                lambda b, a: a.at[...].set(b + shrink_const * (a[...] - b)),
+                best,
+                simplex,
             )
-            _set_sub = lambda x, y, z: _set_add(x, _tree_prod(-1, y), z)
-            _set_prod = lambda tree, const, index: jtu.tree_map(
-                lambda _, a: a.at[index].set(a[index] * const), best, tree
-            )
-
-            # computes best + shrink_const * (simplex - best) in place with buffers
-            shrink_simplex = _set_sub(simplex, best, ...)
-            shrink_simplex = _set_prod(shrink_simplex, shrink_const, ...)
-            shrink_simplex = _set_add(shrink_simplex, best, ...)
-
             # if it is the first pass and we just wanted to use shrink_simplex to
             # compute f_simplex, return simplex
-            simplex = _tree_where(first_pass, simplex, simplex, shrink_simplex)
+            simplex = tree_where(first_pass, simplex, shrink_simplex)
             unwrapped_simplex = jtu.tree_map(lambda _, x: x[...], y, simplex)
             f_simplex, _ = jax.vmap(lambda x: fn(x, args))(unwrapped_simplex)
             return f_simplex, simplex
 
         def update_simplex(best, new_vertex, simplex, first_pass):
-            _set = lambda tree_1, tree_2, y: jtu.tree_map(
-                lambda _, a, b: a.at[y].set(b), best, tree_1, tree_2
+            simplex = jtu.tree_map(
+                lambda _, a, b: a.at[worst_index].set(b), best, simplex, new_vertex
             )
-            # simplex.at[worst_index].set(new_vertex) but handling buffers
-            simplex = _set(simplex, new_vertex, worst_index)
             f_simplex = state.f_simplex.at[worst_index].set(f_new_vertex)
-
             return f_simplex, simplex
 
         f_new_simplex, new_simplex = lax.cond(
@@ -426,16 +397,12 @@ class NelderMead(AbstractMinimiser):
         # worst and second worst, with recomputation occuring only when f_new < f_worst
         # but f_new > f_second_worst (otherwise, there will have been a shrink).
         #
-        (f_best,), (best_index,) = lax.top_k(-f_new_simplex, 1)
-        f_best = -f_best
-
-        f_vals, (worst_index, _) = lax.top_k(f_new_simplex, 2)
-        (f_worst, f_second_worst) = f_vals
-
-        _index = lambda a, b: jtu.tree_map(lambda _, x: x[b], y, a)
-        best = _index(simplex, best_index)
-        worst = _index(simplex, worst_index)
-
+        (f_best_neg,), (best_index,) = lax.top_k(-f_new_simplex, 1)
+        f_best = -f_best_neg
+        (f_worst, f_second_worst), (worst_index, _) = lax.top_k(f_new_simplex, 2)
+        _structured_index = lambda a, b: jtu.tree_map(lambda _, x: x[b], y, a)
+        best = _structured_index(simplex, best_index)
+        worst = _structured_index(simplex, worst_index)
         new_state = _NelderMeadState(
             simplex=new_simplex,
             f_simplex=f_new_simplex,
@@ -470,21 +437,15 @@ class NelderMead(AbstractMinimiser):
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         # TODO(raderj): only check terminate every k
-        (f_best,), (best_index,) = lax.top_k(-state.f_simplex, 1)
-        f_best = -f_best
-
-        _index = lambda a, b: jtu.tree_map(lambda _, x: x[b], y, a)
-        best = _index(state.simplex, best_index)
-
+        f_best, best, best_index = state.best
         x_scale = (self.atol + self.rtol * ω(best).call(jnp.abs)).ω
+        x_diff = jtu.tree_map(
+            lambda _, a, b: jnp.abs(a[...] - b), best, state.simplex, best
+        )
+        x_converged = self.norm((x_diff**ω / x_scale**ω).ω) < 1
         f_scale = (self.atol + self.rtol * ω(f_best).call(jnp.abs)).ω
-
-        unwrapped_simplex = jtu.tree_map(lambda _, x: x[...], y, state.simplex)
-        x_diff = ((ω(unwrapped_simplex) - ω(best)).call(jnp.abs) / ω(x_scale)).ω
-        x_conv = self.norm(x_diff) < 1
-
-        f_diff = ((ω(state.f_simplex) - ω(f_best)).call(jnp.abs) / f_scale).ω
-        f_conv = self.norm(f_diff) < 1
+        f_diff = (state.f_simplex**ω - f_best**ω).call(jnp.abs).ω
+        f_converged = self.norm((f_diff**ω / f_scale**ω).ω) < 1
         #
         # minpack does a further test here where it takes for each unit vector e_i a
         # perturbation "delta" and asserts that f(x + delta e_i) > f(x) and
@@ -492,7 +453,7 @@ class NelderMead(AbstractMinimiser):
         # minimum. If it fails the algo resets completely. thus process scales as
         # O(dim(y) * T(f)), where T(f) is the cost of evaluating f.
         #
-        converged = x_conv & f_conv
+        converged = x_converged & f_converged
         diverged = jnp.any(jnp.invert(jnp.isfinite(f_best)))
         terminate = converged | diverged
         result = RESULTS.where(

@@ -47,23 +47,22 @@ class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _BisectionState:
-        del f_struct, aux_struct
+        del aux_struct
         upper = options["upper"]
         lower = options["lower"]
         if jnp.shape(y) != () or jnp.shape(lower) != () or jnp.shape(upper) != ():
             raise ValueError(
                 "Bisection can only be used to find the roots of a function taking a "
-                "scalar input"
+                "scalar input."
             )
-        out_struct, _ = jax.eval_shape(fn, y, args)
-        if not isinstance(out_struct, jax.ShapeDtypeStruct) or out_struct.shape != ():
+        if not isinstance(f_struct, jax.ShapeDtypeStruct) or f_struct.shape != ():
             raise ValueError(
                 "Bisection can only be used to find the roots of a function producing "
-                "a scalar output"
+                "a scalar output."
             )
-        # This computes a range such that `f(0.5 * (a+b))` is
-        # the user-passed `lower` on the first step, and the user
-        # passed `upper` on the second step. This saves us from
+        # `extended_upper` and `extended_lower` form a range such that
+        # `f(0.5 * (a+b))` is the user-passed `lower` on the first step,
+        # and the user passed `upper` on the second step. This saves us from
         # compiling `fn` two extra times in the init.
         range = upper - lower
         extended_upper = upper + range
@@ -90,14 +89,19 @@ class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
         new_y = state.lower + 0.5 * (state.upper - state.lower)
         error, aux = fn(new_y, args)
         too_large = cast(Bool[Array, ""], state.flip ^ (error < 0))
+        # On step 0 and 1 we set `too_large` to update `state.lower` and `state.upper`
+        # to match the values set by the user instead of the extended range computed in
+        # the init.
         too_large = jnp.where(state.step == 0, True, too_large)
         too_large = jnp.where(state.step == 1, False, too_large)
         new_lower = jnp.where(too_large, new_y, state.lower)
         new_upper = jnp.where(too_large, state.upper, new_y)
         flip = jnp.where(state.step == 1, error < 0, state.flip)
-        message = "The root is not contained in [lower, upper]"
+        # `step` is passed through to make sure this error check does not get DCEd.
         step = eqxi.error_if(
-            state.step, (state.step == 1) & (state.error * error > 0), message
+            state.step,
+            (state.step == 1) & (state.error * error > 0),
+            msg="The root is not contained in [lower, upper]",
         )
         new_state = _BisectionState(
             lower=new_lower,

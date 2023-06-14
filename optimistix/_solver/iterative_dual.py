@@ -19,7 +19,6 @@ from typing import (
 )
 
 import equinox as eqx
-import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -44,19 +43,20 @@ from .newton_chord import Newton
 #
 # Iterative dual is a method of solving for the descent direction given a
 # trust region radius. It does this by solving the dual problem
-# `(B + λ I) p = r` for `p`, where `B` is the quasi-Newton matrix,
-# lambda is the dual parameter (the dual parameterisation of the
-# trust region radius), `I` is the identity, and `r` is the vector of residuals.
+# `(B + λ I) p = -g` for `p`, where `B` is the quasi-Newton matrix,
+# `λ` is a Lagrange multiplier (often called the "Levenberg-Marquardt parameter"),
+# `I` is the identity, and `g` is the gradient. In the Gauss-Newton setting,
+# `B = J^T J` and `g = J^T r` where `J` is the Jacobian and `r` the residual
+# vector.
 #
 # Iterative dual is approached in one of two ways:
-# 1. set the trust region radius and find the Levenberg-Marquadt parameter
-# `lambda` which will give approximately solve the trust region problem. ie.
-# solve the dual of the trust region problem.
+# 1. Set the trust region radius and find the Levenberg-Marquadt parameter
+# `λ` which will approximately solve the trust region problem.
 #
-# 2. set the Levenberg-Marquadt parameter `lambda` directly.
+# 2. Set the Levenberg-Marquadt parameter `λ` directly.
 #
 # Respectively, this is the indirect and direct approach to iterative dual.
-# The direct approach is common in practice, and is often interpreted as
+# The direct approach is common in practice, and can be interpreted as
 # interpolating between quasi-Newton and gradient based approaches.
 #
 
@@ -92,6 +92,7 @@ class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
         args: PyTree,
         options: dict[str, Any],
     ) -> _IterativeDualState:
+        # TODO(raderj): support operator_inv.
         if operator is None:
             assert False
         return _IterativeDualState(y, fn, vector, operator)
@@ -105,6 +106,8 @@ class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
         operator_inv: Optional[lx.AbstractLinearOperator],
         options: dict[str, Any],
     ) -> _IterativeDualState:
+        if operator is None:
+            assert False
         return _IterativeDualState(descent_state.y, descent_state.fn, vector, operator)
 
     def __call__(
@@ -115,6 +118,10 @@ class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
         if self.gauss_newton:
+            # In the Gauss-Newton case, rather than solve `(J^T J + λ I) p = -J^T r`
+            # by computing`J^T J` and squaring the condition number of `J`, we can
+            # compute `[J, jnp.sqrt(λ) I]^T p = [-r, 0]^T`.
+            # This is a common numerical approach.
             vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
             operator = lx.JacobianLinearOperator(
                 _Damped(descent_state.fn, delta),
@@ -145,11 +152,11 @@ class _DirectIterativeDual(AbstractDescent[_IterativeDualState]):
 
 
 #
-# Note that the damping (aka Levenberg-Marquard parameter) of `_DirectIterativeDual` is
-# `delta`, but in `DirectIterativeDual` it is `1/delta`. It is easier to find the
-# correct damping using a Newton solve with the former, but for line searches we
-# usually assume that the smaller the value of `delta` the smaller the step that we
-# take.
+# Note that the Levenberg-Marquard parameter of `_DirectIterativeDual` is
+# parameterised by `delta`, but in `DirectIterativeDual` it is `1/delta`.
+# It is easier to find the correct damping using a Newton solve with the former,
+# but for line searches we usually assume that the smaller the value of `delta` the
+# smaller the step that we take.
 #
 # In particular, if we do the eigendecomposition
 # `p = -(B + λ I)^(-1) g = -U (Λ + λ I) U^T g`
@@ -170,14 +177,6 @@ class DirectIterativeDual(_DirectIterativeDual):
         args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
-        if descent_state.operator is None:
-            # TODO(raderj): support passing operator_inv. Should be easy with
-            # Woodbury identity.
-            raise ValueError(
-                "`operator` must be passed to `DirectIterativeDual`. "
-                "Note that `operator_inv` is not currently supported for this descent."
-            )
-
         delta_nonzero = delta > jnp.finfo(delta.dtype).eps
         if self.gauss_newton:
             vector = (descent_state.vector, ω(descent_state.y).call(jnp.zeros_like).ω)
@@ -210,8 +209,9 @@ class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
     lambda_0: Float[Array, ""]
     root_finder: AbstractRootFinder = Newton(rtol=1e-2, atol=1e-2, lower=1e-5)
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
-    tr_reg: Optional[lx.PyTreeLinearOperator] = None
     norm: Callable = two_norm
+    # Default tol for `root_finder` only because a user would override this entirely
+    # with `FooRootFinder(rtol, atol, ...)` and the tol doesn't have to be very strict.
 
     def init_state(
         self,
@@ -223,6 +223,7 @@ class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
         args: PyTree,
         options: dict[str, Any],
     ) -> _IterativeDualState:
+        # TODO(raderj): support operator_inv.
         if operator is None:
             assert False
         return _IterativeDualState(y, fn, vector, operator)
@@ -236,6 +237,8 @@ class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
         operator_inv: Optional[lx.AbstractLinearOperator],
         options: dict[str, Any],
     ):
+        if operator is None:
+            assert False
         return _IterativeDualState(descent_state.y, descent_state.fn, vector, operator)
 
     def __call__(
@@ -245,13 +248,6 @@ class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
         args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
-        if descent_state.operator is None:
-            # TODO(raderj): support operator_inv.
-            raise ValueError(
-                "`operator` must be passed to "
-                " `IndirectDirectIterativeDual`. Note that `operator_inv` is "
-                "not currently supported for this descent."
-            )
         direct_dual = eqx.Partial(
             _DirectIterativeDual(self.gauss_newton),
             descent_state=descent_state,
@@ -266,10 +262,6 @@ class IndirectIterativeDual(AbstractDescent[_IterativeDualState]):
         )
         newton_step = (-ω(newton_soln.value)).ω
         newton_result = RESULTS.promote(newton_soln.result)
-        if self.tr_reg is None:
-            lx.IdentityLinearOperator(jax.eval_shape(lambda: newton_step))
-        else:
-            pass
 
         def comparison_fn(
             lambda_i: Scalar,

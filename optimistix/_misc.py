@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import functools as ft
 from typing import Callable, cast, Optional
 
 import equinox as eqx
@@ -84,6 +83,11 @@ def _rms_norm_jvp(x, tx):
     return out, t_out
 
 
+def max_norm(x: PyTree[Array]) -> Scalar:
+    leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)]
+    return jtu.tree_reduce(jnp.maximum, leaf_maxes)
+
+
 def tree_full(struct: Optional[PyTree[jax.ShapeDtypeStruct]], fill_value: ArrayLike):
     if struct is None:
         filled = None
@@ -120,11 +124,6 @@ def tree_where(
     return jtu.tree_map(keep, true, false)
 
 
-def max_norm(x: PyTree[Array]) -> Scalar:
-    leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)]
-    return jtu.tree_reduce(jnp.maximum, leaf_maxes)
-
-
 def resolve_rcond(rcond, n, m, dtype):
     if rcond is None:
         return jnp.finfo(dtype).eps * max(n, m)
@@ -146,26 +145,6 @@ def jacobian(fn, in_size, out_size, has_aux=False):
         return jax.jacfwd(fn, has_aux=has_aux)
     else:
         return jax.jacrev(fn, has_aux=has_aux)
-
-
-def _to_struct(x):
-    if eqx.is_array(x):
-        return jax.ShapeDtypeStruct(x.shape, x.dtype)
-    else:
-        return x
-
-
-@ft.lru_cache(maxsize=128)
-def _cached_eval_shape(leaves, treedef):
-    fn, args, kwargs = jtu.tree_unflatten(treedef, leaves)
-    return eqx.filter_eval_shape(fn, *args, **kwargs)
-
-
-def cached_eval_shape(fn, *args, **kwargs):
-    tree = jtu.tree_map(_to_struct, (fn, args, kwargs))
-    leaves, treedef = jtu.tree_flatten(tree)
-    leaves = tuple(leaves)
-    return _cached_eval_shape(leaves, treedef)
 
 
 def default_floating_dtype():

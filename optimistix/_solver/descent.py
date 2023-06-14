@@ -61,8 +61,7 @@ class UnnormalisedGradient(AbstractDescent[_GradientState]):
         args: PyTree,
         options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS]:
-        diff = (-delta * ω(descent_state.vector)).ω
-        return diff, RESULTS.successful
+        return (-delta * descent_state.vector**ω).ω, RESULTS.successful
 
     def predicted_reduction(
         self,
@@ -120,10 +119,10 @@ class NormalisedGradient(AbstractDescent[_GradientState]):
 
 #
 # NOTE: we handle both the Gauss-Newton and quasi-Newton case identically
-# in the `__call__` method. This is because the newton step is
+# in `__call__`. This is because the quasi-Newton step is
 # `-B^† g` where`B^†` is the Moore-Penrose pseudoinverse of the quasi-Newton
 # matrix `B` and `g` the gradient of the function to minimise.
-# In the Gauss-Newton setting the newton step is `-J^† r` where
+# In the Gauss-Newton setting the step is `-J^† r` where
 # `J^†` is the pseudoinverse of the Jacobian and `r` is the residual vector.
 # Throughout, we have abstracted `J` and `B` into `operator` and
 # `g` and `r` into `vector`, so the solves are identical.
@@ -191,8 +190,7 @@ class UnnormalisedNewton(AbstractDescent[_NewtonState]):
                 "At least one of `operator` or `operator_inv` must be "
                 "passed to the UnnormalisedNewton descent."
             )
-        diff = (-delta * newton**ω).ω
-        return diff, result
+        return (-delta * newton**ω).ω, result
 
     def predicted_reduction(
         self,
@@ -255,9 +253,7 @@ class NormalisedNewton(AbstractDescent[_NewtonState]):
                 "At least one of `operator` or `operator_inv` must be "
                 "passed to the UnnormalisedNewton descent."
             )
-
-        diff = ((-delta * newton**ω) / two_norm(newton)).ω
-        return diff, result
+        return ((-delta * newton**ω) / two_norm(newton)).ω, result
 
     def predicted_reduction(
         self,

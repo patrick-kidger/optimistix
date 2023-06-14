@@ -53,7 +53,7 @@ def _primal_fn(inputs):
 
 
 class ImplicitAdjoint(AbstractAdjoint):
-    linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
+    linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
     def apply(self, primal_fn, rewrite_fn, inputs, tags):
         _inputs = (primal_fn, inputs, ft.partial(eqxi.while_loop, kind="lax"))

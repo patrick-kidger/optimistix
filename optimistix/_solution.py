@@ -29,7 +29,7 @@ class RESULTS(lx.RESULTS):  # pyright: ignore
 
 
 class Solution(eqx.Module):
-    """The solution to a linear or nonlinear solve.
+    """The solution to a nonlinear solve.
 
     **Attributes:**
 
@@ -40,7 +40,7 @@ class Solution(eqx.Module):
     - `aux`: Any user-specified auxiliary data returned from the problem; defaults to
         `None` if there is no auxiliary data. Auxiliary outputs can be captured by
         setting a `has_aux=True` flag, e.g.
-        `optx.root_findRoot(fn, has_aux=True, ...)`.
+        `optx.root_find(fn, ..., has_aux=True)`.
     - `stats`: Statistics about the solver, e.g. the number of steps that were required.
     - `state`: The internal state of the solver. The meaning of this is specific to each
         solver.

@@ -47,7 +47,7 @@ def _is_struct(x):
     return eqx.is_array(x) or isinstance(x, jax.ShapeDtypeStruct)
 
 
-class _GNState(eqx.Module):
+class _GaussNewtonState(eqx.Module):
     descent_state: PyTree
     vector: PyTree[ArrayLike]
     operator: lx.AbstractLinearOperator
@@ -60,7 +60,7 @@ class _GNState(eqx.Module):
     step: Int[Array, ""]
 
 
-class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
+class AbstractGaussNewton(AbstractLeastSquaresSolver[_GaussNewtonState, Y, Out, Aux]):
     rtol: float
     atol: float
     line_search: AbstractLineSearch
@@ -76,7 +76,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _GNState:
+    ) -> _GaussNewtonState:
         del options
         f0 = jnp.array(jnp.inf)
         aux = tree_zeros(aux_struct)
@@ -94,8 +94,10 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
             lambda x: jnp.ones(x.shape, x.dtype), dynamic_operator_struct
         )
         operator = eqx.combine(dynamic_operator, static_operator)
-        descent_state = self.descent.init_state(fn, y, vector, operator, None, args, {})
-        return _GNState(
+        descent_state = self.descent.init_state(
+            fn, y, vector, operator, operator_inv=None, args=args, options={}
+        )
+        return _GaussNewtonState(
             descent_state=descent_state,
             vector=vector,
             operator=operator,
@@ -103,7 +105,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
             result=RESULTS.successful,
             f_val=f0,
             f_prev=f0,
-            next_init=jnp.array(1.0),
+            next_init=jnp.array(0.0),
             aux=aux,
             step=jnp.array(0),
         )
@@ -114,20 +116,19 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _GNState,
+        state: _GaussNewtonState,
         tags: frozenset[object],
-    ) -> tuple[Y, _GNState, Aux]:
+    ) -> tuple[Y, _GaussNewtonState, Aux]:
+        def line_search_fn(x, args):
+            residual, aux = fn(x, args)
+            return sum_squares(residual), aux
+
         descent = eqx.Partial(
             self.descent,
             descent_state=state.descent_state,
             args=args,
             options=options,
         )
-
-        def line_search_fn(x, args):
-            residual, aux = fn(x, args)
-            return sum_squares(residual), aux
-
         problem_1d = OneDimensionalFunction(line_search_fn, descent, y)
         line_search_options = {
             "f0": jnp.where(state.step > 1, state.f_val, jnp.inf),
@@ -144,7 +145,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
         )
         init = jnp.where(
             state.step <= 1,
-            self.line_search.first_init(state.vector, state.operator, options),
+            self.line_search.first_init(state.vector, state.operator, {}),
             state.next_init,
         )
         line_sol = minimise(
@@ -157,10 +158,9 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
             max_steps=100,
             throw=False,
         )
-        # `new_aux` and `f_val` are the output of of at `f` at step the
+        # `new_aux` and `f_val` are the output of `f` at the
         # end of the line search. ie. they are not `f(y)`, but rather
-        # `f(y_new)` where `y_new` is `y` in the next call of `step`. In
-        # other words, we use FSAL.
+        # `f(y_new)` where `y_new` is `y` in the next call of `step`.
         (f_val, diff, new_aux, _, next_init) = line_sol.aux
         new_y = tree_where(state.step > 0, (ω(y) + ω(diff)).ω, y)
         vector, operator, _ = compute_jac_residual(fn, new_y, args)
@@ -172,7 +172,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
             operator_inv=None,
             options=options,
         )
-        new_state = _GNState(
+        new_state = _GaussNewtonState(
             descent_state=descent_state,
             vector=vector,
             operator=operator,
@@ -197,7 +197,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _GNState,
+        state: _GaussNewtonState,
         tags: frozenset[object],
     ):
         at_least_two = state.step >= 2
@@ -211,7 +211,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GNState, Y, Out, Aux]):
         result = RESULTS.where(linsolve_fail, state.result, RESULTS.successful)
         return terminate, result
 
-    def buffers(self, state: _GNState) -> tuple[()]:
+    def buffers(self, state: _GaussNewtonState) -> tuple[()]:
         return ()
 
 
@@ -229,8 +229,6 @@ class LevenbergMarquardt(AbstractGaussNewton):
         rtol: float,
         atol: float,
         norm=max_norm,
-        backtrack_slope: float = 0.1,
-        decrease_factor: float = 0.5,
     ):
         self.rtol = rtol
         self.atol = atol
@@ -248,7 +246,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton):
         rtol: float,
         atol: float,
         norm=max_norm,
-        lambda_0: Float[ArrayLike, ""] = 1e-3,
+        lambda_0: Float[ArrayLike, ""] = 1.0,
     ):
         self.rtol = rtol
         self.atol = atol

@@ -18,7 +18,6 @@ from typing import Any, Callable
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
 from jax import lax
@@ -27,7 +26,7 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 from .._custom_types import Aux, Fn, Y
 from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFunction
 from .._minimise import AbstractMinimiser, minimise
-from .._misc import max_norm, tree_full, tree_zeros, tree_zeros_like
+from .._misc import max_norm, tree_full, tree_full_like, tree_zeros, tree_zeros_like
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .descent import UnnormalisedGradient
@@ -72,16 +71,17 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
     ) -> _GradOnlyState:
         f0 = tree_full(f_struct, jnp.inf)
         aux = tree_zeros(aux_struct)
-        y_zeros = tree_zeros_like(y)
+        vector = tree_zeros_like(y)
+        diff = tree_full_like(y, jnp.inf)
         operator = lx.IdentityLinearOperator(jax.eval_shape(lambda: y))
         descent_state = self.descent.init_state(
-            fn, y, y_zeros, operator, None, args, options
+            fn, y, vector, operator, operator_inv=None, args=args, options=options
         )
         return _GradOnlyState(
             descent_state=descent_state,
-            vector=y_zeros,
+            vector=vector,
             operator=operator,
-            diff=jtu.tree_map(lambda x: jnp.full(x.shape, jnp.inf), y),
+            diff=diff,
             result=RESULTS.successful,
             f_val=f0,
             f_prev=f0,
@@ -126,7 +126,7 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
             )
             init = jnp.where(
                 state.step == 0,
-                self.line_search.first_init(state.vector, state.operator, options),
+                self.line_search.first_init(state.vector, state.operator, {}),
                 state.next_init,
             )
             line_sol = minimise(
@@ -148,14 +148,14 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
 
         def first_pass(y, state):
             return (
-                jnp.inf,
-                ω(y).call(jnp.zeros_like).ω,
+                jnp.inf,  # f_val
+                tree_zeros_like(y),  # diff
                 state.aux,
                 RESULTS.successful,
                 state.next_init,
             )
 
-        # this lax.cond allows us to avoid an extra compilation of f(y) in the init.
+        # This lax.cond allows us to avoid an extra compilation of f(y) in the init.
         f_val, diff, new_aux, result, next_init = lax.cond(
             state.step == 0, first_pass, main_pass, y, state
         )
@@ -179,8 +179,8 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
             aux=new_aux,
             step=state.step + 1,
         )
-        # notice that this is state.aux, not new_state.aux or aux.
-        # we delay the return of `aux` by one step because of the FSAL
+        # Notice that this is state.aux, not new_state.aux or aux.
+        # We delay the return of `aux` by one step because of the FSAL
         # in the line search.
         # We want aux at `f(y)`, but line_search returns
         # aux at `f(y_new)`
@@ -242,6 +242,10 @@ class NonlinearCG(AbstractGradOnly):
         norm: Callable = max_norm,
         method: Callable = polak_ribiere,
     ):
+        # Default arguments provided to `line_search` because the user can easily
+        # override this with
+        # `BacktrackingArmijo(gauss_newton=False, their_own_arguments)`
+        # and this will be removed once Hager Zhang is in place.
         self.rtol = rtol
         self.atol = atol
         self.line_search = line_search

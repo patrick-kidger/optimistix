@@ -23,6 +23,7 @@ import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import lineax as lx
 import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
@@ -112,19 +113,51 @@ def finite_difference_jvp(fn, primals, tangents):
 #
 atol = rtol = 1e-8
 _lsqr_only = (
-    optx.LevenbergMarquardt(rtol, atol),  # DirectIterativeDual(GN=True)
-    optx.IndirectLevenbergMarquardt(rtol, atol),  # IndirectIterativeDual(GN=True)
+    optx.GaussNewton(  # Levenberg-Marquardt (DirectIterativeDual(GN=False))
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(
+            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),
+        descent=optx.DirectIterativeDual(gauss_newton=True),
+    ),
+    optx.GaussNewton(  # Indirect Levenberg-Marquardt (IndirectIterativeDual(GN=False))
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(
+            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),
+        descent=optx.IndirectIterativeDual(gauss_newton=True, lambda_0=jnp.array(1.0)),
+    ),
     optx.GaussNewton(rtol, atol),  # Newton(GN=True), LearningRate
     optx.GaussNewton(
         rtol,
         atol,
-        line_search=optx.ClassicalTrustRegion(),
-        descent=optx.Dogleg(gauss_newton=True),  # Dogleg(GN=True)
+        line_search=optx.ClassicalTrustRegion(
+            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),
+        descent=optx.Dogleg(
+            gauss_newton=True, linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),  # Dogleg(GN=True)
     ),
     optx.GaussNewton(
         rtol,
         atol,
-        line_search=optx.ClassicalTrustRegion(),
+        line_search=optx.ClassicalTrustRegion(
+            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),
+        descent=optx.Dogleg(
+            gauss_newton=True,
+            linear_solver=lx.AutoLinearSolver(well_posed=False),  # for simple_nn
+            norm=optx.max_norm,
+        ),  # Dogleg(GN=True)
+    ),
+    optx.GaussNewton(
+        rtol,
+        atol,
+        line_search=optx.ClassicalTrustRegion(
+            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),
         descent=optx.NormalisedNewton(gauss_newton=True),  # Newton(GN=True)
     ),
 )
@@ -137,7 +170,9 @@ minimisers = (
     optx.BFGS(
         rtol,
         atol,
-        line_search=optx.ClassicalTrustRegion(),
+        line_search=optx.ClassicalTrustRegion(
+            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),
         descent=optx.DirectIterativeDual(
             gauss_newton=False
         ),  # DirectIterativeDual(GN=False)
@@ -145,13 +180,17 @@ minimisers = (
     optx.BFGS(
         rtol,
         atol,
-        line_search=optx.ClassicalTrustRegion(),
+        line_search=optx.ClassicalTrustRegion(
+            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),
         descent=optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1.0),
     ),  # IndirectIterativeDual(GN=False)
     optx.BFGS(
         rtol,
         atol,
-        line_search=optx.ClassicalTrustRegion(),
+        line_search=optx.ClassicalTrustRegion(
+            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),
         descent=optx.Dogleg(gauss_newton=False),  # Dogleg(GN=False)
     ),
     optx.BFGS(
