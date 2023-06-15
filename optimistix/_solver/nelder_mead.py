@@ -394,7 +394,7 @@ class NelderMead(AbstractMinimiser):
         # that in most cases, rather than do a top_k search in log time, we can
         # just compare f_next_vector and f_best and choose best between those two
         # in constant time. Implement this. A similar thing could likely be done with
-        # worst and second worst, with recomputation occuring only when f_new < f_worst
+        # worst and second worst, with recomputation occurring only when f_new < f_worst
         # but f_new > f_second_worst (otherwise, there will have been a shrink).
         #
         (f_best_neg,), (best_index,) = lax.top_k(-f_new_simplex, 1)

@@ -139,7 +139,7 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
                 max_steps=100,
                 throw=False,
             )
-            # `new_aux` and `f_val` are the output of of at `f` at step the
+            # `new_aux` and `f_val` are the output of at `f` at step the
             # end of the line search. ie. they are not `f(y)`, but rather
             # `f(y_new)` where `y_new` is `y` in the next call of `step`. In
             # other words, we use FSAL.

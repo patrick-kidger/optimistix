@@ -35,7 +35,7 @@ class Solution(eqx.Module):
 
     - `value`: The solution to the solve.
     - `result`: An integer representing whether the solve was successful or not. This
-        can be converted into a human-readbale error message via
+        can be converted into a human-readable error message via
         `optimistix.RESULTS[result]`
     - `aux`: Any user-specified auxiliary data returned from the problem; defaults to
         `None` if there is no auxiliary data. Auxiliary outputs can be captured by

@@ -50,7 +50,7 @@ class Dogleg(AbstractDescent[_DoglegState]):
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
     root_finder: AbstractRootFinder = Bisection(rtol=1e-3, atol=1e-3)
     norm: Callable = two_norm
-    # By default we assume `well_posed=None` in the linear solve becuase these
+    # By default we assume `well_posed=None` in the linear solve because these
     # solvers are faster and handle most cases.
     #
     # Default tol for `root_finder` only because a user would override this entirely

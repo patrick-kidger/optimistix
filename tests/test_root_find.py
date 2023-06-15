@@ -66,7 +66,7 @@ def test_root_find_jvp(getkey, solver, _fn, init, args, has_aux):
     t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
     t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
 
-    # Chord struggles to hit the very min, it get's close enough to pass and then
+    # Chord struggles to hit the very min, it gets close enough to pass and then
     # continues to decrease at a slow rate without signaling convergence for a
     # while.
     def root_find(x, dynamic_args):
