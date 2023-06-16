@@ -71,6 +71,7 @@ from ._solver import (
     NonlinearCGDescent as NonlinearCGDescent,
     NormalisedGradient as NormalisedGradient,
     NormalisedNewton as NormalisedNewton,
+    OptaxMinimiser as OptaxMinimiser,
     polak_ribiere as polak_ribiere,
     UnnormalisedGradient as UnnormalisedGradient,
     UnnormalisedNewton as UnnormalisedNewton,

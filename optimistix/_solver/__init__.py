@@ -48,4 +48,5 @@ from .nonlinear_cg_descent import (
     NonlinearCGDescent as NonlinearCGDescent,
     polak_ribiere as polak_ribiere,
 )
+from .optax import OptaxMinimiser as OptaxMinimiser
 from .trust_region import ClassicalTrustRegion as ClassicalTrustRegion
