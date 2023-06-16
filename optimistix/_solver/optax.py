@@ -68,7 +68,7 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
     ) -> tuple[Y, _OptState, Aux]:
         del options
 
-        @eqx.filter_grad
+        @eqx.filter_grad(has_aux=True)
         def compute_grads(_y):
             return fn(_y, args)
 
