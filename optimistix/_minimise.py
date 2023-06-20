@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional
+from typing import Any, cast, Optional
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import PyTree, Scalar
 
@@ -46,7 +47,7 @@ def minimise(
     fn: Fn[Y, Scalar, Aux],
     solver: AbstractMinimiser,
     y0: Y,
-    args: PyTree = None,
+    args: PyTree[Any] = None,
     options: Optional[dict[str, Any]] = None,
     *,
     has_aux: bool = False,
@@ -54,16 +55,22 @@ def minimise(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
-) -> Solution:
-    y0 = jtu.tree_map(inexact_asarray, y0)
+) -> Solution[Y, Aux]:
 
+    y0 = jtu.tree_map(inexact_asarray, y0)
     if not has_aux:
         fn = NoneAux(fn)
-
+    fn = cast(Fn[Y, Scalar, Aux], fn)
     f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
 
-    if not (isinstance(f_struct, jax.ShapeDtypeStruct) and f_struct.shape == ()):
-        raise ValueError("minimisation function must output a single scalar.")
+    if not (
+        isinstance(f_struct, jax.ShapeDtypeStruct)
+        and f_struct.shape == ()
+        and jnp.issubdtype(f_struct.dtype, jnp.floating)
+    ):
+        raise ValueError(
+            "minimisation function must output a single floating-point scalar."
+        )
 
     return iterative_solve(
         fn,

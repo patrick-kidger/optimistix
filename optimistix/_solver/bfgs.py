@@ -30,11 +30,9 @@ from .._minimise import AbstractMinimiser, minimise
 from .._misc import (
     jacobian,
     max_norm,
-    tree_full,
     tree_full_like,
     tree_inner_prod,
     tree_where,
-    tree_zeros,
     tree_zeros_like,
 )
 from .._solution import RESULTS
@@ -103,9 +101,9 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _BFGSState:
-        f0 = tree_full(f_struct, jnp.inf)
-        aux = tree_zeros(aux_struct)
-        diff = tree_full(y, jnp.inf)
+        f0 = tree_full_like(f_struct, jnp.inf)
+        aux = tree_zeros_like(aux_struct)
+        diff = tree_full_like(y, jnp.inf)
         # This size is not used here, but is used in the call to`jacobian` later to
         # determine if we should use forward or backwards autodiff. It is easier
         # to store the scalar now than recompute it repeatedly.

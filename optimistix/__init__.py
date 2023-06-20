@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import _internal as _internal
+from . import internal as internal
 from ._adjoint import (
     AbstractAdjoint as AbstractAdjoint,
     ImplicitAdjoint as ImplicitAdjoint,

@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Callable, cast, Optional
+from collections.abc import Callable
+from typing import cast, Union
 
 import equinox as eqx
 import jax
@@ -88,28 +89,14 @@ def max_norm(x: PyTree[Array]) -> Scalar:
     return jtu.tree_reduce(jnp.maximum, leaf_maxes)
 
 
-def tree_full(struct: Optional[PyTree[jax.ShapeDtypeStruct]], fill_value: ArrayLike):
-    if struct is None:
-        filled = None
-    else:
-        filled = jtu.tree_map(lambda x: jnp.full(x.shape, fill_value, x.dtype), struct)
-    return filled
+def tree_full_like(
+    struct: PyTree[Union[Array, jax.ShapeDtypeStruct]], fill_value: ArrayLike
+):
+    return jtu.tree_map(lambda x: jnp.full(x.shape, fill_value, x.dtype), struct)
 
 
-def tree_full_like(tree: PyTree[Array], fill_value: ArrayLike):
-    return jtu.tree_map(lambda x: jnp.full_like(x, fill_value), tree)
-
-
-def tree_zeros(struct: Optional[PyTree[jax.ShapeDtypeStruct]]):
-    if struct is None:
-        zeros = None
-    else:
-        zeros = jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), struct)
-    return zeros
-
-
-def tree_zeros_like(tree: PyTree[Array]) -> PyTree[Array]:
-    return jtu.tree_map(jnp.zeros_like, tree)
+def tree_zeros_like(struct: PyTree[Union[Array, jax.ShapeDtypeStruct]]):
+    return jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), struct)
 
 
 def tree_inner_prod(tree1: PyTree[Array], tree2: PyTree[Array]) -> Float[Array, ""]:

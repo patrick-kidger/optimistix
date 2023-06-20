@@ -22,7 +22,7 @@ from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._custom_types import Fn, LineSearchAux, sentinel
 from .._line_search import AbstractLineSearch
-from .._misc import tree_full, tree_where, tree_zeros_like, two_norm
+from .._misc import tree_full_like, tree_where, tree_zeros_like, two_norm
 from .._solution import RESULTS
 
 
@@ -116,7 +116,7 @@ class ClassicalTrustRegion(AbstractLineSearch[_TrustRegionState]):
             f0 = options["f0"]
             compute_f0 = options["compute_f0"]
         except KeyError:
-            f0 = tree_full(f_struct, jnp.inf)
+            f0 = tree_full_like(f_struct, jnp.inf)
             compute_f0 = jnp.array(True)
         try:
             diff = tree_zeros_like(options["diff"])

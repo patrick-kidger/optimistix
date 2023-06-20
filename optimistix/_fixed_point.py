@@ -12,17 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Callable, Optional, Union
+from collections.abc import Callable
+from typing import Any, cast, Optional, Union
 
 import equinox as eqx
 import jax
+import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._custom_types import Aux, Fn, SolverState, Y
+from ._custom_types import Aux, Fn, MaybeAuxFn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
-from ._misc import NoneAux
+from ._misc import inexact_asarray, NoneAux
 from ._root_find import AbstractRootFinder
 from ._solution import Solution
 
@@ -55,10 +57,10 @@ class _ToRootFn(eqx.Module):
 
 @eqx.filter_jit
 def fixed_point(
-    fn: Fn[Y, Y, Aux],
+    fn: MaybeAuxFn[Y, Y, Aux],
     solver: Union[AbstractFixedPointSolver, AbstractRootFinder],
     y0: Y,
-    args: PyTree = None,
+    args: PyTree[Any] = None,
     options: Optional[dict[str, Any]] = None,
     *,
     has_aux: bool = False,
@@ -66,14 +68,15 @@ def fixed_point(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset()
-) -> Solution:
+) -> Solution[Y, Aux]:
 
+    y0 = jtu.tree_map(inexact_asarray, y0)
     if not has_aux:
         fn = NoneAux(fn)
-
+    fn = cast(Fn[Y, Y, Aux], fn)
     f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
 
-    if jax.eval_shape(lambda: y0) != f_struct:
+    if eqx.tree_equal(jax.eval_shape(lambda: y0), f_struct) is not True:
         raise ValueError(
             "The input and output of `fixed_point_fn` must have the same structure"
         )
@@ -90,8 +93,8 @@ def fixed_point(
             adjoint=adjoint,
             throw=throw,
             tags=tags,
-            aux_struct=aux_struct,
             f_struct=f_struct,
+            aux_struct=aux_struct,
         )
     else:
         return iterative_solve(
@@ -105,6 +108,6 @@ def fixed_point(
             adjoint=adjoint,
             throw=throw,
             tags=tags,
-            aux_struct=aux_struct,
             f_struct=f_struct,
+            aux_struct=aux_struct,
         )

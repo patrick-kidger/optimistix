@@ -25,7 +25,7 @@ from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
-from .._misc import max_norm, tree_where, tree_zeros
+from .._misc import max_norm, tree_where, tree_zeros_like
 from .._solution import RESULTS
 
 
@@ -122,7 +122,7 @@ class NelderMead(AbstractMinimiser):
         tags: frozenset[object],
     ) -> _NelderMeadState:
         del f_struct
-        aux = tree_zeros(aux_struct)
+        aux = tree_zeros_like(aux_struct)
         try:
             y0_simplex = options["y0_simplex"]
         except KeyError:

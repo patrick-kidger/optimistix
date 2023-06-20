@@ -22,7 +22,7 @@ from jaxtyping import Array, Bool, Float, Int, PyTree, Scalar
 
 from .._custom_types import Fn, LineSearchAux
 from .._line_search import AbstractLineSearch
-from .._misc import tree_full, tree_inner_prod, tree_where, tree_zeros_like
+from .._misc import tree_full_like, tree_inner_prod, tree_where, tree_zeros_like
 from .._solution import RESULTS
 
 
@@ -103,7 +103,7 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState]):
             f0 = options["f0"]
             compute_f0 = options["compute_f0"]
         except KeyError:
-            f0 = tree_full(f_struct, jnp.inf)
+            f0 = tree_full_like(f_struct, jnp.inf)
             compute_f0 = jnp.array(True)
         return _BacktrackingState(
             f_val=f0,

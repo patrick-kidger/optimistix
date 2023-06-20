@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import types
-from typing import Callable, FrozenSet
+from collections.abc import Callable
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -34,7 +34,7 @@ def implicit_jvp(
     fn_primal: Callable,
     fn_rewrite: Callable,
     inputs: PyTree,
-    tags: FrozenSet[object],
+    tags: frozenset[object],
     linear_solver: lx.AbstractLinearSolver,
 ):
     """Rewrites gradients via the implicit function theorem.
@@ -44,7 +44,7 @@ def implicit_jvp(
     - `fn_primal` is a function `inputs -> (root, residual)`.
     - `fn_rewrite` is a function `(root, residual, inputs) -> arbitrary`.
     - `inputs` is some input PyTree of the primal inputs to the computation.
-    - `tags`: any tags (symmetric, diagonal, ...) for the matrix
+    - `tags`: any Lineax tags (symmetric, diagonal, ...) for the matrix
         `d(fn_rewrite)/d(root)`.
     - `linear_solver`: an `lx.AbstractLinearSolver`, used to solve the linear problem
         on the backward pass.
@@ -73,6 +73,10 @@ def _implicit_impl(fn_primal, fn_rewrite, inputs, tags, linear_solver):
     return fn_primal(inputs)
 
 
+def _assert_false(x):
+    assert False
+
+
 def _is_none(x):
     return x is None
 
@@ -94,9 +98,6 @@ def _implicit_impl_jvp(primals, tangents):
         t_tags,
         t_linear_solver,
     ) = tangents
-
-    def _assert_false(x):
-        assert False
 
     jtu.tree_map(_assert_false, (t_fn_primal, t_fn_rewrite, t_tags, t_linear_solver))
     del t_fn_primal, t_fn_rewrite, t_tags, t_linear_solver

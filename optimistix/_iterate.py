@@ -13,16 +13,8 @@
 # limitations under the License.
 
 import abc
-from typing import (
-    Any,
-    Callable,
-    FrozenSet,
-    Generic,
-    Optional,
-    Sequence,
-    TYPE_CHECKING,
-    Union,
-)
+from collections.abc import Callable, Sequence
+from typing import Any, Generic, Optional, TYPE_CHECKING, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -166,7 +158,7 @@ def iterative_solve(
     max_steps: Optional[int],
     adjoint: AbstractAdjoint,
     throw: bool,
-    tags: FrozenSet[object],
+    tags: frozenset[object],
     f_struct: PyTree[jax.ShapeDtypeStruct],
     aux_struct: PyTree[jax.ShapeDtypeStruct],
 ) -> Solution:

@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Union
+from typing import Any, Generic, Union
 
 import equinox as eqx
 import lineax as lx
 from jaxtyping import Array, PyTree
+
+from ._custom_types import Aux, Y
 
 
 # Extend `lineax.RESULTS` as we want to be able to use their error messages too.
@@ -28,7 +30,7 @@ class RESULTS(lx.RESULTS):  # pyright: ignore
     nonlinear_divergence = "Nonlinear solve diverged."
 
 
-class Solution(eqx.Module):
+class Solution(eqx.Module, Generic[Y, Aux]):
     """The solution to a nonlinear solve.
 
     **Attributes:**
@@ -46,8 +48,8 @@ class Solution(eqx.Module):
         solver.
     """
 
-    value: PyTree[Array]
+    value: Y
     result: RESULTS
-    aux: PyTree[Array]
+    aux: Aux
     stats: dict[str, PyTree[Union[Array, int]]]
     state: PyTree[Any]

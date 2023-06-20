@@ -14,7 +14,8 @@
 
 import abc
 import functools as ft
-from typing import Callable, FrozenSet, Optional
+from collections.abc import Callable
+from typing import Optional
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -31,7 +32,7 @@ class AbstractAdjoint(eqx.Module):
         primal_fn: Callable,
         rewrite_fn: Callable,
         inputs: PyTree,
-        tags: FrozenSet[object],
+        tags: frozenset[object],
     ) -> PyTree[Array]:
         ...
 

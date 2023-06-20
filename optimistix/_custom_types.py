@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar, Union
 from typing_extensions import TypeAlias
 
 import equinox.internal as eqxi
@@ -27,7 +28,11 @@ Out = TypeVar("Out")
 SolverState = TypeVar("SolverState")
 Y = TypeVar("Y")
 
+
 Fn: TypeAlias = Callable[[Y, Args], tuple[Out, Aux]]
+MaybeAuxFn: TypeAlias = Union[
+    Callable[[Y, Args], tuple[Out, Aux]], Callable[[Y, Args], Out]
+]
 LineSearchAux: TypeAlias = tuple[Scalar, PyTree[Array], PyTree[Array], RESULTS, Scalar]
 
 sentinel: Any = eqxi.doc_repr(object(), "sentinel")

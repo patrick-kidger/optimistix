@@ -26,7 +26,7 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 from .._custom_types import Aux, Fn, Y
 from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFunction
 from .._minimise import AbstractMinimiser, minimise
-from .._misc import max_norm, tree_full, tree_full_like, tree_zeros, tree_zeros_like
+from .._misc import max_norm, tree_full_like, tree_zeros_like
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .descent import UnnormalisedGradient
@@ -69,8 +69,8 @@ class AbstractGradOnly(AbstractMinimiser[_GradOnlyState, Y, Aux]):
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _GradOnlyState:
-        f0 = tree_full(f_struct, jnp.inf)
-        aux = tree_zeros(aux_struct)
+        f0 = tree_full_like(f_struct, jnp.inf)
+        aux = tree_zeros_like(aux_struct)
         vector = tree_zeros_like(y)
         diff = tree_full_like(y, jnp.inf)
         operator = lx.IdentityLinearOperator(jax.eval_shape(lambda: y))

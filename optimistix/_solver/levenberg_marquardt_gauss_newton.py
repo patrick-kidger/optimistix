@@ -33,7 +33,7 @@ from .._misc import (
     sum_squares,
     tree_full_like,
     tree_where,
-    tree_zeros,
+    tree_zeros_like,
 )
 from .._solution import RESULTS
 from .descent import UnnormalisedNewton
@@ -79,7 +79,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[_GaussNewtonState, Y, Out, 
     ) -> _GaussNewtonState:
         del options
         f0 = jnp.array(jnp.inf)
-        aux = tree_zeros(aux_struct)
+        aux = tree_zeros_like(aux_struct)
         # Dummy vector and operator for first pass. Note that having `jnp.ones_like`
         # is preferable to `jnp.zeros_like` as the latter can lead to linear solves
         # of the form `0 x = 0` which can return `nan` values.
