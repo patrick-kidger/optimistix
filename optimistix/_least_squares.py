@@ -81,9 +81,9 @@ def least_squares(
     if not has_aux:
         fn = NoneAux(fn)
     fn = cast(Fn[Y, Out, Aux], fn)
-    f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
 
     if isinstance(solver, AbstractMinimiser):
+        f_struct, aux_struct = jax.eval_shape(lambda: _ToMinimiseFn(fn)(y0, args))
         return iterative_solve(
             fn=_ToMinimiseFn(fn),
             solver=solver,
@@ -100,6 +100,7 @@ def least_squares(
         )
 
     else:
+        f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
         return iterative_solve(
             fn,
             solver,

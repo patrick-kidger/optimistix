@@ -12,124 +12,83 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
-import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Scalar
+from jaxtyping import PyTree, Scalar
 
-from .._custom_types import Aux, Fn, Out, Y
-from .._line_search import AbstractDescent
-from .._misc import sum_squares, tree_inner_prod, tree_where, tree_zeros_like, two_norm
+from .._custom_types import Y
+from .._descent import AbstractDescent
+from .._misc import (
+    max_norm,
+    sum_squares,
+    tree_full_like,
+    tree_inner_prod,
+    tree_where,
+    two_norm,
+)
 from .._root_find import AbstractRootFinder, root_find
 from .._solution import RESULTS
-from . import Bisection
-from .misc import quadratic_predicted_reduction
+from .bisection import Bisection
+from .gauss_newton import AbstractGaussNewton
+from .trust_region import ClassicalTrustRegion
 
 
-def _quadratic_solve(a: Scalar, b: Scalar, c: Scalar) -> Scalar:
-    # If the output is >2 then we accept the Newton step.
-    # If it is below 1 then we accept the Cauchy step.
-    # This clip is just to keep us within those theoretical bounds.
-    return jnp.clip(0.5 * (-b + jnp.sqrt(b**2 - 4 * a * c)) / a, a_min=1, a_max=2)
-
-
-class _DoglegState(eqx.Module):
-    vector: PyTree[Array]
-    operator: lx.AbstractLinearOperator
-
-
-# `norm` has nothing to do with convergence here, unlike in our solvers. There is no
-# notion of termination/convergence for `Dogleg`. Instead, this controls
-# the shape of the trust region. The default of `two_norm` is standard.
-class Dogleg(AbstractDescent[_DoglegState]):
+class DoglegDescent(AbstractDescent[Y]):
     gauss_newton: bool
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
     root_finder: AbstractRootFinder = Bisection(rtol=1e-3, atol=1e-3)
-    norm: Callable = two_norm
-    # By default we assume `well_posed=None` in the linear solve because these
-    # solvers are faster and handle most cases.
-    #
-    # Default tol for `root_finder` only because a user would override this entirely
-    # with `FooRootFinder(rtol, atol, ...)` and the tol doesn't have to be very strict
-    # as being very precise with the step-size is usually not very important.
-
-    def init_state(
-        self,
-        fn: Fn[Y, Out, Aux],
-        y: Y,
-        vector: PyTree[Array],
-        operator: Optional[lx.AbstractLinearOperator],
-        operator_inv: Optional[lx.AbstractLinearOperator],
-        args: PyTree,
-        options: dict[str, Any],
-    ) -> _DoglegState:
-        # TODO(raderj): support inverse operator.
-        if operator is None:
-            raise NotImplementedError(
-                "Dogleg does not currently support using " "`operator_inv`."
-            )
-        return _DoglegState(vector, operator)
-
-    def update_state(
-        self,
-        descent_state: _DoglegState,
-        diff_prev: PyTree[Array],
-        vector: PyTree[Array],
-        operator: Optional[lx.AbstractLinearOperator],
-        operator_inv: Optional[lx.AbstractLinearOperator],
-        options: dict[str, Any],
-    ) -> _DoglegState:
-        if operator is None:
-            assert False
-        return _DoglegState(vector, operator)
+    trust_region_norm: Callable = two_norm
 
     def __call__(
         self,
-        delta: Scalar,
-        descent_state: _DoglegState,
+        step_size: Scalar,
         args: PyTree,
         options: dict[str, Any],
-    ) -> tuple[PyTree[Array], RESULTS]:
-
+    ) -> tuple[Y, RESULTS]:
+        vector = options["vector"]
+        operator = options["operator"]
         if self.gauss_newton:
             # Compute the normalization in the gradient direction:
             # `g^T g (g^T B g)^(-1)` where `g` is `J^T r` (Jac and residual) and
             # `B` is `J^T J.`
-            grad = descent_state.operator.transpose().mv(descent_state.vector)
-            mvp = descent_state.operator.transpose().mv(descent_state.operator.mv(grad))
+            operator_transpose = operator.transpose()
+            grad = operator_transpose.mv(vector)
+            mvp = operator_transpose.mv(operator.mv(grad))
         else:
-            grad = descent_state.vector
-            mvp = descent_state.operator.mv(grad)
+            grad = vector
+            mvp = operator.mv(grad)
 
-        numerator = sum_squares(grad)
-        denominator = tree_inner_prod(grad, mvp)
-        pred = denominator > jnp.finfo(denominator.dtype).eps
-        safe_denom = jnp.where(pred, denominator, 1)
-        projection_const = jnp.where(pred, numerator / safe_denom, jnp.inf)
-        # Compute Newton and Cauchy steps. If below Cauchy or above Newton,
-        # accept (scaled) cauchy or Newton respectively.
-        cauchy = (-projection_const * grad**ω).ω
-        newton_soln = lx.linear_solve(
-            descent_state.operator, descent_state.vector, solver=self.linear_solver
-        )
+        newton_soln = lx.linear_solve(operator, vector, solver=self.linear_solver)
         newton = (-newton_soln.value**ω).ω
-        cauchy_norm = self.norm(cauchy)
-        newton_norm = self.norm(newton)
-        above_newton = newton_norm <= delta
-        below_cauchy = cauchy_norm > delta
-        jnp.invert(above_newton) & jnp.invert(below_cauchy)
+        newton_norm = self.trust_region_norm(newton)
 
-        cauchy_dynamic, cauchy_static = eqx.partition(cauchy, eqx.is_array)
-        newton_dynamic, newton_static = eqx.partition(newton, eqx.is_array)
+        #
+        # For trust-region methods like `DoglegDescent`, the trust-region size directly
+        # controls how large a step we take. This is actually somewhat annoying,
+        # as a trust region algorithm has no understanding of the scale of a
+        # problem unless initialised with a complex initialisation procedure.
+        #
+        # A simple, heuristic way around this is to scale the trust region `step_size`
+        # so that a `step_size` of `1` corresponds to the full length of the Newton
+        # step (anything greater than `1` will still accept the Newton step.)
+        #
+        scaled_step_size = newton_norm * step_size
 
-        def accept_cauchy_or_newton(cauchy_newton_dynamic):
-            cauchy_dynamic, newton_dynamic = cauchy_newton_dynamic
-            cauchy = eqx.combine(cauchy_dynamic, cauchy_static)
-            newton = eqx.combine(newton_dynamic, newton_static)
+        denom = tree_inner_prod(grad, mvp)
+        denom_nonzero = denom > jnp.finfo(denom.dtype).eps
+        safe_denom = jnp.where(denom_nonzero, denom, 1)
+        scaling = jnp.where(denom_nonzero, sum_squares(grad) / safe_denom, 0.0)
+        cauchy = (-scaling * grad**ω).ω
+        cauchy_norm = self.trust_region_norm(cauchy)
+
+        def accept_cauchy_or_newton(cauchy_newton):
+            """Scale and return the Cauchy or Newton step."""
+            cauchy, newton = cauchy_newton
             norm_nonzero = cauchy_norm > jnp.finfo(cauchy_norm.dtype).eps
             safe_norm = jnp.where(norm_nonzero, cauchy_norm, 1)
             # Return zeros in degenerate case instead of inf because if `cauchy_norm` is
@@ -137,40 +96,50 @@ class Dogleg(AbstractDescent[_DoglegState]):
             # this.
             normalised_cauchy = tree_where(
                 norm_nonzero,
-                ((cauchy**ω / safe_norm) * delta).ω,
-                tree_zeros_like(cauchy),
+                ((cauchy**ω / safe_norm) * scaled_step_size).ω,
+                tree_full_like(cauchy, 0),
             )
-            return tree_where(below_cauchy, normalised_cauchy, newton)
+            return tree_where(cauchy_norm > scaled_step_size, normalised_cauchy, newton)
 
-        def interpolate_cauchy_and_newton(cauchy_newton_dynamic):
-            cauchy_dynamic, newton_dynamic = cauchy_newton_dynamic
-            cauchy = eqx.combine(cauchy_dynamic, cauchy_static)
-            newton = eqx.combine(newton_dynamic, newton_static)
+        def interpolate_cauchy_and_newton(cauchy_newton):
+            """Find the point interpolating the Cauchy and Newton steps which
+            intersects the trust region radius.
+            """
+            cauchy, newton = cauchy_newton
 
             def interpolate(t):
                 return (cauchy**ω + (t - 1) * (newton**ω - cauchy**ω)).ω
 
             # The vast majority of the time we expect users to use `two_norm`,
             # ie. the classic, elliptical trust region radius. In this case, we
-            # compute the value of `t` to hit the trust region radius using an
-            # analytic formula.
+            # compute the value of `t` to hit the trust region radius using by solving
+            # a quadratic equation `a * t**2 + b * t + c = 0`
+            # See section 4.1 of Nocedal Wright "Numerical Optimization" for details.
             #
             # If they pass a norm other than `two_norm`, ie. they use a more exotic
             # trust region shape, we use a root find to approximately
             # find the value which hits the trust region radius.
-            if self.norm == two_norm:
-                # We can calculate the exact interpolating scalar `t` by solving a
-                # quadratic equation `a * t**2 + b * t + c = 0`, hence the names of
-                # the variables. See section 4.1 of Nocedal Wright
-                # "Numerical Optimization" for details.
+            if self.trust_region_norm == two_norm:
                 a = sum_squares((newton**ω - cauchy**ω).ω)
-                b = 2 * tree_inner_prod(cauchy, (newton**ω - cauchy**ω).ω)
-                c = cauchy_norm**2 - b - a - delta**2
-                interp_amount = _quadratic_solve(a, b, c)
+                inner_prod = tree_inner_prod(cauchy, (newton**ω - cauchy**ω).ω)
+                b = 2 * (inner_prod - a)
+                c = cauchy_norm**2 - 2 * inner_prod + a - scaled_step_size**2
+                quadratic_1 = jnp.clip(
+                    0.5 * (-b + jnp.sqrt(b**2 - 4 * a * c)) / a, a_min=1, a_max=2
+                )
+                quadratic_2 = jnp.clip(
+                    ((2 * c) / (-b - jnp.sqrt(b**2 - 4 * a * c))), a_min=1, a_max=2
+                )
+                # The quadratic formula is not numerically stable, and it is best to
+                # use slightly different formulas when `b >=` and `b < 0` to avoid
+                # See this issue: https://github.com/fortran-lang/stdlib/issues/674
+                # for a number of references.
+                interp_amount = jnp.where(b >= 0, quadratic_1, quadratic_2)
             else:
                 root_find_options = {"lower": jnp.array(1.0), "upper": jnp.array(2.0)}
                 interp_amount = root_find(
-                    lambda t, args: self.norm(interpolate(t)) - delta,
+                    lambda t, args: self.trust_region_norm(interpolate(t))
+                    - scaled_step_size,
                     self.root_finder,
                     y0=1.5,
                     options=root_find_options,
@@ -178,30 +147,33 @@ class Dogleg(AbstractDescent[_DoglegState]):
                 ).value
             return interpolate(interp_amount)
 
-        # TODO(raderj): partition `newton` and `cauchy` and pass
-        # `cauchy_dynamic` and `newton_dynamic` here. This currently
-        # breaks the `simple_nn` test.
-        #
-        # Pass and unpack the tuple (cauchy_dynamic, newton_dynamic) rather than
-        # directly pass cauchy_dynamic, newton_dynamic to work around JAX issue #16413
+        # Pass and unpack the tuple `(cauchy_dynamic, newton_dynamic)` rather than
+        # directly pass `cauchy_dynamic` and `newton_dynamic` to work around JAX
+        # issue #16413
         diff = lax.cond(
-            below_cauchy | above_newton,
+            (cauchy_norm > scaled_step_size) | (step_size >= 1),
             accept_cauchy_or_newton,
             interpolate_cauchy_and_newton,
-            (
-                cauchy_dynamic,
-                newton_dynamic,
-            ),
+            (cauchy, newton),
         )
         return diff, RESULTS.promote(newton_soln.result)
 
-    def predicted_reduction(
+
+class Dogleg(AbstractGaussNewton):
+    def __init__(
         self,
-        diff: PyTree[Array],
-        descent_state: _DoglegState,
-        args: PyTree,
-        options: dict[str, Any],
-    ) -> Scalar:
-        return quadratic_predicted_reduction(
-            self.gauss_newton, diff, descent_state, args, options
+        rtol: float,
+        atol: float,
+        norm: Callable = max_norm,
+        root_finder: AbstractRootFinder = Bisection(rtol=0.001, atol=0.001),
+        linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.line_search = ClassicalTrustRegion(
+            DoglegDescent(
+                gauss_newton=True, linear_solver=linear_solver, root_finder=root_finder
+            ),
+            gauss_newton=True,
         )

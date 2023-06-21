@@ -67,13 +67,8 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
         tags: frozenset[object],
     ) -> tuple[Y, _OptState, Aux]:
         del options
-
-        @eqx.filter_grad(has_aux=True)
-        def compute_grads(_y):
-            return fn(_y, args)
-
-        grads, aux = compute_grads(y)
         step_index, opt_state = state
+        grads, aux = eqx.filter_grad(fn, has_aux=True)(y, args)
         optim = self.optax_cls(*self.args, **self.kwargs)
         updates, new_opt_state = optim.update(grads, opt_state)
         new_y = eqx.apply_updates(y, updates)

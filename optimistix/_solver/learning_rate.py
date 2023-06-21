@@ -1,5 +1,4 @@
-# Copyright 2023 Google LLC
-#
+# Copyright 2023 Google LLC #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -14,67 +13,72 @@
 
 from typing import Any
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-import lineax as lx
+from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._custom_types import Fn, LineSearchAux
-from .._line_search import AbstractLineSearch
+from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
+from .._descent import AbstractDescent
+from .._minimise import AbstractMinimiser
+from .._misc import tree_full_like
 from .._solution import RESULTS
 
 
-class LearningRate(AbstractLineSearch[Bool[Array, ""]]):
-    learning_rate: Scalar
+class _LearningRateState(AbstractLineSearchState):
+    next_init: Scalar
+    finished: Bool[Array, ""]
+    aux: PyTree
 
-    def first_init(
-        self,
-        vector: PyTree[Array],
-        operator: lx.AbstractLinearOperator,
-        options: dict[str, Any],
-    ) -> Scalar:
-        return self.learning_rate
+
+class LearningRate(AbstractMinimiser[_LearningRateState, Y, Aux]):
+    descent: AbstractDescent[Y]
+    learning_rate: Scalar = eqx.field(converter=jnp.asarray)
 
     def init(
         self,
-        fn: Fn[Scalar, Scalar, LineSearchAux],
-        y: Scalar,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
         args: PyTree,
         options: dict[str, Any],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> Bool[Array, ""]:
-        # Needs to run once, so set the state to be whether or not
-        # it has ran yet.
-        return jnp.array(False)
+    ) -> _LearningRateState:
+        del fn, y, args, f_struct
+        aux = tree_full_like(aux_struct, 0.0)
+        return _LearningRateState(
+            self.learning_rate, finished=jnp.array(False), aux=aux
+        )
 
     def step(
         self,
-        fn: Fn[Scalar, Scalar, LineSearchAux],
-        y: Scalar,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: Bool[Array, ""],
+        state: _LearningRateState,
         tags: frozenset[object],
-    ) -> tuple[Scalar, Bool[Array, ""], LineSearchAux]:
-        (f_val, (_, diff, aux, result, _)) = fn(y, args)
-        return (
-            y,
-            jnp.array(True),
-            (f_val, diff, aux, result, self.learning_rate),
+    ) -> tuple[Y, _LearningRateState, Aux]:
+        del fn, tags
+        diff, _ = self.descent(state.next_init, args, options)
+        new_state = _LearningRateState(
+            self.learning_rate, jnp.array(True), aux=state.aux
         )
+        return (y**ω + diff**ω).ω, new_state, state.aux
 
     def terminate(
         self,
-        fn: Fn[Scalar, Scalar, LineSearchAux],
-        y: Scalar,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: Bool[Array, ""],
+        state: _LearningRateState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
-        return state, RESULTS.successful
+        del fn, y, args, options, tags
+        return state.finished, RESULTS.successful
 
-    def buffers(self, state: Bool[Array, ""]) -> tuple[()]:
+    def buffers(self, state: _LearningRateState) -> tuple[()]:
         return ()

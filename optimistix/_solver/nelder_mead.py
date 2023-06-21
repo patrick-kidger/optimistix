@@ -13,7 +13,8 @@
 # limitations under the License.
 
 import functools as ft
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax
@@ -25,7 +26,7 @@ from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
-from .._misc import max_norm, tree_where, tree_zeros_like
+from .._misc import max_norm, tree_full_like, tree_where
 from .._solution import RESULTS
 
 
@@ -37,15 +38,15 @@ class _NMStats(eqx.Module):
     n_shrink: Scalar
 
 
-# WARNING: WIP, not changed to line search
+# TODO(raderj): upgrade to line search API
 
 
-class _NelderMeadState(eqx.Module):
+class _NelderMeadState(eqx.Module, Generic[Y, Aux]):
     """
     Information to update and store the simplex of the Nelder Mead update. If
     `dim` is the dimension of the problem, we expect there to be
-    `n_vertices` = `dim` + 1 vertices. We expect the leading axis of each leaf
-    to be of len `n_vertices`, and the sum of the rest of the axes of all leaves
+    `n_vertices` = `dim + 1` vertices. We expect the leading axis of each leaf
+    to be of length `n_vertices`, and the sum of the rest of the axes of all leaves
     together to be `dim`.
 
     - `simplex`: a PyTree with leading axis of leaves `n_vertices` and sum of the
@@ -70,20 +71,20 @@ class _NelderMeadState(eqx.Module):
         expand, inner contract, outer contract, and shrink are performed.
     - `result`: a RESULTS object which indicates if we have diverged during the
         course of optimisation.
-    - `first_passk`: A bool which indicates if this is the first call to Nelder Mead
+    - `first_pass`: A bool which indicates if this is the first call to Nelder Mead
         which allows for extra setup. This ultimately exists to save on compilation
         time.
     """
 
     simplex: PyTree
-    f_simplex: PyTree
-    best: tuple[Scalar, PyTree, Scalar]
-    worst: tuple[Scalar, PyTree, Scalar]
-    second_worst: Scalar
+    f_simplex: Array
+    best: tuple[Scalar, Y, Scalar]
+    worst: tuple[Scalar, Y, Scalar]
+    second_worst_val: Scalar
     stats: _NMStats
     result: RESULTS
     first_pass: Bool[ArrayLike, ""]
-    aux: PyTree[Array]
+    aux: Aux
     step: Scalar
 
 
@@ -104,7 +105,7 @@ def _update_stats(
     )
 
 
-class NelderMead(AbstractMinimiser):
+class NelderMead(AbstractMinimiser[_NelderMeadState[Y, Aux], Y, Aux]):
     rtol: float
     atol: float
     norm: Callable = max_norm
@@ -120,50 +121,47 @@ class NelderMead(AbstractMinimiser):
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _NelderMeadState:
-        del f_struct
-        aux = tree_zeros_like(aux_struct)
-        try:
-            y0_simplex = options["y0_simplex"]
-        except KeyError:
-            y0_simplex = False
+    ) -> _NelderMeadState[Y, Aux]:
+        aux = tree_full_like(aux_struct, 0)
+        y0_simplex = options.get("y0_simplex", False)
 
         if y0_simplex:
-            simplex = y
-            leaves, treedef = jtu.tree_flatten(simplex)
-            y_dtype = leaves[0].dtype
-            leaf_vertices = [leaf.shape[0] for leaf in leaves]
-            sizes = [jnp.size(leaf[0]) for leaf in leaves]
-            n_vertices = leaf_vertices[0]
-            size = sum(sizes)
-            if n_vertices != size + 1:
-                raise ValueError(
-                    "The PyTree must form a valid simplex. Got"
-                    f"{n_vertices} vertices but dimension {size}."
-                )
-            if any(n_vertices != leaf_shape for leaf_shape in leaf_vertices[1:]):
+            n_vertices = {x.shape[0] for x in jtu.tree_leaves(y)}
+            if len(n_vertices) == 1:
+                [n_vertices] = n_vertices
+            else:
                 raise ValueError(
                     "The PyTree must form a valid simplex. \
                     Got different leading dimension (number of vertices) \
                     for each leaf"
                 )
+            size = jtu.tree_reduce(
+                lambda x, y: x + y, jtu.tree_map(lambda x: x[1:].size, y)
+            )
+            if n_vertices != size + 1:
+                raise ValueError(
+                    "The PyTree must form a valid simplex. Got"
+                    f"{n_vertices} vertices but dimension {size}."
+                )
+            simplex = y
         else:
             #
             # The standard approach to creating the initial simplex from a single vector
             # is to add a small constant times each unit vector to the initial vector.
-            # The constant is different if the unit vector is 0 in the direction of the
+            # The constant is different if the `y` is 0 in the direction of the
             # unit vector. Just because this is standard, does not mean it's well
             # justified. We add rdelta * y[i] + adelta y[i] in the ith unit direction.
             #
-            size = sum(jnp.size(x) for x in jtu.tree_leaves(y))
+            size = jtu.tree_reduce(lambda x, y: x + y, jtu.tree_map(jnp.size, y))
             n_vertices = size + 1
             leaves, treedef = jtu.tree_flatten(y)
-            y_dtype = leaves[0].dtype
-
             running_size = 0
             new_leaves = []
 
             for index, leaf in enumerate(leaves):
+                # TODO(raderj): This is a difficult bit of Pytree manipulation, and
+                # needs to either be simplified if possible or explained, maybe with a
+                # follow-along example.
                 leaf_size = jnp.size(leaf)
                 broadcast_leaves = jnp.repeat(leaf[None, ...], size + 1, axis=0)
                 indices = jnp.arange(
@@ -180,15 +178,9 @@ class NelderMead(AbstractMinimiser):
                 )
                 running_size = running_size + leaf_size
                 new_leaves.append(broadcast_leaves)
-
             simplex = jtu.tree_unflatten(treedef, new_leaves)
 
-        try:
-            f_dtype = options["struct"].dtype
-        except KeyError:
-            f_dtype = y_dtype
-
-        f_simplex = jnp.zeros(n_vertices, dtype=f_dtype)
+        f_simplex = jnp.full(n_vertices, jnp.inf, dtype=f_struct.dtype)
         # Shrink will be called the first time step is called, so remove one from stats
         # at init.
         stats = _NMStats(
@@ -208,7 +200,7 @@ class NelderMead(AbstractMinimiser):
                 jtu.tree_map(lambda x: x[0], simplex),
                 jnp.array(0, dtype=jnp.int32),
             ),
-            second_worst=jnp.array(0.0),
+            second_worst_val=jnp.array(0.0),
             stats=stats,
             result=RESULTS.successful,
             first_pass=jnp.array(True),
@@ -222,9 +214,9 @@ class NelderMead(AbstractMinimiser):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _NelderMeadState,
+        state: _NelderMeadState[Y, Aux],
         tags: frozenset[object],
-    ) -> tuple[Y, _NelderMeadState, Aux]:
+    ) -> tuple[Y, _NelderMeadState[Y, Aux], Aux]:
         # TODO(raderj): update to line search api.
         reflect_const = 2
         expand_const = 3
@@ -234,15 +226,13 @@ class NelderMead(AbstractMinimiser):
 
         f_best, best, best_index = state.best
         f_worst, worst, worst_index = state.worst
-        f_second_worst = state.second_worst
+        f_second_worst = state.second_worst_val
         stats = state.stats
         (n_vertices,) = state.f_simplex.shape
 
         def init_step(state):
             simplex = state.simplex
-            f_new_vertex = jnp.array(1.0, dtype=state.f_simplex.dtype)
-            # `f_worst` is 0., set this so that
-            # `shrink = f_new_simplex > f_worst is True`
+            f_new_vertex = jnp.array(jnp.inf)
             return (
                 state,
                 simplex,
@@ -332,6 +322,8 @@ class NelderMead(AbstractMinimiser):
             #
             # TODO(raderj): pull out this entire thing into line  api.
             #
+            # TODO(raderj): eqxi.scan_trick.
+            #
             (new_vertex, (f_new_vertex, aux), stats), _ = lax.scan(
                 eval_new_vertices,
                 (reflection, (jnp.array(0.0), state.aux), state.stats),
@@ -345,13 +337,9 @@ class NelderMead(AbstractMinimiser):
         new_best = f_new_vertex < f_best
         best = tree_where(new_best, new_vertex, best)
         f_best = jnp.where(new_best, f_new_vertex, f_best)
-        #
-        # On the initial call, f_worst is initialized to 0. and f_new_vertex
-        # is initialized to 1. This is to deliberately set shrink = True
-        # and call shrink_simplex. This lets us call vmap(problem.fn) only in
-        # shrink simplex, which reduces compile time
-        #
-        shrink = f_new_vertex > f_worst
+        shrink = cast(
+            Array, jnp.where(state.first_pass, jnp.array(True), f_new_vertex > f_worst)
+        )
         stats = _update_stats(
             stats,
             reflect=jnp.array(False),
@@ -408,7 +396,7 @@ class NelderMead(AbstractMinimiser):
             f_simplex=f_new_simplex,
             best=(f_best, best, best_index),
             worst=(f_worst, worst, worst_index),
-            second_worst=f_second_worst,
+            second_worst_val=f_second_worst,
             stats=stats,
             result=state.result,
             first_pass=jnp.array(False),
@@ -433,7 +421,7 @@ class NelderMead(AbstractMinimiser):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _NelderMeadState,
+        state: _NelderMeadState[Y, Aux],
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         # TODO(raderj): only check terminate every k
@@ -461,5 +449,5 @@ class NelderMead(AbstractMinimiser):
         )
         return terminate, result
 
-    def buffers(self, state: _NelderMeadState) -> PyTree[Array]:
+    def buffers(self, state: _NelderMeadState[Y, Aux]) -> PyTree[Array]:
         return state.simplex

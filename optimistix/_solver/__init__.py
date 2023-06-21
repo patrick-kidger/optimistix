@@ -13,40 +13,41 @@
 # limitations under the License.
 
 from .backtracking import BacktrackingArmijo as BacktrackingArmijo
-from .bfgs import BFGS as BFGS
+from .bfgs import AbstractBFGS as AbstractBFGS, BFGS as BFGS
 from .bisection import Bisection as Bisection
-from .descent import (
-    NormalisedGradient as NormalisedGradient,
-    NormalisedNewton as NormalisedNewton,
-    UnnormalisedGradient as UnnormalisedGradient,
-    UnnormalisedNewton as UnnormalisedNewton,
-)
-from .dogleg import Dogleg as Dogleg
+from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
 from .fixed_point import FixedPointIteration as FixedPointIteration
-from .iterative_dual import (
-    DirectIterativeDual as DirectIterativeDual,
-    IndirectIterativeDual as IndirectIterativeDual,
-)
-from .learning_rate import LearningRate as LearningRate
-from .levenberg_marquardt_gauss_newton import (
+from .gauss_newton import (
     AbstractGaussNewton as AbstractGaussNewton,
     GaussNewton as GaussNewton,
+    NewtonDescent as NewtonDescent,
+)
+from .gradient_methods import (
+    AbstractGradientDescent as AbstractGradientDescent,
+    Gradient as Gradient,
+    GradientDescent as GradientDescent,
+)
+from .learning_rate import LearningRate as LearningRate
+from .levenberg_marquardt import (
+    DirectIterativeDual as DirectIterativeDual,
+    IndirectIterativeDual as IndirectIterativeDual,
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
     LevenbergMarquardt as LevenbergMarquardt,
 )
 from .nelder_mead import NelderMead as NelderMead
 from .newton_chord import Chord as Chord, Newton as Newton
 from .nonlinear_cg import (
-    GradientDescent as GradientDescent,
-    GradOnly as GradOnly,
-    NonlinearCG as NonlinearCG,
-)
-from .nonlinear_cg_descent import (
+    AbstractNonlinearCG as AbstractNonlinearCG,
     dai_yuan as dai_yuan,
     fletcher_reeves as fletcher_reeves,
     hestenes_stiefel as hestenes_stiefel,
+    NonlinearCG as NonlinearCG,
     NonlinearCGDescent as NonlinearCGDescent,
     polak_ribiere as polak_ribiere,
 )
 from .optax import OptaxMinimiser as OptaxMinimiser
-from .trust_region import ClassicalTrustRegion as ClassicalTrustRegion
+from .trust_region import (
+    AbstractTrustRegion as AbstractTrustRegion,
+    ClassicalTrustRegion as ClassicalTrustRegion,
+    LinearTrustRegion as LinearTrustRegion,
+)

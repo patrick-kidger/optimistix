@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import functools as ft
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any, Generic
 
 import equinox as eqx
 import jax
@@ -24,25 +24,33 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._custom_types import Aux, Fn, Y
-from .._line_search import AbstractDescent, AbstractLineSearch, OneDimensionalFunction
+from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
 from .._minimise import AbstractMinimiser, minimise
 from .._misc import (
     jacobian,
     max_norm,
     tree_full_like,
     tree_inner_prod,
-    tree_where,
-    tree_zeros_like,
 )
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
-from .descent import UnnormalisedNewton
+from .gauss_newton import NewtonDescent
+from .misc import cauchy_termination
 
 
-def _std_basis(pytree: PyTree[Array]) -> PyTree[Array]:
-    # Create an "identity pytree" `out` such that
-    # `pytree = lx.PyTreeLinearOperator(out).mv(pytree)`
+def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
+    """Create an identity pytree `I` such that
+    `pytree = lx.PyTreeLinearOperator(I).mv(pytree)`
+
+    **Arguments**:
+
+        - `pytree`: a pytree such that the output of `_identity_pytree` is the identity
+        with respect to pytrees of the same shape as `pytree`.
+
+    **Returns**:
+
+    A `lx.PyTreeLinearOperator` with input and output shape the shape of `pytree`.
+    """
     leaves, structure = jtu.tree_flatten(pytree)
     eye_structure = structure.compose(structure)
     eye_leaves = []
@@ -54,7 +62,9 @@ def _std_basis(pytree: PyTree[Array]) -> PyTree[Array]:
                 )
             else:
                 eye_leaves.append(jnp.zeros(l1.shape + l2.shape))
-    return jtu.tree_unflatten(eye_structure, eye_leaves)
+    return lx.PyTreeLinearOperator(
+        jtu.tree_unflatten(eye_structure, eye_leaves), jax.eval_shape(lambda: pytree)
+    )
 
 
 def _outer(tree1, tree2):
@@ -64,32 +74,28 @@ def _outer(tree1, tree2):
     return jtu.tree_map(leaf_fn, tree1)
 
 
-class _BFGSState(eqx.Module):
-    descent_state: PyTree
-    vector: PyTree[Array]
+def _auxmented(fn, x, args):
+    f_val, aux = fn(x, args)
+    return f_val, (f_val, aux)
+
+
+class _BFGSState(eqx.Module, Generic[Y, Aux]):
+    step_size: Scalar
+    vector: Y
     operator: lx.PyTreeLinearOperator
-    diff: PyTree[Array]
+    operator_inv: lx.PyTreeLinearOperator
+    diff: Y
+    f_val: Scalar
+    f_prev: Scalar
     result: RESULTS
-    f_val: PyTree[Array]
-    f_prev: PyTree[Array]
-    next_init: Array
-    size: Scalar
-    aux: Any
-    step: Scalar
 
 
-# TODO(raderj): switch out `BacktrackingArmijo` with a better
-# line search.
-class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
+class AbstractBFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
     rtol: float
     atol: float
-    line_search: AbstractLineSearch = BacktrackingArmijo(
-        gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
-    )
-    descent: AbstractDescent = UnnormalisedNewton(gauss_newton=False)
-    norm: Callable = max_norm
-    converged_tol: float = 1e-3
-    use_inverse: bool = False
+    line_search: AbstractMinimiser[AbstractLineSearchState, Y, Aux]
+    norm: Callable
+    use_inverse: bool
 
     def init(
         self,
@@ -100,55 +106,24 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _BFGSState:
-        f0 = tree_full_like(f_struct, jnp.inf)
-        aux = tree_zeros_like(aux_struct)
-        diff = tree_full_like(y, jnp.inf)
-        # This size is not used here, but is used in the call to`jacobian` later to
-        # determine if we should use forward or backwards autodiff. It is easier
-        # to store the scalar now than recompute it repeatedly.
-        size = jtu.tree_reduce(lambda a, b: a + b, jtu.tree_map(lambda c: c.size, y))
-        # Dummy vector and operator for first pass. Note that having `jnp.ones_like`
-        # is preferable to `jnp.zeros_like` as the latter can lead to linear solves
-        # of the form `0 x = 0` which can return `nan` values.
-        vector = jtu.tree_map(jnp.ones_like, y)
-        # `_std_basis` creates an identity operator which we can update with the BFGS
-        # update/Woodbury identity
-        operator = lx.PyTreeLinearOperator(
-            _std_basis(vector), output_structure=jax.eval_shape(lambda: vector)
-        )
+    ) -> _BFGSState[Y, Aux]:
+        del fn, aux_struct
+        identity_pytree_operator = _identity_pytree(y)
         if self.use_inverse:
-            descent_state = self.descent.init_state(
-                fn,
-                y,
-                vector,
-                operator=None,
-                operator_inv=operator,
-                args=args,
-                options=options,
-            )
+            operator = None
+            operator_inv = identity_pytree_operator
         else:
-            descent_state = self.descent.init_state(
-                fn,
-                y,
-                vector,
-                operator=operator,
-                operator_inv=None,
-                args=args,
-                options=options,
-            )
+            operator = identity_pytree_operator
+            operator_inv = None
         return _BFGSState(
-            descent_state=descent_state,
-            vector=vector,
+            step_size=jnp.array(1.0),
+            vector=tree_full_like(y, jnp.array(1.0)),
             operator=operator,
-            diff=diff,
+            operator_inv=operator_inv,
+            diff=tree_full_like(y, jnp.inf),
             result=RESULTS.successful,
-            f_val=f0,
-            f_prev=f0,
-            next_init=jnp.array(0.0),
-            size=size,
-            aux=aux,
-            step=jnp.array(0),
+            f_val=jnp.array(jnp.inf, f_struct.dtype),
+            f_prev=jnp.array(jnp.inf, f_struct.dtype),
         )
 
     def step(
@@ -157,150 +132,116 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _BFGSState,
+        state: _BFGSState[Y, Aux],
         tags: frozenset[object],
-    ) -> tuple[Y, _BFGSState, Aux]:
-        descent = eqx.Partial(
-            self.descent,
-            descent_state=state.descent_state,
-            args=args,
-            options=options,
-        )
-        problem_1d = OneDimensionalFunction(fn, descent, y)
-        # For step 0 we are just getting the vector and don't care about the line
-        # search. So we want to pass `compute_f0 = True` on the first step where
-        # we actually care.
-        # We pass `f0=jnp.inf` the first two steps because we don't have an accurate
-        # value of `f0` until we have the correct `vector`/`operator`.
-        line_search_options = {
-            "f0": jnp.where(state.step > 1, state.f_val, jnp.inf),
-            "compute_f0": (state.step == 1),
-            "vector": state.vector,
-            "operator": state.operator,
-            "diff": y,
-        }
-        line_search_options["predicted_reduction"] = ft.partial(
-            self.descent.predicted_reduction,
-            descent_state=state.descent_state,
-            args=args,
-            options={},
-        )
-        init = jnp.where(
-            state.step <= 1,
-            self.line_search.first_init(state.vector, state.operator, {}),
-            state.next_init,
-        )
-        line_sol = minimise(
-            fn=problem_1d,
-            has_aux=True,
-            solver=self.line_search,
-            y0=init,
-            args=args,
-            options=line_search_options,
-            max_steps=100,
-            throw=False,
-        )
-        # `new_aux` and `f_val` are the output of `f` at the
-        # end of the line search. ie. they are not `f(y)`, but rather
-        # `f(y_new)` where `y_new` is `y` in the next call of `step`.
-        (f_val, diff, new_aux, _, next_init) = line_sol.aux
-        new_y = tree_where(state.step > 0, (ω(y) + ω(diff)).ω, y)
-        fn_grad = jacobian(fn, in_size=state.size, out_size=1, has_aux=True)
-        new_grad, _ = fn_grad(new_y, args)
+    ) -> tuple[Y, _BFGSState[Y, Aux], Aux]:
+        in_size = jtu.tree_reduce(lambda a, b: a + b, jtu.tree_map(lambda c: c.size, y))
+        new_grad, (f_val, aux) = jacobian(
+            eqx.Partial(_auxmented, fn), in_size, out_size=1, has_aux=True
+        )(y, args)
         grad_diff = (ω(new_grad) - ω(state.vector)).ω
-        inner = tree_inner_prod(grad_diff, diff)
+        # On the first iteration, `state.diff = jnp.inf` and
+        # so anything divided by `inner` is just 0.
+        _finite = lambda x: jnp.all(jnp.isfinite(x))
+        diff_finite = jtu.tree_reduce(
+            lambda x, y: x | y, jtu.tree_map(_finite, state.diff)
+        )
+        inner = tree_inner_prod(grad_diff, state.diff)
         inner_nonzero = inner > jnp.finfo(inner.dtype).eps
-        safe_inner = jnp.where(inner_nonzero, inner, jnp.array(1.0))
 
-        def bfgs_update(diff):
+        operator_dynamic, operator_static = eqx.partition(state.operator, eqx.is_array)
+        operator_inv_dynamic, operator_inv_static = eqx.partition(
+            state.operator_inv, eqx.is_array
+        )
+
+        def bfgs_update(operator_and_inv_dynamic):
+            operator_dynamic, operator_inv_dynamic = operator_and_inv_dynamic
+            operator = eqx.combine(operator_dynamic, operator_static)
+            operator_inv = eqx.combine(operator_inv_dynamic, operator_inv_static)
             if self.use_inverse:
                 # Use Woodbury identity for rank-1 update of approximate Hessian.
-                operator_ip = tree_inner_prod(grad_diff, state.operator.mv(grad_diff))
-                diff_outer = _outer(diff, diff)
-                term1 = tree_where(
-                    inner_nonzero,
-                    (((inner + operator_ip) * (diff_outer**ω)) / (safe_inner**2)).ω,
-                    tree_full_like(diff_outer, jnp.inf),
-                )
+                inv_mvp = operator_inv.mv(grad_diff)
+                operator_inner = tree_inner_prod(grad_diff, inv_mvp)
+                diff_outer = _outer(state.diff, state.diff)
+                mvp_outer = _outer(state.diff, operator_inv.transpose().mv(grad_diff))
+                term1 = (
+                    ((inner + operator_inner) * (diff_outer**ω)) / (inner**2)
+                ).ω
+                term2 = ((_outer(inv_mvp, state.diff) ** ω + mvp_outer**ω) / inner).ω
 
-                outer1 = _outer(state.operator.mv(grad_diff), diff)
-                outer2 = _outer(diff, state.operator.transpose().mv(grad_diff))
-                term2 = tree_where(
-                    inner_nonzero,
-                    ((outer1**ω + outer2**ω) / safe_inner).ω,
-                    tree_full_like(outer1, jnp.inf),
+                operator = None
+                operator_inv = lx.PyTreeLinearOperator(
+                    (operator_inv.pytree**ω + term1**ω - term2**ω).ω,
+                    output_structure=jax.eval_shape(lambda: y),
                 )
             else:
                 # BFGS update to the operator directly, not inverse
-                grad_diff_outer = _outer(grad_diff, grad_diff)
-                hess_mv = state.operator.mv(diff)
-                hess_outer = _outer(hess_mv, hess_mv)
-                operator_ip = tree_inner_prod(diff, state.operator.mv(diff))
-                term1 = (grad_diff_outer**ω / inner).ω
-                term2 = (hess_outer**ω / operator_ip).ω
-            return term1, term2
+                mvp = operator.mv(state.diff)
+                term1 = (_outer(grad_diff, grad_diff) ** ω / inner).ω
+                term2 = (_outer(mvp, mvp) ** ω / tree_inner_prod(state.diff, mvp)).ω
+                operator = lx.PyTreeLinearOperator(
+                    (operator.pytree**ω + term1**ω - term2**ω).ω,
+                    output_structure=jax.eval_shape(lambda: y),
+                )
+                operator_inv = None
 
-        def no_update(diff):
-            _outer(diff, diff)
-            term1 = term2 = tree_zeros_like(_outer(diff, diff))
-            return term1, term2
+            return eqx.filter(operator, eqx.is_array), eqx.filter(
+                operator_inv, eqx.is_array
+            )
 
-        # This serves two purposes:
-        # 1. In the init we set vector to a dummy value to save on a compilation of
-        # `fn`. Because of this, we need to compute the actual `vector` before
-        # taking any iterates, so we make no update to the BFGS matrix.
-        # 2. If the `grad_diff.T @ diff = 0` just set `term1 = term2 = 0`. This inner
-        # product is zero when the gradient is, so we should have converged.
-        term1, term2 = lax.cond(
-            inner_nonzero & (state.step > 0), bfgs_update, no_update, diff
+        def no_update(operator_and_inv_dynamic):
+            operator_dynamic, operator_inv_dynamic = operator_and_inv_dynamic
+            return operator_dynamic, operator_inv_dynamic
+
+        # Typically `inner = 0` implies that we have converged, so we do an identity
+        # update and terminate.
+        #
+        # Pass and unpack the tuple `(operator_dynamic, operator_inv_dynamic)` rather
+        # than directly pass `operator_dynamic` and `operator_inv_dynamic` to work
+        # around JAX issue #16413
+        new_operator_dynamic, new_operator_inv_dynamic = lax.cond(
+            diff_finite & inner_nonzero,
+            bfgs_update,
+            no_update,
+            (operator_dynamic, operator_inv_dynamic),
         )
-        new_hess = lx.PyTreeLinearOperator(
-            (state.operator.pytree**ω + term1**ω - term2**ω).ω,
-            state.operator.out_structure(),
+        operator = eqx.combine(new_operator_dynamic, operator_static)
+        operator_inv = eqx.combine(new_operator_inv_dynamic, operator_inv_static)
+        line_search_options = {
+            "init_step_size": state.step_size,
+            "vector": new_grad,
+            "operator": operator,
+            "operator_inv": operator_inv,
+            "f0": f_val,
+            "fn": fn,
+            "y": y,
+        }
+        line_sol = minimise(
+            fn,
+            self.line_search,
+            y,
+            args,
+            line_search_options,
+            has_aux=True,
+            throw=False,
         )
-        if self.use_inverse:
-            descent_state = self.descent.update_state(
-                state.descent_state,
-                diff,
-                new_grad,
-                operator=None,
-                operator_inv=new_hess,
-                options=options,
-            )
-        else:
-            descent_state = self.descent.update_state(
-                state.descent_state,
-                diff,
-                new_grad,
-                operator=new_hess,
-                operator_inv=None,
-                options=options,
-            )
+        new_y = line_sol.value
         result = RESULTS.where(
-            (line_sol.result == RESULTS.max_steps_reached),
+            line_sol.result == RESULTS.max_steps_reached,
             RESULTS.successful,
             line_sol.result,
         )
         new_state = _BFGSState(
-            descent_state=descent_state,
+            step_size=line_sol.state.next_init,
             vector=new_grad,
-            operator=new_hess,
-            diff=diff,
-            result=result,
+            operator=operator,
+            operator_inv=operator_inv,
+            diff=(new_y**ω - y**ω).ω,
             f_val=f_val,
             f_prev=state.f_val,
-            next_init=next_init,
-            size=state.size,
-            aux=new_aux,
-            step=state.step + 1,
+            result=result,
         )
-
-        # Notice that this is `state.aux`, not `new_state.aux` or `aux`.
-        # we delay the return of `aux` by one step because of the FSAL
-        # in the line search.
-        # We want aux at `f(y)`, but line_search returns
-        # `aux` at `f(y_new)`
-        return new_y, new_state, state.aux
+        return new_y, new_state, aux
 
     def terminate(
         self,
@@ -308,19 +249,35 @@ class BFGS(AbstractMinimiser[_BFGSState, Y, Aux]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _BFGSState,
+        state: _BFGSState[Y, Aux],
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
-        at_least_two = state.step >= 2
-        y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
-        y_converged = self.norm((state.diff**ω / y_scale**ω).ω) < 1
-        f_scale = self.rtol * jnp.abs(state.f_prev) + self.atol
-        f_converged = (jnp.abs(state.f_val - state.f_prev) / f_scale) < 1
-        converged = y_converged & f_converged
-        linsolve_fail = state.result != RESULTS.successful
-        terminate = linsolve_fail | (converged & at_least_two)
-        result = RESULTS.where(linsolve_fail, state.result, RESULTS.successful)
-        return terminate, result
+        return cauchy_termination(
+            self.rtol,
+            self.atol,
+            self.norm,
+            y,
+            state.diff,
+            state.f_val,
+            state.f_prev,
+            state.result,
+        )
 
-    def buffers(self, state: _BFGSState) -> tuple[()]:
+    def buffers(self, state: _BFGSState[Y, Aux]) -> tuple[()]:
         return ()
+
+
+class BFGS(AbstractBFGS):
+    def __init__(self, rtol: float, atol: float, use_inverse=True):
+        self.rtol = rtol
+        self.atol = atol
+        # TODO(raderj): switch out `BacktrackingArmijo` with a better
+        # line search.
+        self.line_search = BacktrackingArmijo(
+            NewtonDescent(),
+            gauss_newton=False,
+            backtrack_slope=0.1,
+            decrease_factor=0.5,
+        )
+        self.norm = max_norm
+        self.use_inverse = use_inverse
