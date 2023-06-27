@@ -108,7 +108,12 @@ def _iterate(inputs, while_loop):
     init_aux = jtu.tree_map(_zero, aux_struct)
     init_state = solver.init(fn, y0, args, options, f_struct, aux_struct, tags)
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
-    init_carry = (y0, 0, dynamic_init_state, init_aux)
+    init_carry = (
+        y0,
+        jnp.array(0),
+        dynamic_init_state,
+        init_aux,
+    )
 
     def cond_fun(carry):
         y, _, dynamic_state, _ = carry
@@ -161,7 +166,7 @@ def iterative_solve(
     tags: frozenset[object],
     f_struct: PyTree[jax.ShapeDtypeStruct],
     aux_struct: PyTree[jax.ShapeDtypeStruct],
-) -> Solution:
+) -> Solution[Y, Aux]:
     f_struct = jtu.tree_map(eqxi.Static, f_struct)
     aux_struct = jtu.tree_map(eqxi.Static, aux_struct)
     inputs = fn, args, solver, y0, options, max_steps, f_struct, aux_struct, tags

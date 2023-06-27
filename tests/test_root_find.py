@@ -26,7 +26,7 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_root_find(solver, _fn, init, args, has_aux):
-    atol = rtol = 1e-4
+    atol = rtol = 1e-5
 
     def root_find_problem(y, args):
         f_val = _fn(y, args)
@@ -36,23 +36,23 @@ def test_root_find(solver, _fn, init, args, has_aux):
         fn = lambda x, args: (root_find_problem(x, args), smoke_aux)
     else:
         fn = root_find_problem
-    optx_fp = optx.root_find(
+    optx_root = optx.root_find(
         fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
     ).value
-    out = fn(optx_fp, args)
+    out = fn(optx_root, args)
     if has_aux:
-        f_val, _ = out
+        fn_val, _ = out
     else:
-        f_val = out
-    zeros = jtu.tree_map(jnp.zeros_like, f_val)
-    assert shaped_allclose(f_val, zeros, atol=atol, rtol=rtol)
+        fn_val = out
+    zeros = jtu.tree_map(jnp.zeros_like, fn_val)
+    assert shaped_allclose(fn_val, zeros, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize("solver", _root_finders)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_root_find_jvp(getkey, solver, _fn, init, args, has_aux):
-    atol = rtol = 1e-4
+    atol = rtol = 1e-5
 
     def root_find_problem(y, args):
         f_val = _fn(y, args)

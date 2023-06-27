@@ -25,6 +25,7 @@ import jax.random as jr
 import jax.tree_util as jtu
 import lineax as lx
 import numpy as np
+import optax
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
@@ -95,8 +96,9 @@ def finite_difference_jvp(fn, primals, tangents):
 # SOLVERS:
 # - Gauss-Newton (LM)
 # - BFGS
-# - GradOnly (NonlinearCG, GradientDescent)
+# - GradientDescent
 # - Optax
+# - NonlinearCG
 #
 # LINE SEARCHES:
 # - BacktrackingArmijo
@@ -106,121 +108,137 @@ def finite_difference_jvp(fn, primals, tangents):
 # DESCENTS:
 # - DirectIterativeDual(GN=...)
 # - IndirectIterativeDual(GN=...)
-# - Dogleg(GN=...)
-# - Newton(GN=...)
+# - DoglegDescent(GN=...)
+# - NewtonDescent(GN=...)
 # - Gradient (Not appropriate for GN!)
-# - NonlinearCG (Not appropriate for GN!)
+# - NonlinearCGDescent (Not appropriate for GN!)
 #
+
+#
+# We define a bunch of helper optimisers which exist to test all code paths, but which
+# are not default solvers because they feature methods only advanced users are likely
+# to use.
+#
+
+
+class DoglegMax(optx.AbstractGaussNewton):
+    """Dogleg with trust region shape given by the max norm instead of the two norm."""
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = optx.max_norm
+        self.line_search = optx.ClassicalTrustRegion(
+            optx.DoglegDescent(
+                gauss_newton=True,
+                linear_solver=lx.AutoLinearSolver(well_posed=False),
+                root_finder=optx.Bisection(rtol=0.001, atol=0.001),
+                trust_region_norm=optx.max_norm,
+            ),
+            gauss_newton=True,
+        )
+
+
+class BFGSDirectDual(optx.AbstractBFGS):
+    """BFGS Hessian + direct Levenberg Marquardt update."""
+
+    def __init__(self, rtol: float, atol: float):
+        self.rtol = rtol
+        self.atol = atol
+        self.line_search = optx.ClassicalTrustRegion(
+            optx.DirectIterativeDual(gauss_newton=False),
+            gauss_newton=False,
+        )
+        self.norm = optx.max_norm
+        self.use_inverse = False
+
+
+class BFGSIndirectDual(optx.AbstractBFGS):
+    """BFGS Hessian + indirect Levenberg Marquardt update."""
+
+    def __init__(self, rtol: float, atol: float):
+        self.rtol = rtol
+        self.atol = atol
+        self.line_search = optx.ClassicalTrustRegion(
+            optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1),
+            gauss_newton=False,
+        )
+        self.norm = optx.max_norm
+        self.use_inverse = False
+
+
+class BFGSDogleg(optx.AbstractBFGS):
+    """BFGS Hessian + dogleg update."""
+
+    def __init__(self, rtol: float, atol: float):
+        self.rtol = rtol
+        self.atol = atol
+        self.line_search = optx.ClassicalTrustRegion(
+            optx.DoglegDescent(
+                gauss_newton=False,
+                linear_solver=lx.AutoLinearSolver(well_posed=False),
+            ),
+            gauss_newton=False,
+        )
+        self.norm = optx.max_norm
+        self.use_inverse = False
+
+
+class BFGSBacktracking(optx.AbstractBFGS):
+    """Standard BFGS + backtracking line search."""
+
+    def __init__(self, rtol: float, atol: float, use_inverse=False):
+        self.rtol = rtol
+        self.atol = atol
+        self.line_search = optx.BacktrackingArmijo(
+            optx.NewtonDescent(), gauss_newton=False
+        )
+        self.norm = optx.max_norm
+        self.use_inverse = use_inverse
+
+
+class BFGSTrustRegion(optx.AbstractBFGS):
+    """Standard BFGS + classical trust region upate."""
+
+    def __init__(self, rtol: float, atol: float, use_inverse=False):
+        self.rtol = rtol
+        self.atol = atol
+        self.line_search = optx.LinearTrustRegion(
+            optx.NewtonDescent(), gauss_newton=False
+        )
+        self.norm = optx.max_norm
+        self.use_inverse = use_inverse
+
+
 atol = rtol = 1e-8
 _lsqr_only = (
-    optx.GaussNewton(  # Levenberg-Marquardt (DirectIterativeDual(GN=False))
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(
-            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
-        ),
-        descent=optx.DirectIterativeDual(gauss_newton=True),
-    ),
-    optx.GaussNewton(  # Indirect Levenberg-Marquardt (IndirectIterativeDual(GN=False))
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(
-            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
-        ),
-        descent=optx.IndirectIterativeDual(gauss_newton=True, lambda_0=jnp.array(1.0)),
-    ),
-    optx.GaussNewton(rtol, atol),  # Newton(GN=True), LearningRate
-    optx.GaussNewton(
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(
-            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
-        ),
-        descent=optx.Dogleg(
-            gauss_newton=True, linear_solver=lx.AutoLinearSolver(well_posed=False)
-        ),  # Dogleg(GN=True)
-    ),
-    optx.GaussNewton(
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(
-            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
-        ),
-        descent=optx.Dogleg(
-            gauss_newton=True,
-            linear_solver=lx.AutoLinearSolver(well_posed=False),  # for simple_nn
-            norm=optx.max_norm,
-        ),  # Dogleg(GN=True)
-    ),
-    optx.GaussNewton(
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(
-            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
-        ),
-        descent=optx.NormalisedNewton(gauss_newton=True),  # Newton(GN=True)
-    ),
+    optx.LevenbergMarquardt(rtol, atol),
+    optx.IndirectLevenbergMarquardt(rtol, atol),
+    optx.GaussNewton(rtol, atol, linear_solver=lx.AutoLinearSolver(well_posed=False)),
+    optx.Dogleg(rtol, atol, linear_solver=lx.AutoLinearSolver(well_posed=False)),
+    DoglegMax(rtol, atol),
 )
-# NOTE: Should we parametrize the line search algo?
-# NOTE: Should we parametrize the nonlinearCG method?
+
+
 atol = rtol = 1e-8
 minimisers = (
     optx.NelderMead(rtol, atol),
-    optx.BFGS(rtol, atol),
-    optx.BFGS(
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(
-            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
-        ),
-        descent=optx.DirectIterativeDual(
-            gauss_newton=False
-        ),  # DirectIterativeDual(GN=False)
-    ),
-    optx.BFGS(
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(
-            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
-        ),
-        descent=optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1.0),
-    ),  # IndirectIterativeDual(GN=False)
-    optx.BFGS(
-        rtol,
-        atol,
-        line_search=optx.ClassicalTrustRegion(
-            init_linear_solver=lx.AutoLinearSolver(well_posed=False)
-        ),
-        descent=optx.Dogleg(gauss_newton=False),  # Dogleg(GN=False)
-    ),
-    optx.BFGS(
-        rtol,
-        atol,
-        line_search=optx.BacktrackingArmijo(
-            gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
-        ),
-        descent=optx.NormalisedNewton(gauss_newton=False),  # Newton(GN=False)
-    ),
-    optx.BFGS(
-        rtol,
-        atol,
-        line_search=optx.BacktrackingArmijo(
-            gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
-        ),
-        use_inverse=True,  # NewtonInverse
-    ),
-    optx.GradOnly(
-        rtol,
-        atol,
-        line_search=optx.BacktrackingArmijo(
-            gauss_newton=False, backtrack_slope=0.1, decrease_factor=0.5
-        ),
-        descent=optx.NormalisedGradient(),  # Gradient
-    ),
-    optx.NonlinearCG(
-        rtol,
-        atol,
-    ),  # NonlinearCG
+    optx.BFGS(rtol, atol, use_inverse=False),
+    optx.BFGS(rtol, atol, use_inverse=True),
+    BFGSDirectDual(rtol, atol),
+    BFGSIndirectDual(rtol, atol),
+    BFGSDogleg(rtol, atol),
+    BFGSBacktracking(rtol, atol),
+    BFGSBacktracking(rtol, atol, use_inverse=True),
+    BFGSTrustRegion(rtol, atol),
+    BFGSTrustRegion(rtol, atol, use_inverse=True),
+    optx.GradientDescent(rtol, atol, learning_rate=1.5e-2),
+    optx.NonlinearCG(rtol, atol),  # only test one version of NonlinearCG
+    optx.OptaxMinimiser(optax.adam, learning_rate=3e-3, max_steps=10_000),
 )
 
 # the minimisers can handle least squares problems, but the least squares

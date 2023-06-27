@@ -25,12 +25,14 @@ from jaxtyping import Array, ArrayLike, Bool, Float, PyTree, Scalar
 
 
 def sum_squares(x: PyTree[Array]) -> Scalar:
+    """Compute the sum of the squares of the elements of a PyTree of arrays."""
     return jtu.tree_reduce(
         lambda a, b: a + b, jtu.tree_map(lambda c: jnp.sum(jnp.square(c)), x)
     )
 
 
 def two_norm(x: PyTree[Array]) -> Scalar:
+    """Compute the two_norm of a pytree of arrays."""
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
         return jnp.array(0.0)
@@ -57,6 +59,7 @@ def _two_norm_jvp(x, tx):
 
 
 def rms_norm(x: PyTree[Array]) -> Scalar:
+    """Cmopute the rms norm of a pytree of arrays."""
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
         return jnp.array(0.0)
@@ -85,6 +88,7 @@ def _rms_norm_jvp(x, tx):
 
 
 def max_norm(x: PyTree[Array]) -> Scalar:
+    """Return the largest value of the elementwise absolute value of a pytree."""
     leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)]
     return jtu.tree_reduce(jnp.maximum, leaf_maxes)
 
@@ -92,14 +96,22 @@ def max_norm(x: PyTree[Array]) -> Scalar:
 def tree_full_like(
     struct: PyTree[Union[Array, jax.ShapeDtypeStruct]], fill_value: ArrayLike
 ):
-    return jtu.tree_map(lambda x: jnp.full(x.shape, fill_value, x.dtype), struct)
-
-
-def tree_zeros_like(struct: PyTree[Union[Array, jax.ShapeDtypeStruct]]):
-    return jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), struct)
+    """Return a pytree with the same type and shape as the input with values
+    `fill_value`.
+    """
+    fn = lambda x: jnp.full(x.shape, fill_value, x.dtype)
+    if isinstance(fill_value, (int, float)):
+        if fill_value == 0:
+            fn = lambda x: jnp.zeros(x.shape, x.dtype)
+        elif fill_value == 1:
+            fn = lambda x: jnp.ones(x.shape, x.dtype)
+    return jtu.tree_map(fn, struct)
 
 
 def tree_inner_prod(tree1: PyTree[Array], tree2: PyTree[Array]) -> Float[Array, ""]:
+    """Compute the dot product of two pytrees of arrays with the same pytree
+    structure.
+    """
     prod = (tree1**ω * tree2**ω).call(jnp.sum).ω
     return jtu.tree_reduce(lambda x, y: x + y, prod)
 
@@ -107,6 +119,7 @@ def tree_inner_prod(tree1: PyTree[Array], tree2: PyTree[Array]) -> Float[Array, 
 def tree_where(
     pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
 ) -> PyTree[Array]:
+    """Return the `true` or `false` pytree depending on `pred`."""
     keep = lambda a, b: jnp.where(pred, a, b)
     return jtu.tree_map(keep, true, false)
 
@@ -119,6 +132,12 @@ def resolve_rcond(rcond, n, m, dtype):
 
 
 class NoneAux(eqx.Module):
+    """Wrap a function `fn` so it returns a dummy aux value `None`
+
+    NoneAux is used to give a consistent API between functions which have an aux
+    and functions which do not, allowing us to avoid unnecessary aux handling.
+    """
+
     fn: Callable
 
     def __call__(self, *args, **kwargs):
@@ -126,6 +145,12 @@ class NoneAux(eqx.Module):
 
 
 def jacobian(fn, in_size, out_size, has_aux=False):
+    """Compute the Jacobian of a function using forward or backward mode AD.
+
+    `jacobian` chooses between forward and backwards autodiff depending on the input
+    and output dimension of `fn`, as specified in `in_size` and `out_size`.
+    """
+
     # Heuristic for which is better in each case
     # These could probably be tuned a lot more.
     if (in_size < 100) or (in_size <= 1.5 * out_size):
@@ -161,3 +186,14 @@ def inexact_asarray(x):
     if not jnp.issubdtype(jnp.result_type(x), jnp.inexact):
         dtype = default_floating_dtype()
     return _asarray(dtype, x)
+
+
+def is_linear(fn, *args, output):
+    try:
+        eqx.filter_eval_shape(
+            lambda x, y: jax.linear_transpose(fn, *x)(y), args, output
+        )
+    except Exception:
+        return False
+    else:
+        return True

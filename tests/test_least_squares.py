@@ -27,8 +27,8 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 def test_least_squares(solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-4
     # This solver works, it is just bad.
-    ignore_solver = isinstance(solver, optx.GradOnly) or isinstance(
-        solver, optx.NonlinearCG
+    ignore_solver = isinstance(solver, optx.GradientDescent) or isinstance(
+        solver, optx.AbstractNonlinearCG
     )
     ignore_problem = (_fn == trigonometric) or (_fn == variably_dimensioned)
     if ignore_solver or ignore_problem:
@@ -50,11 +50,11 @@ def test_least_squares(solver, _fn, minimum, init, args, has_aux):
     ).value
     out = fn(optx_argmin, args)
     if has_aux:
-        lst_sqr, _ = out
+        residual, _ = out
     else:
-        lst_sqr = out
+        residual = out
     optx_min = jtu.tree_reduce(
-        lambda x, y: x + y, jtu.tree_map(lambda x: jnp.sum(x**2), lst_sqr)
+        lambda x, y: x + y, jtu.tree_map(lambda x: jnp.sum(x**2), residual)
     )
     assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
@@ -64,8 +64,8 @@ def test_least_squares(solver, _fn, minimum, init, args, has_aux):
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-2
-    ignore_solver = isinstance(solver, optx.GradOnly) or isinstance(
-        solver, optx.NonlinearCG
+    ignore_solver = isinstance(solver, optx.GradientDescent) or isinstance(
+        solver, optx.AbstractNonlinearCG
     )
     ignore_problem = (_fn == trigonometric) or (_fn == variably_dimensioned)
     if ignore_solver or ignore_problem:

@@ -12,67 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
 
-import jax
-import jax.tree_util as jtu
-import lineax as lx
+from collections.abc import Callable
+
+import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import Array, PyTree
+from jaxtyping import Array, Bool, Scalar
 
-from .._custom_types import Aux, Fn, Out, Y
-from .._misc import jacobian, sum_squares, tree_inner_prod
-
-
-def compute_hess_grad(fn: Fn[Y, Out, Aux], y: PyTree[Array], args: PyTree):
-    in_size = jtu.tree_reduce(lambda a, b: a + b, jtu.tree_map(lambda c: c.size, y))
-    jac = jacobian(fn, in_size, out_size=1, has_aux=True)
-    grad, aux = jac(y, args)
-    hessian_mat, _ = jax.jacfwd(jac, has_aux=True)(y, args)
-    hessian = lx.PyTreeLinearOperator(
-        hessian_mat,
-        output_structure=jax.eval_shape(lambda: grad),
-    )
-    return grad, hessian, aux
+from .._custom_types import Y
+from .._solution import RESULTS
 
 
-def compute_jac_residual(fn: Fn[Y, Out, Aux], y: PyTree[Array], args: PyTree):
-    residual, aux = fn(y, args)
-    jacobian = lx.JacobianLinearOperator(fn, y, args, _has_aux=True)
-    return residual, jacobian, aux
+def cauchy_termination(
+    rtol: float,
+    atol: float,
+    norm: Callable,
+    y: Y,
+    diff: Y,
+    f_val: Scalar,
+    f_prev: Scalar,
+    result: RESULTS,
+) -> tuple[Bool[Array, ""], RESULTS]:
+    """Terminate if there is a small difference in both `y` space and `f` space, as
+    determined by `rtol` and `atol`.
 
-
-def quadratic_predicted_reduction(
-    gauss_newton: bool,
-    diff: PyTree[Array],
-    descent_state: PyTree,
-    args: PyTree,
-    options: dict[str, Any],
-):
-    # The predicted reduction of a quadratic model function.
-    # This is the model quadratic model function of classical trust region
-    # methods localized around f(x). ie. `m(p) = g^t p + 1/2 p^T B p`
-    # where `g` is the gradient, `B` the Quasi-Newton approximation to the
-    # Hessian, and `p` the descent direction (diff).
-    #
-    # In the Gauss-Newton setting we compute
-    # `0.5 * [(Jp + r)^T (Jp + r) - r^T r]`
-    # which is equivalent when `B = J^T J` and `g = J^T r`.
-    if descent_state.operator is None:
-        raise ValueError(
-            "Cannot get predicted reduction without `operator`. "
-            "`operator_inv` cannot be used with predicted_reduction."
-        )
-    if gauss_newton:
-        rtr = sum_squares(descent_state.vector)
-        jacobian_term = sum_squares(
-            (ω(descent_state.operator.mv(diff)) + ω(descent_state.vector)).ω
-        )
-        reduction = 0.5 * (jacobian_term - rtr)
-    else:
-        operator_quadratic = 0.5 * tree_inner_prod(
-            diff, descent_state.operator.mv(diff)
-        )
-        steepest_descent = tree_inner_prod(descent_state.vector, diff)
-        reduction = (operator_quadratic**ω + steepest_descent**ω).ω
-    return reduction
+    Specifically, this checks that `y_difference < atol + rtol * y` and
+    `f_difference < atol + rtol * f_prev`, terminating if both of these are true.
+    """
+    y_scale = (atol + rtol * ω(y).call(jnp.abs)).ω
+    y_converged = norm((ω(diff).call(jnp.abs) / y_scale**ω).ω) < 1
+    f_scale = (atol + rtol * ω(f_prev).call(jnp.abs)).ω
+    f_converged = norm(((f_val**ω - f_prev**ω).call(jnp.abs) / f_scale**ω).ω) < 1
+    terminate = (result != RESULTS.successful) | (y_converged & f_converged)
+    return terminate, result

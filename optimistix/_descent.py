@@ -12,28 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Callable
-from typing import Any, TypeVar, Union
-from typing_extensions import TypeAlias
+import abc
+from typing import Any, Generic
 
 import equinox as eqx
-import equinox.internal as eqxi
-from jaxtyping import Scalar
+from jaxtyping import PyTree, Scalar
+
+from ._custom_types import Y
+from ._solution import RESULTS
 
 
-class AbstractLineSearchState(eqx.Module):
-    next_init: Scalar
-
-
-Args: TypeAlias = Any
-Aux = TypeVar("Aux")
-Out = TypeVar("Out")
-SolverState = TypeVar("SolverState")
-Y = TypeVar("Y")
-
-Fn: TypeAlias = Callable[[Y, Args], tuple[Out, Aux]]
-MaybeAuxFn: TypeAlias = Union[
-    Callable[[Y, Args], tuple[Out, Aux]], Callable[[Y, Args], Out]
-]
-
-sentinel: Any = eqxi.doc_repr(object(), "sentinel")
+class AbstractDescent(eqx.Module, Generic[Y]):
+    @abc.abstractmethod
+    def __call__(
+        self,
+        step_size: Scalar,
+        args: PyTree,
+        options: dict[str, Any],
+    ) -> tuple[Y, RESULTS]:
+        ...

@@ -23,7 +23,7 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import PyTree
 
-from ._misc import tree_zeros_like
+from ._misc import tree_full_like
 
 
 def _is_global_function(x):
@@ -118,6 +118,6 @@ def _implicit_impl_jvp(primals, tangents):
     _, jvp_diff = jax.jvp(_for_jvp, (diff,), (t_inputs,))
 
     t_root = (-lx.linear_solve(operator, jvp_diff, linear_solver).value ** ω).ω
-    t_residual = tree_zeros_like(residual)
+    t_residual = tree_full_like(residual, 0)
 
     return (root, residual), (t_root, t_residual)
