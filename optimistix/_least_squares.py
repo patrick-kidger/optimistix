@@ -12,35 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Callable
-from typing import Any, cast, Optional, Union
+from typing import Any, cast, Generic, Optional, Union
 
 import equinox as eqx
 import jax
 import jax.tree_util as jtu
-from jaxtyping import PyTree
+from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
+from ._custom_types import Args, Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
-from ._minimise import AbstractMinimiser
+from ._minimise import AbstractMinimiser, minimise
 from ._misc import inexact_asarray, NoneAux, sum_squares
+from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
 
 
 class AbstractLeastSquaresSolver(AbstractIterativeSolver[SolverState, Y, Out, Aux]):
     pass
-
-
-def _minimum(minimum, _, inputs):
-    minimise_fn, args, *_ = inputs
-    del inputs
-
-    def min_no_aux(x):
-        out, _ = minimise_fn(x, args)
-        return out
-
-    return jax.grad(min_no_aux)(minimum)
 
 
 def _residual(optimum, _, inputs):
@@ -54,10 +43,10 @@ def _residual(optimum, _, inputs):
     return jax.grad(objective)(optimum)
 
 
-class _ToMinimiseFn(eqx.Module):
-    residual_fn: Callable
+class _ToMinimiseFn(eqx.Module, Generic[Y, Out, Aux]):
+    residual_fn: Fn[Y, Out, Aux]
 
-    def __call__(self, y, args):
+    def __call__(self, y: Y, args: Args) -> tuple[Scalar, Aux]:
         residual, aux = self.residual_fn(y, args)
         return sum_squares(residual), aux
 
@@ -65,7 +54,7 @@ class _ToMinimiseFn(eqx.Module):
 @eqx.filter_jit
 def least_squares(
     fn: MaybeAuxFn[Y, Out, Aux],
-    solver: Union[AbstractLeastSquaresSolver, AbstractMinimiser],
+    solver: Union[AbstractLeastSquaresSolver, AbstractMinimiser, AbstractRootFinder],
     y0: Y,
     args: PyTree[Any] = None,
     options: Optional[dict[str, Any]] = None,
@@ -77,29 +66,37 @@ def least_squares(
     tags: frozenset[object] = frozenset(),
 ) -> Solution[Y, Aux]:
 
-    y0 = jtu.tree_map(inexact_asarray, y0)
     if not has_aux:
         fn = NoneAux(fn)
     fn = cast(Fn[Y, Out, Aux], fn)
-
     if isinstance(solver, AbstractMinimiser):
-        f_struct, aux_struct = jax.eval_shape(lambda: _ToMinimiseFn(fn)(y0, args))
-        return iterative_solve(
-            fn=_ToMinimiseFn(fn),
-            solver=solver,
-            y0=y0,
-            args=args,
-            options=options,
-            rewrite_fn=_minimum,
+        del tags
+        return minimise(
+            _ToMinimiseFn(fn),
+            solver,
+            y0,
+            args,
+            options,
+            has_aux=True,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
-            tags=tags,
-            f_struct=f_struct,
-            aux_struct=aux_struct,
         )
-
+    elif isinstance(solver, AbstractRootFinder):
+        del tags
+        return root_find(
+            fn,
+            solver,
+            y0,
+            args,
+            options,
+            has_aux=True,
+            max_steps=max_steps,
+            adjoint=adjoint,
+            throw=throw,
+        )
     else:
+        y0 = jtu.tree_map(inexact_asarray, y0)
         f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
         return iterative_solve(
             fn,

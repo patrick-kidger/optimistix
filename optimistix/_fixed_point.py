@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Callable
-from typing import Any, cast, Optional, Union
+from typing import Any, cast, Generic, Optional, Union
 
 import equinox as eqx
 import jax
@@ -22,10 +21,10 @@ from equinox.internal import ω
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._custom_types import Aux, Fn, MaybeAuxFn, SolverState, Y
+from ._custom_types import Args, Aux, Fn, MaybeAuxFn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._misc import inexact_asarray, NoneAux
-from ._root_find import AbstractRootFinder
+from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
 
 
@@ -40,19 +39,19 @@ def _fixed_point(fixed_point, _, inputs):
     return (f_val**ω - fixed_point**ω).ω
 
 
-def _root(root, _, inputs):
-    root_fn, args, *_ = inputs
-    del inputs
-    f_val, _ = root_fn(root, args)
-    return f_val
+class _ToRootFn(eqx.Module, Generic[Y, Aux]):
+    fixed_point_fn: Fn[Y, Y, Aux]
 
-
-class _ToRootFn(eqx.Module):
-    fixed_point_fn: Callable
-
-    def __call__(self, y, args):
+    def __call__(self, y: Y, args: Args) -> tuple[Y, Aux]:
         out, aux = self.fixed_point_fn(y, args)
-        return out - y, aux
+        if (
+            eqx.tree_equal(jax.eval_shape(lambda: y), jax.eval_shape(lambda: out))
+            is not True
+        ):
+            raise ValueError(
+                "The input and output of `fixed_point_fn` must have the same structure"
+            )
+        return (out**ω - y**ω).ω, aux
 
 
 @eqx.filter_jit
@@ -70,33 +69,29 @@ def fixed_point(
     tags: frozenset[object] = frozenset()
 ) -> Solution[Y, Aux]:
 
-    y0 = jtu.tree_map(inexact_asarray, y0)
     if not has_aux:
         fn = NoneAux(fn)
     fn = cast(Fn[Y, Y, Aux], fn)
-    f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
-
-    if eqx.tree_equal(jax.eval_shape(lambda: y0), f_struct) is not True:
-        raise ValueError(
-            "The input and output of `fixed_point_fn` must have the same structure"
-        )
-
     if isinstance(solver, AbstractRootFinder):
-        return iterative_solve(
+        del tags
+        return root_find(
             _ToRootFn(fn),
             solver,
             y0,
             args,
             options,
-            rewrite_fn=_root,
+            has_aux=True,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
-            tags=tags,
-            f_struct=f_struct,
-            aux_struct=aux_struct,
         )
     else:
+        y0 = jtu.tree_map(inexact_asarray, y0)
+        f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
+        if eqx.tree_equal(jax.eval_shape(lambda: y0), f_struct) is not True:
+            raise ValueError(
+                "The input and output of `fixed_point_fn` must have the same structure"
+            )
         return iterative_solve(
             fn,
             solver,
