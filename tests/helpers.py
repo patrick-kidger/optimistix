@@ -238,7 +238,7 @@ minimisers = (
     BFGSTrustRegion(rtol, atol, use_inverse=True),
     optx.GradientDescent(rtol, atol, learning_rate=1.5e-2),
     optx.NonlinearCG(rtol, atol),  # only test one version of NonlinearCG
-    optx.OptaxMinimiser(optax.adam, learning_rate=3e-3, max_steps=10_000),
+    optx.OptaxMinimiser(optax.adam, rtol=rtol, atol=atol, learning_rate=3e-3),
 )
 
 # the minimisers can handle least squares problems, but the least squares

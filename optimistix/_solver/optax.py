@@ -12,34 +12,50 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
 from typing import Any
 from typing_extensions import TypeAlias
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, Int, PyTree, Scalar
+from equinox.internal import ω
+from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
+from .._misc import max_norm
 from .._solution import RESULTS
+from .misc import cauchy_termination
 
 
 _OptaxClass: TypeAlias = Any
-_OptState: TypeAlias = tuple[Int[Array, ""], Any]
+_OptState: TypeAlias = tuple[Any, Any, Any, Any]
 
 
 class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
     optax_cls: _OptaxClass
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
-    max_steps: int
+    rtol: float
+    atol: float
+    norm: Callable
 
-    def __init__(self, optax_cls, *args, max_steps, **kwargs):
+    def __init__(
+        self,
+        optax_cls,
+        *args,
+        rtol: float,
+        atol: float,
+        norm: Callable = max_norm,
+        **kwargs
+    ):
         self.optax_cls = optax_cls
         self.args = args
         self.kwargs = kwargs
-        self.max_steps = max_steps
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
 
     def init(
         self,
@@ -51,11 +67,12 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _OptState:
-        del fn, args, options, f_struct, aux_struct
-        step_index = jnp.array(0)
+        del fn, args, options, aux_struct
         optim = self.optax_cls(*self.args, **self.kwargs)
-        opt_state = optim.init(y)
-        return step_index, opt_state
+        state = optim.init(y)
+        dtype = f_struct.dtype
+        maxval = jnp.finfo(dtype).max
+        return y, jnp.array(maxval, dtype), jnp.array(0.5 * maxval, dtype), state
 
     def step(
         self,
@@ -67,12 +84,12 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
         tags: frozenset[object],
     ) -> tuple[Y, _OptState, Aux]:
         del options
-        step_index, opt_state = state
-        grads, aux = eqx.filter_grad(fn, has_aux=True)(y, args)
+        (f_val, aux), grads = eqx.filter_value_and_grad(fn, has_aux=True)(y, args)
         optim = self.optax_cls(*self.args, **self.kwargs)
+        _, f_prev, _, opt_state = state
         updates, new_opt_state = optim.update(grads, opt_state)
         new_y = eqx.apply_updates(y, updates)
-        new_state = (step_index + 1, new_opt_state)
+        new_state = y, f_val, f_prev, new_opt_state
         return new_y, new_state, aux
 
     def terminate(
@@ -84,9 +101,18 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
         state: _OptState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
-        del fn, y, args, options
-        step_index, _ = state
-        return jnp.array(step_index > self.max_steps), RESULTS.successful
+        del fn, args, options
+        y_prev, f_val, f_prev, _ = state
+        return cauchy_termination(
+            self.rtol,
+            self.atol,
+            self.norm,
+            y,
+            (y**ω - y_prev**ω).ω,
+            f_val,
+            f_prev,
+            RESULTS.successful,
+        )
 
     def buffers(self, state: _OptState) -> tuple[()]:
         return ()
