@@ -33,6 +33,8 @@ class _LearningRateState(AbstractLineSearchState):
 
 
 class LearningRate(AbstractMinimiser[_LearningRateState, Y, Aux]):
+    """Compute `y_new` from `y` by taking a steps of the fixed size `learning_rate`."""
+
     descent: AbstractDescent[Y]
     learning_rate: ScalarLike = eqx.field(converter=jnp.asarray)
 
@@ -82,3 +84,11 @@ class LearningRate(AbstractMinimiser[_LearningRateState, Y, Aux]):
 
     def buffers(self, state: _LearningRateState) -> tuple[()]:
         return ()
+
+
+LearningRate.__init__.__doc__ = """**Arguments:**
+
+- `descent`: A `descent` object to compute what update to take given a
+    step-size.
+- `learning_rate`: The step-size used at each step.
+"""

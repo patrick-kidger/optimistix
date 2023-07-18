@@ -34,6 +34,8 @@ _OptState: TypeAlias = tuple[Any, Any, Any, Any]
 
 
 class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
+    """A wrapper for Optax gradient-based optimisers."""
+
     optax_cls: _OptaxClass
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
@@ -116,3 +118,13 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
 
     def buffers(self, state: _OptState) -> tuple[()]:
         return ()
+
+
+OptaxMinimiser.__init__.__doc__ = """**Arguments:**
+
+- `optax_cls`: The class of the Optax method to use. Do not pass an instance of
+    the Optax class.
+- `args`: The arguments used to instantiate `optax_cls`. 
+- `kwargs`: The keyword arguments used to instantiate `optax_cls`.
+- `max_steps`: The number of steps to take.
+"""

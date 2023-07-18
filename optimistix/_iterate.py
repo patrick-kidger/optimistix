@@ -44,6 +44,8 @@ def _is_array_or_jaxpr(x):
 
 
 class AbstractIterativeSolver(eqx.Module, Generic[SolverState, Y, Out, Aux]):
+    """Abstract base class for all iterative solvers."""
+
     @abc.abstractmethod
     def init(
         self,
@@ -55,6 +57,34 @@ class AbstractIterativeSolver(eqx.Module, Generic[SolverState, Y, Out, Aux]):
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> SolverState:
+        """Perform all initial computation needed to initialise the solver state.
+
+        For example, the [`optimistix.Chord`][] method computes the Jacobian `df/dy`
+        with respect to the initial guess `y`, and then uses it throughout the
+        computation.
+
+        **Arguments:**
+
+        - `fn`: The function to iterate over. This is expected to take two argumetns
+            `fn(y, args)` and return a pytree of arrays in the first element, and any
+            auxiliary data in the second argument.
+        - `y`: The value of `y` at the current (first) iteration.
+        - `args`: Passed as the `args` of `fn(y, args)`.
+        - `options`: Individual solvers may accept additional runtime arguments.
+            See each individual solver's documentation for more details.
+        - `f_struct`: A pytree of `jax.ShapeDtypeStruct`s of the same shape as the
+            output of `fn`. This is used to initialise any information in the state
+            which may rely on the pytree structure, array shapes, or dtype of the
+            output of `fn`.
+        - `aux_struct`: A pytree of `jax.ShapeDtypeStruct`s of the same shape as the
+            auxiliary data returned by `fn`.
+        - `tags`: exact meaning depends on whether this is a fixed point, root find,
+            least squares, or minimisation problem; see their relevant entry points.
+
+        **Returns:**
+
+        A PyTree representing the initial state of the solver.
+        """
         ...
 
     @abc.abstractmethod
@@ -67,6 +97,28 @@ class AbstractIterativeSolver(eqx.Module, Generic[SolverState, Y, Out, Aux]):
         state: SolverState,
         tags: frozenset[object],
     ) -> tuple[Y, SolverState, Aux]:
+        """Perform one step of the iterative solve.
+
+        **Arguments:**
+
+        - `fn`: The function to iterate over. This is expected to take two argumetns
+            `fn(y, args)` and return a pytree of arrays in the first element, and any
+            auxiliary data in the second argument.
+        - `y`: The value of `y` at the current (first) iteration.
+        - `args`: Passed as the `args` of `fn(y, args)`.
+        - `options`: Individual solvers may accept additional runtime arguments.
+            See each individual solver's documentation for more details.
+        - `state`: A pytree representing the state of a solver. The shape of this
+            pytree is solver-dependent.
+        - `tags`: exact meaning depends on whether this is a fixed point, root find,
+            least squares, or minimisation problem; see their relevant entry points.
+
+        **Returns:**
+
+        A 3-tuple containing the new `y` value in the first element, the next solver
+        state in the second element, and the aux output of `fn(y, args)` in the third
+        element.
+        """
         ...
 
     @abc.abstractmethod
@@ -79,13 +131,39 @@ class AbstractIterativeSolver(eqx.Module, Generic[SolverState, Y, Out, Aux]):
         state: SolverState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
+        """Determine whether or not to stop the iterative solve.
+
+        **Arguments:**
+
+        - `fn`: The function to iterate over. This is expected to take two argumetns
+            `fn(y, args)` and return a pytree of arrays in the first element, and any
+            auxiliary data in the second argument.
+        - `y`: The value of `y` at the current (first) iteration.
+        - `args`: Passed as the `args` of `fn(y, args)`.
+        - `options`: Individual solvers may accept additional runtime arguments.
+            See each individual solver's documentation for more details.
+        - `state`: A pytree representing the state of a solver. The shape of this
+            pytree is solver-dependent.
+        - `tags`: exact meaning depends on whether this is a fixed point, root find,
+            least squares, or minimisation problem; see their relevant entry points.
+
+        **Returns:**
+
+        A 2-tuple containing a bool indicating whether or not to stop iterating in the
+        first element, and an [`optimistix.RESULTS`][] object in the second element.
+        """
         ...
 
     @abc.abstractmethod
-    def buffers(
-        self,
-        state: SolverState,
-    ) -> Union[_Node, Sequence[_Node]]:
+    def buffers(self, state: SolverState) -> Union[_Node, Sequence[_Node]]:
+        """Specifies any write-once buffers in the state.
+
+        See the documentation for `equinox.internal.while_loop(..., buffers=...)`.
+        This method will be passed to that argument, which can be used as a performance
+        optimisation in some niche use cases.
+
+        Most solvers should just return an empty tuple.
+        """
         ...
 
 
@@ -167,6 +245,49 @@ def iterative_solve(
     f_struct: PyTree[jax.ShapeDtypeStruct],
     aux_struct: PyTree[jax.ShapeDtypeStruct],
 ) -> Solution[Y, Aux]:
+    """Compute the iterates of an iterative numerical method.
+
+    Given a nonlinear function `fn(y, args)` and an iterative method `solver`,
+    this computes the iterates generated by `solver`. This generalises minimisation,
+    least-squares, root-finding, and fixed-point iteration to any iterative
+    numerical method applied to `fn(y, args)`.
+
+    **Arguments:**
+
+    - `fn`: The function to iterate over. This is expected to take two argumetns
+        `fn(y, args)` and return a pytree of arrays in the first element, and any
+        auxiliary data in the second argument.
+    - `solver`: The solver to use. This should be a subclass of
+        [`optimistix.AbstractIterativeSolver`][].
+    - `y0`: An initial guess for what `y` may be.
+    - `args`: Passed as the `args` of `fn(y, args)`.
+    - `options`: Individual solvers may accept additional runtime arguments.
+        See each individual solver's documentation for more details.
+    - `rewrite_fn`: A function `(root, residual, inputs) -> arbitrary`.
+        Keyword only argument. Used in the implicit function theorem.
+    - `max_steps`: The maximum number of steps the solver can take. Keyword only
+        argument.
+    - `adjoint`: The adjoint method used to compute gradients through an iterative
+        solve. Keyword only argument.
+    - `throw`: How to report any failures. (E.g. an iterative solver running out of
+        steps, or encountering divergent iterates.) If `True` then a failure will raise
+        an error. If `False` then the returned solution object will have a `result`
+        field indicating whether any failures occured. (See [`optimistix.Solution`][].)
+        Keyword only argument.
+    - `tags`: exact meaning depends on whether this is a fixed point, root find,
+        least squares, or minimisation problem; see their relevant entry points.
+    - `f_struct`: A pytree of `jax.ShapeDtypeStruct`s of the same shape as the
+        output of `fn`. This is used to initialise any information in the state
+        which may rely on the pytree structure, array shapes, or dtype of the
+        output of `fn`. Keyword only argument.
+    - `aux_struct`: A pytree of `jax.ShapeDtypeStruct`s of the same shape as the
+        auxiliary data returned by `fn`. Keyword only argument.
+
+    **Returns:**
+
+    An [`optimistix.Solution`][] object.
+    """
+
     f_struct = jtu.tree_map(eqxi.Static, f_struct)
     aux_struct = jtu.tree_map(eqxi.Static, aux_struct)
     inputs = fn, args, solver, y0, options, max_steps, f_struct, aux_struct, tags

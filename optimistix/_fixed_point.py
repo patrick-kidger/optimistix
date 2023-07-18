@@ -29,7 +29,7 @@ from ._solution import Solution
 
 
 class AbstractFixedPointSolver(AbstractIterativeSolver[SolverState, Y, Y, Aux]):
-    pass
+    """Abstract base class for all fixed point solvers."""
 
 
 def _fixed_point(fixed_point, _, inputs):
@@ -68,6 +68,46 @@ def fixed_point(
     throw: bool = True,
     tags: frozenset[object] = frozenset()
 ) -> Solution[Y, Aux]:
+    """Find a fixed-point of a function.
+
+    Given a nonlinear function `fn(y, args)` which returns a pytree of arrays of the
+    same shape as `y`, this returns the value `z` such that `fn(z, args) = z`.
+
+    **Arguments:**
+
+    - `fn`: The function to find the fixed-point of. This should take two arguments
+        `fn(y, args)`, and return a pytree of arrays of the same shape as the input `y`.
+    - `solver`: The root-finder to use. This can be either an
+        [`optimistix.AbstractFixedPointSolver`][] or an
+        [`optimistix.AbstractRootFinder`][]. If `solver` is an
+        [`optimistix.AbstractRootFinder`][] then it will attempt to find the root
+        of `fn(y, args) - y`.
+    - `y0`: An initial guess for what `y` may be. Used to start the iterative process of
+        finding the fixed point; using good initial guesses is often important.
+    - `args`: Passed as the `args` of `fn(y, args)`.
+    - `options`: Individual solvers may accept additional runtime arguments.
+        See each individual solver's documentation for more details.
+    - `has_aux`: If `True`, then `fn` may return a pair, where the first element is its
+        function value, and the second is just auxiliary data. Keyword only argument.
+    - `max_steps`: The maximum number of steps the solver can take. Keyword only
+        argument.
+    - `adjoint`: The adjoint method used to compute gradients through the fixed-point
+        solve. Keyword only argument.
+    - `throw`: How to report any failures. (E.g. an iterative solver running out of
+        steps, or encountering divergent iterates.) If `True` then a failure will raise
+        an error. If `False` then the returned solution object will have a `result`
+        field indicating whether any failures occured. (See [`optimistix.Solution`][].)
+        Keyword only argument.
+    - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing the
+        any structure of the Jacobian of `y -> fn(y, args) - y` with respect to y. (That
+        is, the structure of the matrix `dfn/dy - I`.) Used with
+        [`optimistix.ImplicitAdjoint`][] to implement the implicit function theorem as
+        efficiently as possible. Keyword only argument.
+
+    **Returns:**
+
+    An [`optimistix.Solution`][] object.
+    """
 
     if not has_aux:
         fn = NoneAux(fn)

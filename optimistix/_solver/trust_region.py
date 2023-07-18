@@ -51,9 +51,9 @@ def _predict_linear_reduction(
     """Compute the expected decrease in loss from taking the step `diff` in a
     gradient-based method.
 
-    `predict_linear_reduction` approximates how much `f` should decrease if we
-    take the step `diff` by locally approximating `f` with a linear function.
-    ie. if `g` is the gradient of `f` at `y`, then
+    `predict_linear_reduction` approximates how much `fn` should decrease if we
+    take the step `diff` by locally approximating `fn` with a linear function.
+    ie. if `g` is the gradient of `fn` at `y`, then
     ```
     predicted_linear_reduction(diff) = g^T diff
     ```
@@ -65,7 +65,7 @@ def _predict_linear_reduction(
     - `vector`: the residual vector if `gauss_newton=True`, the gradient vector
         otherwise.
     - `operator`: the Jacobian if `gauss_newton=True`, `None` otherwise
-    - `args`: a pytree of array arguments passed to `f`.
+    - `args`: a pytree of array arguments passed to `fn`.
 
     **Returns**:
 
@@ -85,10 +85,10 @@ def _predict_quadratic_reduction(
     """Compute the expected decrease in loss from taking the step `diff` in
     quasi-Newton and Gauss-Newton models.
 
-    `predict_quadratic_reduction` approximates how much `f` should decrease if we
+    `predict_quadratic_reduction` approximates how much `fn` should decrease if we
     take the step `diff` by locally approximating `f` with a quadratic function.
     ie. if `B` is the approximation to the Hessian coming from the
-    quasi-Newton method at `y` and `g` the gradient of `f` at `y`, then
+    quasi-Newton method at `y` and `g` the gradient of `fn` at `y`, then
     ```
     predicted_quadratic_reduction(diff) = g^T diff + 1/2 diff^T B diff
     ```
@@ -106,7 +106,7 @@ def _predict_quadratic_reduction(
         otherwise.
     - `operator`: the Jacobian if `gauss_newton=True`, the approximate hessian
         otherwise.
-    - `args`: a pytree of array arguments passed to `f`.
+    - `args`: a pytree of array arguments passed to `fn`.
 
     **Returns**:
 
@@ -158,6 +158,23 @@ class _TrustRegionState(AbstractLineSearchState, Generic[Y]):
 
 
 class AbstractTrustRegion(AbstractMinimiser[_TrustRegionState[Y], Y, Aux]):
+    """The abstract base class of the trust-region update algorithm.
+
+    Trust region line searches compute the ratio
+    (`true_reduction`)/(`predicted_reduction`), where `true_reduction`
+    is the decrease in `fn` between `y` and `new_y`, and `predicted_reduction` is how
+    much we expected the function to decrease using a linear approximation to `fn`.
+
+    The trust-region ratio determines whether to accept or reject a step and the
+    next choice of step-size. Specifically:
+
+    - reject the step and decrease stepsize if the ratio is smaller than a
+        cutoff `low_cutoff`
+    - accept the step and make no change to the step-size if the ratio is greater than
+        `low_cutoff`
+    - accept the step and increase the step-size if the ratio is greater than
+        another cutoff `high_cutoff` with `low_cutoff < high_cutoff`.
+    """
 
     descent: AbstractDescent
     gauss_newton: bool
@@ -279,6 +296,19 @@ class AbstractTrustRegion(AbstractMinimiser[_TrustRegionState[Y], Y, Aux]):
 
 
 class ClassicalTrustRegion(AbstractTrustRegion):
+    """The classic trust-region update algorithm which uses a quadratic approximation of
+    the objective function to predict reduction.
+
+    This requires the following `options`:
+
+    - `f0`: The value of the function to perform at line search at the point `y`.
+    - `init_step_size`: The initial `step_size` that the line search will try.
+    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
+        otherwise.
+    - `operator`: The Jacobian operator if `gauss_newton=True`, the approximate
+        Hessian otherwise.
+    """
+
     descent: AbstractDescent
     gauss_newton: bool
     high_cutoff: float = 0.99
@@ -336,6 +366,17 @@ class ClassicalTrustRegion(AbstractTrustRegion):
 
 
 class LinearTrustRegion(AbstractTrustRegion):
+    """The trust-region update algorithm which uses a linear approximation of the
+    objective function to predict reduction.
+
+    This requires the following `options`:
+
+    - `f0`: The value of the function to perform at line search at the point `y`.
+    - `init_step_size`: The initial `step_size` that the line search will try.
+    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
+        otherwise.
+    """
+
     descent: AbstractDescent
     gauss_newton: bool
     high_cutoff: float = 0.99
@@ -382,16 +423,9 @@ class LinearTrustRegion(AbstractTrustRegion):
         )
 
 
-doc = """The trust-region ratio determines whether to accept or reject a step and the
-    next choice of step-size. Specifically:
-
-    - reject the step and decrease stepsize if the ratio is smaller than a
-        cutoff `low_cutoff`
-    - accept the step and make no change to step-size if the ratio is greater than
-        `low_cutoff`
-    - accept the step and increase the step_size if the ratio is greater than
-        another cutoff `high_cutoff` with `low_cutoff < high_cutoff`.
-
+_init_doc = """
+    `ratio` refers to the ratio (`true_reduction`)/(`predicted_reduction`).
+    
     **Arguments**:
 
     - `descent`: a `descent` object to compute what update to take given a step-size.
@@ -408,18 +442,5 @@ doc = """The trust-region ratio determines whether to accept or reject a step an
     low_constant`.
     """
 
-linear_head = """A Linear trust region ratio update.
-
-    Computes the ratio (true_reduction)/(predicted_reduction), where `true_reduction`
-    is the decrease in `f` between `y` and `new_y`, and `predicted_reduction` is how
-    much we expected the function to decrease using a linear approximation to `f`.
-    """
-
-quadratic_head = """The classical trust region ratio update.
-
-    Computes the ratio (true_reduction)/(predicted_reduction), where `true_reduction`
-    is the decrease in `f` between `y` and `new_y`, and `predicted_reduction` is how
-    much we expected the function to decrease using a quadratic approximation to `f`.
-    """
-LinearTrustRegion.__init__.__doc__ = linear_head + doc
-ClassicalTrustRegion.__init__.__doc__ = quadratic_head + doc
+LinearTrustRegion.__init__.__doc__ = _init_doc
+ClassicalTrustRegion.__init__.__doc__ = _init_doc

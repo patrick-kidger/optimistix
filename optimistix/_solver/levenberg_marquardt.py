@@ -87,6 +87,20 @@ class _Damped(eqx.Module):
 
 
 class DirectIterativeDual(AbstractDescent[Y]):
+    """The direct iterative dual (Levenberg-Marquardt) method.
+
+    This requires the following `options`:
+
+    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
+        otherwise.
+    - `operator`: The Jacobian operator of a least-squares problem if
+        `gauss_newton=True`, the approximate Hessian of the objective function if not.
+    - `fn`: The resdidual function used for least-squares. Only necessary if
+        `gauss_newton=True`
+    - `y`: The current iterate in the least-squares problem. Only necessary if
+        `gauss_newton=True`.
+    """
+
     gauss_newton: bool
 
     def __call__(
@@ -137,12 +151,26 @@ class DirectIterativeDual(AbstractDescent[Y]):
 
 
 class IndirectIterativeDual(AbstractDescent[Y]):
+    """The indirect iterative dual (Levenberg-Marquardt) trust-region method.
+
+    This requires the following `options`:
+
+    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
+        otherwise.
+    - `operator`: The Jacobian operator of a least-squares problem if
+        `gauss_newton=True`, the approximate Hessian of the objective function if not.
+    - `fn`: The resdidual function used for least-squares. Only necessary if
+        `gauss_newton=True`
+    - `y`: The current iterate in the least-squares problem. Only necessary if
+        `gauss_newton=True`.
+    """
+
     gauss_newton: bool
-    lambda_0: ScalarLike
+    lambda_0: ScalarLike = 1.0
+    linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
     # Default tol for `root_finder` only because a user would override this entirely
     # with `FooRootFinder(rtol, atol, ...)` and the tol doesn't have to be very strict.
     root_finder: AbstractRootFinder = Newton(rtol=1e-2, atol=1e-2, lower=1e-5)
-    linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
     trust_region_norm: Callable = two_norm
 
     def __call__(
@@ -204,6 +232,11 @@ class IndirectIterativeDual(AbstractDescent[Y]):
 
 
 class LevenbergMarquardt(AbstractGaussNewton):
+    """The Levenberg-Marquardt method.
+
+    This adjusts the Levenberg-Marquardt parameter directly via `ClassicalTrustRegion`.
+    """
+
     def __init__(
         self,
         rtol: float,
@@ -219,14 +252,20 @@ class LevenbergMarquardt(AbstractGaussNewton):
 
 
 class IndirectLevenbergMarquardt(AbstractGaussNewton):
+    """The Levenberg-Marquardt method as a trust-region method.
+
+    This adjusts the Levenberg-Marquardt parameter to hit a specified trust-region
+    size. The trust-region size is adjusted via `ClassicalTrustRegion`.
+    """
+
     def __init__(
         self,
         rtol: float,
         atol: float,
         norm: Callable = max_norm,
         lambda_0: float = 1.0,
-        root_finder: AbstractRootFinder = Newton(rtol=0.01, atol=0.01, lower=1e-5),
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False),
+        root_finder: AbstractRootFinder = Newton(rtol=0.01, atol=0.01, lower=1e-5),
     ):
         self.rtol = rtol
         self.atol = atol
@@ -235,3 +274,48 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton):
             IndirectIterativeDual(gauss_newton=True, lambda_0=lambda_0),
             gauss_newton=True,
         )
+
+
+DirectIterativeDual.__init__.__doc__ = """**Arguments:**
+
+- `gauss_newton`: `True` if this is used for a least squares problem, `False`
+    otherwise.
+"""
+
+IndirectIterativeDual.__init__.__doc__ = """**Arguments:**    
+
+- `gauss_newton`: `True` if this is used for a least squares problem, `False`
+    otherwise.
+- `lambda_0`: The initial value of the Levenberg-Marquardt parameter used in the root-
+    find to hit the trust-region radius. If `IndirectIterativeDual` is failing, this
+    value may need to be increased.
+- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
+    `lx.AutoLinearSolver(well_posed=None)`.
+- `root_finder`: The root finder used to find the Levenberg-Marquardt parameter which
+    hits the trust-region radius. Defaults to `Newton`.
+- `trust_region_norm`: The norm used to determine the trust-region shape. Defaults to 
+    `two_norm`.
+"""
+
+LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+"""
+
+IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
+    
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+- `lambda_0`: The initial value of the Levenberg-Marquardt parameter used in the root-
+    find to hit the trust-region radius. If `IndirectIterativeDual` is failing, this
+    value may need to be increased.
+- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
+    `lx.AutoLinearSolver(well_posed=None)`.
+- `root_finder`: The root finder used to find the Levenberg-Marquardt parameter which
+    hits the trust-region radius. Defaults to `Newton`.
+"""

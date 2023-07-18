@@ -23,6 +23,14 @@ from ._solution import RESULTS
 
 
 class AbstractDescent(eqx.Module, Generic[Y]):
+    """The abstract base class for descents. A descent is a method which returns the
+    `diff` to take at point `y` such that `y + diff` is the next iterate in a
+    nonlinear optimisation problem.
+
+    This generalises the concept of line search and trust region to anything which
+    takes a step-size and returns the step to take given that step-size.
+    """
+
     @abc.abstractmethod
     def __call__(
         self,

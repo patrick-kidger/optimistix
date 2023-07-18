@@ -100,6 +100,28 @@ def _minimise_fn(fn: Fn[Y, Out, Aux], y: Y, args: Args) -> tuple[Scalar, Aux]:
 class AbstractGaussNewton(
     AbstractLeastSquaresSolver[_GaussNewtonState[Y, Aux], Y, Out, Aux]
 ):
+    """Use the Jacobian and residual to solve a nonlinear least-squares probelm
+
+    This can be used with all compatible `line_search` and `descent`s.
+
+
+    ** Attributes:**
+
+    - `rtol`: Relative tolerance for terminating solve.
+    - `atol`: Absolute tolerance for terminating solve.
+    - `line_search`: An line-search minimiser which takes a `descent` object. The
+        line-search must only require `options` from the list of:
+
+        - "init_step_size"
+        - "vector"
+        - "operator"
+        - "operator_inv" (always `None`)
+        - "f0"
+
+    - `norm`: The norm used to determine the difference between two iterates in the
+        convergence criteria. Defaults to `max_norm`.
+    """
+
     rtol: float
     atol: float
     norm: Callable
@@ -213,3 +235,22 @@ class GaussNewton(AbstractGaussNewton):
         self.line_search = LearningRate(
             NewtonDescent(linear_solver=linear_solver), jnp.array(1.0)
         )
+
+
+NewtonDescent.__init__.__doc__ = """**Arguments:**
+
+- `normalise`: If `normalise=True` then normalise the gradient and return a step of 
+    length `step_size`.
+- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
+    `lx.AutoLinearSolver(well_posed=None)`.
+"""
+
+GaussNewton.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
+    `lx.AutoLinearSolver(well_posed=None)`.
+"""

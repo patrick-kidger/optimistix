@@ -39,6 +39,16 @@ from .trust_region import ClassicalTrustRegion
 
 
 class DoglegDescent(AbstractDescent[Y]):
+    """The Dogleg trust region step.
+
+    This requires the following `options`:
+
+    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
+        otherwise.
+    - `operator`: The Jacobian operator of a least-squares problem if
+        `gauss_newton=True`, the approximate Hessian of the objective function if not.
+    """
+
     gauss_newton: bool
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
     root_finder: AbstractRootFinder = Bisection(rtol=1e-3, atol=1e-3)
@@ -165,15 +175,41 @@ class Dogleg(AbstractGaussNewton):
         rtol: float,
         atol: float,
         norm: Callable = max_norm,
-        root_finder: AbstractRootFinder = Bisection(rtol=0.001, atol=0.001),
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
     ):
+        # NOTE: we don't expose root_finder to the defaul API for Dogleg because
+        # we assume the `trust_region_norm` norm is `two_norm`, which has
+        # an analytic formula for the intersection with the dogleg path.
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.line_search = ClassicalTrustRegion(
-            DoglegDescent(
-                gauss_newton=True, linear_solver=linear_solver, root_finder=root_finder
-            ),
+            DoglegDescent(gauss_newton=True, linear_solver=linear_solver),
             gauss_newton=True,
         )
+
+
+DoglegDescent.__init__.__doc__ = """**Arguments:**
+
+- `gauss_newton`: `True` if this is used for a least squares problem, `False`
+    otherwise.
+- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
+    `lx.AutoLinearSolver(well_posed=None)`.
+- `root_finder`: The root finder used to find the point where the trust-region
+    intersects the dogleg path. This is unnecessary if
+    `trust_region_norm=two_norm`.
+- `trust_region_norm`: The norm used to determine the trust-region shape. Defaults to 
+    `two_norm`.
+"""
+
+Dogleg.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
+    `lx.AutoLinearSolver(well_posed=None)`.
+- `trust_region_norm`: The norm used to determine the trust-region shape. Defaults to 
+    `two_norm`.
+"""

@@ -44,7 +44,7 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
 
     **Arguments**:
 
-        - `pytree`: a pytree such that the output of `_identity_pytree` is the identity
+    - `pytree`: A pytree such that the output of `_identity_pytree` is the identity
         with respect to pytrees of the same shape as `pytree`.
 
     **Returns**:
@@ -62,8 +62,11 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
                 )
             else:
                 eye_leaves.append(jnp.zeros(l1.shape + l2.shape))
+
     return lx.PyTreeLinearOperator(
-        jtu.tree_unflatten(eye_structure, eye_leaves), jax.eval_shape(lambda: pytree)
+        jtu.tree_unflatten(eye_structure, eye_leaves),
+        jax.eval_shape(lambda: pytree),
+        lx.positive_semidefinite_tag,
     )
 
 
@@ -91,10 +94,37 @@ class _BFGSState(eqx.Module, Generic[Y, Aux]):
 
 
 class AbstractBFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
+    """Use the BFGS approximate Hessian to solve a nonlinear minimisation problem.
+
+    This can be used with all compatible `line_search` and `descent`s.
+
+    ** Attributes:**
+
+    - `rtol`: Relative tolerance for terminating solve.
+    - `atol`: Absolute tolerance for terminating solve.
+    - `norm`: The norm used to determine the difference between two iterates in the
+        convergence criteria. Defaults to `max_norm`.
+    - `line_search`: An line-search minimiser which takes a `descent` object. The
+        line-search must only require `options` from the list of:
+
+        - "init_step_size"
+        - "vector"
+        - "operator"
+        - "operator_inv"
+        - "f0"
+        - "fn"
+        - "y"
+
+    - `use_inverse`: Whether to compute and update the approximate Hessian `B` or its
+        inverse `B^†`. `use_inverse=True` means the Hessian cannot be used to create an
+        approximation of the objective function, and is incompatible with methods like
+        `ClassicalTrustRegion`.
+    """
+
     rtol: float
     atol: float
-    line_search: AbstractMinimiser[AbstractLineSearchState, Y, Aux]
     norm: Callable
+    line_search: AbstractMinimiser[AbstractLineSearchState, Y, Aux]
     use_inverse: bool
 
     def init(
@@ -109,6 +139,8 @@ class AbstractBFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
     ) -> _BFGSState[Y, Aux]:
         del fn, aux_struct
         identity_pytree_operator = _identity_pytree(y)
+        # NOTE: identity_pytree_operator has a Lineax positive_semidefinite tag.
+        # This is okay because the BFGS update preserves positive-definiteness.
         if self.use_inverse:
             operator = None
             operator_inv = identity_pytree_operator
@@ -268,16 +300,29 @@ class AbstractBFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
 
 
 class BFGS(AbstractBFGS):
-    def __init__(self, rtol: float, atol: float, use_inverse=True):
+    def __init__(self, rtol: float, atol: float, norm=max_norm, use_inverse=True):
         self.rtol = rtol
         self.atol = atol
         # TODO(raderj): switch out `BacktrackingArmijo` with a better
         # line search.
         self.line_search = BacktrackingArmijo(
-            NewtonDescent(),
+            NewtonDescent(linear_solver=lx.Cholesky()),
             gauss_newton=False,
             backtrack_slope=0.1,
             decrease_factor=0.5,
         )
-        self.norm = max_norm
+        self.norm = norm
         self.use_inverse = use_inverse
+
+
+BFGS.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+- `use_inverse`: Whether to compute and update the approximate Hessian `B` or its
+    inverse `B^†`. `use_inverse=True` means the Hessian cannot be used to create an
+    approximation of the objective function, and is incompatible with methods like
+    `ClassicalTrustRegion`.
+"""

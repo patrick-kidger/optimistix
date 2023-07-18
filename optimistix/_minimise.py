@@ -28,7 +28,7 @@ from ._solution import Solution
 
 
 class AbstractMinimiser(AbstractIterativeSolver[SolverState, Y, Scalar, Aux]):
-    pass
+    """Abstract base class for all minimisers."""
 
 
 def _minimum(minimum, _, inputs):
@@ -56,6 +56,40 @@ def minimise(
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
 ) -> Solution[Y, Aux]:
+    """Minimise a function.
+
+    This minimises a nonlinear function `fn(y, args)` which returns a scalar value.
+
+    **Arguments:**
+
+    - `fn`: The objective function. This should take two arguments: `fn(y, args)` and
+        return a scalar.
+    - `solver`: The minimiser solver to use. This should be an
+        [`optimistix.AbstractMinimiser`][].
+    - `y0`: An initial guess for what `y` may be.
+    - `args`: Passed as the `args` of `fn(y, args)`.
+    - `options`: Individual solvers may accept additional runtime arguments.
+        See each individual solver's documentation for more details.
+    - `has_aux`: If `True`, then `fn` may return a pair, where the first element is its
+        function value, and the second is just auxiliary data. Keyword only argument.
+    - `max_steps`: The maximum number of steps the solver can take. Keyword only
+        argument.
+    - `adjoint`: The adjoint method used to compute gradients through the fixed-point
+        solve. Keyword only argument.
+    - `throw`: How to report any failures. (E.g. an iterative solver running out of
+        steps, or encountering divergent iterates.) If `True` then a failure will raise
+        an error. If `False` then the returned solution object will have a `result`
+        field indicating whether any failures occured. (See [`optimistix.Solution`][].)
+        Keyword only argument.
+    - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing the
+        any structure of the Hessian of `fn` with respect to `y`. Used with
+        [`optimistix.ImplicitAdjoint`][] to implement the implicit function theorem as
+        efficiently as possible. Keyword only argument.
+
+    **Returns:**
+
+    An [`optimistix.Solution`][] object.
+    """
 
     y0 = jtu.tree_map(inexact_asarray, y0)
     if not has_aux:

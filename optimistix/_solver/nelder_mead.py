@@ -38,9 +38,6 @@ class _NMStats(eqx.Module):
     n_shrink: Scalar
 
 
-# TODO(raderj): upgrade to line search API
-
-
 class _NelderMeadState(eqx.Module, Generic[Y, Aux]):
     """
     Information to update and store the simplex of the Nelder Mead update. If
@@ -106,6 +103,11 @@ def _update_stats(
 
 
 class NelderMead(AbstractMinimiser[_NelderMeadState[Y, Aux], Y, Aux]):
+    """The Nelder-Mead or downhill simplex derivative-free method.
+
+    Comparable to scipy.optimize.minimize(method="Nelder-Mead").
+    """
+
     rtol: float
     atol: float
     norm: Callable = max_norm
@@ -451,3 +453,18 @@ class NelderMead(AbstractMinimiser[_NelderMeadState[Y, Aux], Y, Aux]):
 
     def buffers(self, state: _NelderMeadState[Y, Aux]) -> PyTree:
         return state.simplex
+
+
+NelderMead.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+- `rdelta`: Nelder-Mead creates an initial simplex by appending a scaled identity 
+    matrix to `y`. The `i`th element of this matrix is `rdelta * y_i + adelta`.
+    Ie. this is the relative size for creating the initial simplex.
+- `rdelta`: Nelder-Mead creates an initial simplex by appending a scaled identity 
+    matrix to `y`. The `i`th element of this matrix is `rdelta * y_i + adelta`.
+    Ie. This is the absolute size for creating the initial simplex.
+"""

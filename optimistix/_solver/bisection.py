@@ -34,6 +34,13 @@ class _BisectionState(eqx.Module):
 
 
 class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
+    """The bisection method of root finding.
+
+    This requires the following `options`:
+    - `upper`: The upper bound on the interval which contains the root.
+    - `lower`: The lowe bound on the interval which contains the root.
+    """
+
     rtol: float
     atol: float
 
@@ -127,3 +134,10 @@ class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
 
     def buffers(self, state: _BisectionState) -> tuple[()]:
         return ()
+
+
+Bisection.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+"""

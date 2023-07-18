@@ -1,4 +1,4 @@
-<h1 align='center'>Optimistix</h1>
+# Getting started
 
 Optimistix is a [JAX](https://github.com/google/jax) library for nonlinear solvers: root finding, minimisation, fixed points, and least squares.
 
@@ -39,9 +39,11 @@ sol = optx.fixed_point(fn, solver, y0)
 y1 = sol.value  # satisfies y1 == fn(y1)
 ```
 
-## Finally
+## Next steps
 
-### JAX ecosystem
+Check out the examples or the API references on the left-hand bar.
+
+## JAX ecosystem
 
 [Equinox](https://github.com/patrick-kidger/equinox): neural networks.
 
@@ -58,7 +60,3 @@ y1 = sol.value  # satisfies y1 == fn(y1)
 [sympy2jax](https://github.com/google/sympy2jax): SymPy<->JAX conversion; train symbolic expressions via gradient descent.
 
 [Levanter](https://github.com/stanford-crfm/levanter): scalable+reliable training of foundation models (e.g. LLMs).
-
-### Disclaimer
-
-This is not an official Google product.

@@ -179,7 +179,7 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
                 state.result,
             )
         else:
-            # TODO(kidger): perform only one iteration when working a linear system!
+            # TODO(kidger): perform only one iteration when solving a linear system!
             at_least_two = state.step >= 2
             rate = state.diffsize / state.diffsize_prev
             factor = state.diffsize * rate / (1 - rate)
@@ -199,8 +199,40 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
 
 
 class Newton(_NewtonChord):
+    """Newton's method of root finding."""
+
     _is_newton = True
 
 
 class Chord(_NewtonChord):
+    """The chord method of root finding."""
+
     _is_newton = False
+
+    rtol: float
+    atol: float
+    kappa: float = 1e-2
+    norm: Callable = max_norm
+    linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+    cauchy_termination: bool = True
+
+
+_init_doc = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `kappa`: A tolerance for early convergence check when `cauchy_termination=False`.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
+    `lx.AutoLinearSolver(well_posed=None)`.
+- `lower`: The lowe bound on the interval which contains the root.
+- `upper`: The upper bound on the interval which contains the root.
+- `cauchy_termination`: When `True`, use a cauchy-like termination condition. When
+    `False`, use a condition more likely to terminate early.
+"""
+
+Newton.__init__.__doc__ = _init_doc
+Chord.__init__.__doc__ = _init_doc

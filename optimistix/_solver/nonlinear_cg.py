@@ -72,6 +72,16 @@ def dai_yuan(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
 
 
 class NonlinearCGDescent(AbstractDescent[Y]):
+    """The nonlinear conjugate gradient step.
+
+
+    This requires the following `options`:
+    - `vector`: The gradient of the objective function to minimise.
+    - `vector_prev`: The gradient of the objective function to minimise at the
+        previous step.
+    - `diff_prev`: The `diff` of the previous step.
+    """
+
     method: Callable
 
     def __call__(
@@ -112,6 +122,26 @@ class _NonlinearCGState(eqx.Module, Generic[Y]):
 
 
 class AbstractNonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux]):
+    """The nonlinear conjugate gradient method.
+
+    This can be used with all compatible `line_search` and `descent`s.
+
+    ** Attributes:**
+
+    - `rtol`: Relative tolerance for terminating solve.
+    - `atol`: Absolute tolerance for terminating solve.
+    - `norm`: The norm used to determine the difference between two iterates in the
+        convergence criteria. Defaults to `max_norm`.
+    - `line_search`: An line-search minimiser which takes a `descent` object. The
+        line-search must only require `options` from the list of:
+        - "init_step_size"
+        - "vector"
+        - "vector_prev"
+        - "diff"
+        - "diff_prev"
+        - "f0"
+    """
+
     rtol: float
     atol: float
     norm: Callable
@@ -227,3 +257,13 @@ class NonlinearCG(AbstractNonlinearCG):
             decrease_factor=0.5,
             backtrack_slope=0.1,
         )
+
+
+NonlinearCG.__init__.__doc__ = """**Arguments:**
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+- `method`: The function which computes `beta` in `NonlinearCG`. Defaults to
+    `polak_ribiere`
+"""

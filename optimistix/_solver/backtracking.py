@@ -53,20 +53,14 @@ class _BacktrackingState(AbstractLineSearchState, Generic[Y]):
 class BacktrackingArmijo(AbstractMinimiser[_BacktrackingState[Y], Y, Aux]):
     """Compute `y_new` from `y` using backtracking Armijo line search.
 
-    **Arguments**:
+    This requires the following to be passed via `options`:
 
-        - `descent`: a `descent` object to compute what update to take given a
-        step-size.
-        - `gauss_newton`: is backtracking a subroutine in least squares problem or a
-        minimisation problem?
-        - `decrease_factor`: the rate at which to backtrack. ie.
-        `next_stepsize = backtrack_slope * current_stepsize`.
-        Must be greater than 0.
-        - `backtrack_slope`: between [0, 1]. the slope of of the linear approximation to
-        `f` that the backtracking algorithm must exceed to terminate. Larger
-            means stricter termination criteria.
-        - `backtracking_init`: the first `step_size` the backtracking algorithm will
-        try. Must be greater than 0.
+    - `f0`: The value of the function to perform at line search at the point `y`.
+    - `init_step_size`: The initial `step_size` that the line search will try.
+    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
+        otherwise.
+    - `operator`: Only necessary when `gauss_newton=True`. The Jacobian operator of the
+        function in a least-squares problem.
     """
 
     descent: AbstractDescent[Y]
@@ -89,6 +83,11 @@ class BacktrackingArmijo(AbstractMinimiser[_BacktrackingState[Y], Y, Aux]):
         if self.backtrack_slope < 0:
             raise ValueError(
                 "`backtrack_slope` of backtracking line search must be greater than 0."
+            )
+
+        if self.backtrack_slope > 1:
+            raise ValueError(
+                "`backtrack_slope` of backtracking line search must be less than 1."
             )
 
     def init(
@@ -217,3 +216,20 @@ class BacktrackingArmijo(AbstractMinimiser[_BacktrackingState[Y], Y, Aux]):
 
     def buffers(self, state: _BacktrackingState[Y]) -> tuple[()]:
         return ()
+
+
+BacktrackingArmijo.__init__.__doc__ = """**Arguments:**
+
+- `descent`: A `descent` object to compute what update to take given a
+    step-size.
+- `gauss_newton`: `True` if this is used for a least squares problem, `False`
+    otherwise.
+- `decrease_factor`: The rate at which to backtrack. ie.
+    `next_stepsize = backtrack_slope * current_stepsize`.
+    Must be greater than 0.
+- `backtrack_slope`: The slope of of the linear approximation to
+    `f` that the backtracking algorithm must exceed to terminate. Larger
+    means stricter termination criteria. Must be between 0 and 1.
+- `backtracking_init`: The first `step_size` the backtracking algorithm will
+    try. Must be greater than 0.
+"""

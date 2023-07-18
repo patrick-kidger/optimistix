@@ -31,6 +31,13 @@ from .misc import cauchy_termination
 
 
 class Gradient(AbstractDescent[Y]):
+    """The gradient descent direction.
+
+    This requires the following `options`:
+
+    - `vector`: The gradient of the objective function to minimise.
+    """
+
     normalise: bool = False
 
     def __call__(
@@ -56,6 +63,24 @@ class _GradientDescentState(eqx.Module, Generic[Y, Aux]):
 
 
 class AbstractGradientDescent(AbstractMinimiser[_GradientDescentState[Y, Aux], Y, Aux]):
+    """The gradient descent method for unconstrained minimisation.
+
+    This can be used with all compatible `line_search` and `descent`s.
+
+    ** Attributes:**
+
+    - `rtol`: Relative tolerance for terminating solve.
+    - `atol`: Absolute tolerance for terminating solve.
+    - `norm`: The norm used to determine the difference between two iterates in the
+        convergence criteria. Defaults to `max_norm`.
+    - `line_search`: An line-search minimiser which takes a `descent` object. The
+        line-search must only require `options` from the list of:
+
+        - "init_step_size"
+        - "vector"
+        - "f0"
+    """
+
     rtol: float
     atol: float
     norm: Callable
@@ -144,13 +169,7 @@ class AbstractGradientDescent(AbstractMinimiser[_GradientDescentState[Y, Aux], Y
 
 
 class GradientDescent(AbstractGradientDescent):
-    """Classic gradient descent with a learning rate `learning_rate`.
-
-    `GradientDescent` can also use any `line_search`/`descent` which only uses gradient
-    information. Right now the only `descent` which can be used with `GradientMethod`
-    is `Gradient`. `GradientMethod` can use any of `BacktrackingLineSearch`,
-    `LinearTrustRegion`, or `LearningRate`.
-    """
+    """Classic gradient descent with a learning rate `learning_rate`."""
 
     def __init__(
         self,
@@ -164,3 +183,19 @@ class GradientDescent(AbstractGradientDescent):
         self.atol = atol
         self.norm = norm
         self.line_search = LearningRate(Gradient(), learning_rate=learning_rate)
+
+
+Gradient.__init__.__doc__ = """**Arguments:**
+
+- `normalise`: If `normalise=True` then normalise the gradient and return a step of 
+    length `step_size`.
+"""
+
+GradientDescent.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+- `learning_rate`: Specifies a constant learning rate to use at each step.
+"""

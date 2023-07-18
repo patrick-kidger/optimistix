@@ -77,3 +77,12 @@ class FixedPointIteration(AbstractFixedPointSolver[_FixedPointState, Y, Aux]):
 
     def buffers(self, state: _FixedPointState) -> tuple[()]:
         return ()
+
+
+FixedPointIteration.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating solve.
+- `atol`: Absolute tolerance for terminating solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Defaults to `max_norm`.
+"""
