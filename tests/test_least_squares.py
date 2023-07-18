@@ -13,8 +13,6 @@ from .helpers import (
     least_squares_optimisers,
     shaped_allclose,
     simple_nn,
-    trigonometric,
-    variably_dimensioned,
 )
 
 
@@ -26,14 +24,6 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_least_squares(solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-4
-    # This solver works, it is just bad.
-    ignore_solver = isinstance(solver, optx.GradientDescent) or isinstance(
-        solver, optx.AbstractNonlinearCG
-    )
-    ignore_problem = (_fn == trigonometric) or (_fn == variably_dimensioned)
-    if ignore_solver or ignore_problem:
-        pytest.skip()
-
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
@@ -64,12 +54,6 @@ def test_least_squares(solver, _fn, minimum, init, args, has_aux):
 @pytest.mark.parametrize("has_aux", (True, False))
 def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
     atol = rtol = 1e-2
-    ignore_solver = isinstance(solver, optx.GradientDescent) or isinstance(
-        solver, optx.AbstractNonlinearCG
-    )
-    ignore_problem = (_fn == trigonometric) or (_fn == variably_dimensioned)
-    if ignore_solver or ignore_problem:
-        pytest.skip()
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
