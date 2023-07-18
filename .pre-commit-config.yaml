@@ -23,10 +23,10 @@ repos:
     hooks:
     - id: black
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.311
+    rev: v1.1.317
     hooks:
     - id: pyright
-      additional_dependencies: ["equinox", "jax", "lineax", "pytest"]
+      additional_dependencies: ["equinox", "jax", "lineax", "pytest", "optax"]
   - repo: https://github.com/nbQA-dev/nbQA
     rev: 1.6.3
     hooks:

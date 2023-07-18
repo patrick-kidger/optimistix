@@ -88,7 +88,7 @@ def _for_jac(root, args):
     return fn_rewrite(root, residual, inputs)
 
 
-@_implicit_impl.defjvp
+@_implicit_impl.def_jvp
 def _implicit_impl_jvp(primals, tangents):
     fn_primal, fn_rewrite, inputs, tags, linear_solver = primals
     (

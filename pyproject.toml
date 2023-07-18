@@ -33,17 +33,17 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
 urls = {repository = "https://github.com/google/optimistix" }
-dependencies = ["jax>=0.4.13", "jaxtyping>=0.2.20", "lineax>=0.0.2", "equinox>=0.10.5", "typing_extensions>=4.5.0"]
+dependencies = ["jax>=0.4.13", "jaxtyping>=0.2.20", "lineax>=0.0.2", "equinox>=0.10.10", "typing_extensions>=4.5.0"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-include = ["lineax/*"]
+include = ["optimistix/*"]
 
 [tool.pytest.ini_options]
-addopts = "--jaxtyping-packages=lineax,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
+addopts = "--jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
 
 [tool.ruff]
 select = ["E", "F", "I001"]
@@ -58,4 +58,4 @@ order-by-type = false
 
 [tool.pyright]
 reportIncompatibleMethodOverride = true
-include = ["lineax", "tests"]
+include = ["optimistix", "tests"]
