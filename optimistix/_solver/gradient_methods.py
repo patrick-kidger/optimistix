@@ -72,11 +72,12 @@ class AbstractGradientDescent(AbstractMinimiser[_GradientDescentState[Y, Aux], Y
         tags: frozenset[object],
     ) -> _GradientDescentState[Y, Aux]:
         del fn, aux_struct
+        maxval = jnp.finfo(f_struct.dtype).max
         return _GradientDescentState(
             step_size=jnp.array(1.0),
             y_prev=y,
-            f_val=jnp.array(jnp.inf, dtype=f_struct.dtype),
-            f_prev=jnp.array(jnp.inf, dtype=f_struct.dtype),
+            f_val=jnp.array(maxval, dtype=f_struct.dtype),
+            f_prev=jnp.array(0.5 * maxval, dtype=f_struct.dtype),
             result=RESULTS.successful,
         )
 
