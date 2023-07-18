@@ -449,5 +449,5 @@ class NelderMead(AbstractMinimiser[_NelderMeadState[Y, Aux], Y, Aux]):
         )
         return terminate, result
 
-    def buffers(self, state: _NelderMeadState[Y, Aux]) -> PyTree[Array]:
+    def buffers(self, state: _NelderMeadState[Y, Aux]) -> PyTree:
         return state.simplex

@@ -21,7 +21,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, Float, PyTree, Scalar
+from jaxtyping import Array, Float, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Y
 from .._descent import AbstractDescent
@@ -138,7 +138,7 @@ class DirectIterativeDual(AbstractDescent[Y]):
 
 class IndirectIterativeDual(AbstractDescent[Y]):
     gauss_newton: bool
-    lambda_0: float
+    lambda_0: ScalarLike
     # Default tol for `root_finder` only because a user would override this entirely
     # with `FooRootFinder(rtol, atol, ...)` and the tol doesn't have to be very strict.
     root_finder: AbstractRootFinder = Newton(rtol=1e-2, atol=1e-2, lower=1e-5)

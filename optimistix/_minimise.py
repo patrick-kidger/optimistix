@@ -21,7 +21,7 @@ import jax.tree_util as jtu
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._custom_types import Aux, Fn, SolverState, Y
+from ._custom_types import Aux, Fn, MaybeAuxFn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._misc import inexact_asarray, NoneAux
 from ._solution import Solution
@@ -44,7 +44,7 @@ def _minimum(minimum, _, inputs):
 
 @eqx.filter_jit
 def minimise(
-    fn: Fn[Y, Scalar, Aux],
+    fn: MaybeAuxFn[Y, Scalar, Aux],
     solver: AbstractMinimiser,
     y0: Y,
     args: PyTree[Any] = None,

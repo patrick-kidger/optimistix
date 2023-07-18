@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Generic
+from typing import Any, Generic, Optional
 
 import equinox as eqx
 import jax
@@ -82,8 +82,8 @@ def _auxmented(fn, x, args):
 class _BFGSState(eqx.Module, Generic[Y, Aux]):
     step_size: Scalar
     vector: Y
-    operator: lx.PyTreeLinearOperator
-    operator_inv: lx.PyTreeLinearOperator
+    operator: Optional[lx.PyTreeLinearOperator]
+    operator_inv: Optional[lx.PyTreeLinearOperator]
     diff: Y
     f_val: Scalar
     f_prev: Scalar

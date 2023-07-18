@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Generic, Union
+from typing import Any, Generic
 
 import equinox as eqx
 import lineax as lx
-from jaxtyping import Array, PyTree
+from jaxtyping import ArrayLike, PyTree
 
 from ._custom_types import Aux, Y
 
@@ -51,5 +51,5 @@ class Solution(eqx.Module, Generic[Y, Aux]):
     value: Y
     result: RESULTS
     aux: Aux
-    stats: dict[str, PyTree[Union[Array, int]]]
+    stats: dict[str, PyTree[ArrayLike]]
     state: PyTree[Any]

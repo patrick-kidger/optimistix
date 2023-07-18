@@ -17,7 +17,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
 
 from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
 from .._descent import AbstractDescent
@@ -34,7 +34,7 @@ class _LearningRateState(AbstractLineSearchState):
 
 class LearningRate(AbstractMinimiser[_LearningRateState, Y, Aux]):
     descent: AbstractDescent[Y]
-    learning_rate: Scalar = eqx.field(converter=jnp.asarray)
+    learning_rate: ScalarLike = eqx.field(converter=jnp.asarray)
 
     def init(
         self,

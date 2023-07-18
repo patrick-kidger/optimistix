@@ -19,7 +19,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-import numpy as np
 from equinox.internal import ω
 from jaxtyping import PyTree, Scalar
 
@@ -212,5 +211,5 @@ class GaussNewton(AbstractGaussNewton):
         self.atol = atol
         self.norm = norm
         self.line_search = LearningRate(
-            NewtonDescent(linear_solver=linear_solver), np.array(1.0)
+            NewtonDescent(linear_solver=linear_solver), jnp.array(1.0)
         )

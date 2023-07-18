@@ -14,23 +14,27 @@
 
 
 from collections.abc import Callable
+from typing import TypeVar
 
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import Array, Bool, Scalar
+from jaxtyping import Array, Bool
 
 from .._custom_types import Y
 from .._solution import RESULTS
+
+
+_F = TypeVar("_F")
 
 
 def cauchy_termination(
     rtol: float,
     atol: float,
     norm: Callable,
-    y: Y,
-    diff: Y,
-    f_val: Scalar,
-    f_prev: Scalar,
+    y_prev: Y,
+    y_diff: Y,  # *Not* y_val
+    f_val: _F,
+    f_prev: _F,
     result: RESULTS,
 ) -> tuple[Bool[Array, ""], RESULTS]:
     """Terminate if there is a small difference in both `y` space and `f` space, as
@@ -39,9 +43,10 @@ def cauchy_termination(
     Specifically, this checks that `y_difference < atol + rtol * y` and
     `f_difference < atol + rtol * f_prev`, terminating if both of these are true.
     """
-    y_scale = (atol + rtol * ω(y).call(jnp.abs)).ω
-    y_converged = norm((ω(diff).call(jnp.abs) / y_scale**ω).ω) < 1
+    f_diff = (f_val**ω - f_prev**ω).ω
+    y_scale = (atol + rtol * ω(y_prev).call(jnp.abs)).ω
     f_scale = (atol + rtol * ω(f_prev).call(jnp.abs)).ω
-    f_converged = norm(((f_val**ω - f_prev**ω).call(jnp.abs) / f_scale**ω).ω) < 1
+    y_converged = norm((ω(y_diff).call(jnp.abs) / y_scale**ω).ω) < 1
+    f_converged = norm((ω(f_diff).call(jnp.abs) / f_scale**ω).ω) < 1
     terminate = (result != RESULTS.successful) | (y_converged & f_converged)
     return terminate, result
