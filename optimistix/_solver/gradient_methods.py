@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Generic
+from typing import Any, Generic, TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -21,8 +21,14 @@ import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
-from .._descent import AbstractDescent
+
+if TYPE_CHECKING:
+    from typing import ClassVar as AbstractVar
+else:
+    from equinox import AbstractVar
+
+from .._custom_types import Aux, Fn, Y
+from .._descent import AbstractDescent, AbstractLineSearch
 from .._minimise import AbstractMinimiser, minimise
 from .._misc import max_norm, two_norm
 from .._solution import RESULTS
@@ -30,8 +36,8 @@ from .learning_rate import LearningRate
 from .misc import cauchy_termination
 
 
-class Gradient(AbstractDescent[Y]):
-    """The gradient descent direction.
+class SteepestDescent(AbstractDescent[Y]):
+    """The descent direction given by locally following the gradient.
 
     This requires the following `options`:
 
@@ -54,6 +60,13 @@ class Gradient(AbstractDescent[Y]):
         return (-step_size * diff**ω).ω, RESULTS.successful
 
 
+SteepestDescent.__init__.__doc__ = """**Arguments:**
+
+- `normalise`: If `normalise=True` then normalise the gradient and return a step of 
+    length `step_size`.
+"""
+
+
 class _GradientDescentState(eqx.Module, Generic[Y, Aux]):
     step_size: Scalar
     y_prev: Y
@@ -65,26 +78,21 @@ class _GradientDescentState(eqx.Module, Generic[Y, Aux]):
 class AbstractGradientDescent(AbstractMinimiser[_GradientDescentState[Y, Aux], Y, Aux]):
     """The gradient descent method for unconstrained minimisation.
 
-    This can be used with all compatible `line_search` and `descent`s.
+    At every step, this algorithm performs a line search along the steepest descent
+    direction. You should subclass this to provide it with a particular choice of line
+    search. (E.g. [`optimistix.GradientDescent`][] uses a simple learning rate step.)
 
-    ** Attributes:**
+    The line search can only require `options` from the list of:
 
-    - `rtol`: Relative tolerance for terminating solve.
-    - `atol`: Absolute tolerance for terminating solve.
-    - `norm`: The norm used to determine the difference between two iterates in the
-        convergence criteria. Defaults to `max_norm`.
-    - `line_search`: An line-search minimiser which takes a `descent` object. The
-        line-search must only require `options` from the list of:
-
-        - "init_step_size"
-        - "vector"
-        - "f0"
+    - "init_step_size"
+    - "vector"
+    - "f0"
     """
 
-    rtol: float
-    atol: float
-    norm: Callable
-    line_search: AbstractMinimiser[AbstractLineSearchState, Y, Aux]
+    rtol: AbstractVar[float]
+    atol: AbstractVar[float]
+    norm: AbstractVar[Callable[[PyTree], Scalar]]
+    line_search: AbstractVar[AbstractLineSearch]
 
     def init(
         self,
@@ -171,31 +179,31 @@ class AbstractGradientDescent(AbstractMinimiser[_GradientDescentState[Y, Aux], Y
 class GradientDescent(AbstractGradientDescent):
     """Classic gradient descent with a learning rate `learning_rate`."""
 
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    line_search: AbstractLineSearch
+
     def __init__(
         self,
+        learning_rate: float,
         rtol: float,
         atol: float,
-        norm: Callable = max_norm,
-        *,
-        learning_rate: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.line_search = LearningRate(Gradient(), learning_rate=learning_rate)
+        self.line_search = LearningRate(SteepestDescent(), learning_rate=learning_rate)
 
-
-Gradient.__init__.__doc__ = """**Arguments:**
-
-- `normalise`: If `normalise=True` then normalise the gradient and return a step of 
-    length `step_size`.
-"""
 
 GradientDescent.__init__.__doc__ = """**Arguments:**
 
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
-- `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
 - `learning_rate`: Specifies a constant learning rate to use at each step.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 """

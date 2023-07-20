@@ -32,12 +32,7 @@ In addition to the following, note that the [Optax]](https://github.com/deepmind
 
 ---
 
-??? abstract "`optimistix.AbstractNonlinearCG`"
-
-    ::: optimistix.AbstractNonlinearCG
-        selection:
-            members:
-                false
+Note that `NonlinearCG` comes in several flavours; see the page on [nonlinear CG variants](./nonlinear-cg-variants.md) for more.
 
 ::: optimistix.NonlinearCG
     selection:
@@ -45,13 +40,6 @@ In addition to the following, note that the [Optax]](https://github.com/deepmind
             false
 
 ---
-
-??? abstract "`optimistix.AbstractBFGS`"
-
-    ::: optimistix.AbstractBFGS
-        selection:
-            members:
-                false
 
 ::: optimistix.BFGS
     selection:

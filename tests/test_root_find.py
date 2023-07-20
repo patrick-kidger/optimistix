@@ -10,7 +10,7 @@ import optimistix as optx
 from .helpers import (
     finite_difference_jvp,
     fixed_point_fn_init_args,
-    shaped_allclose,
+    tree_allclose,
 )
 
 
@@ -45,7 +45,7 @@ def test_root_find(solver, _fn, init, args, has_aux):
     else:
         fn_val = out
     zeros = jtu.tree_map(jnp.zeros_like, fn_val)
-    assert shaped_allclose(fn_val, zeros, atol=atol, rtol=rtol)
+    assert tree_allclose(fn_val, zeros, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize("solver", _root_finders)
@@ -82,4 +82,49 @@ def test_root_find_jvp(getkey, solver, _fn, init, args, has_aux):
     out, t_out = eqx.filter_jvp(
         root_find, (optx_root, dynamic_args), (t_init, t_dynamic_args)
     )
-    assert shaped_allclose(out, expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
+
+
+def test_bisection_flip():
+    for fn in (lambda x, _: x, lambda x, _: -x):
+        options = dict(lower=-1, upper=2)
+        sol = optx.root_find(
+            fn, optx.Bisection(rtol=1e-4, atol=1e-4), 1.0, options=options
+        )
+        assert jnp.allclose(0, sol.value, atol=1e-3)
+
+
+@pytest.mark.parametrize(
+    "solver", [optx.Newton(rtol=1e-5, atol=1e-5), optx.Chord(rtol=1e-5, atol=1e-5)]
+)
+def test_newton_bounded(solver):
+    y0 = (jnp.array(0.0), jnp.arange(4.0).reshape(2, 2))
+
+    def f(y, _):
+        ya, ((yb, yc), (yd, ye)) = y
+        foo = ya + yb + yc + yd + ye
+        bar = ya - yb + yc - yd + ye
+        return foo * bar, ya, yc**2, jnp.tanh(yd), ye + 1
+
+    # Find roots:
+    # Clearly ya=0 yc=0 yd=0, ye=-1.
+    # Then foo*bar=0 => foo=0 or bar=0.
+    # foo=0 => yb=1
+    # bar=0 => yb=-1
+
+    if isinstance(solver, optx.Newton):
+        tol = 1e-4
+    else:
+        tol = 1e-2
+
+    lower_bound = (jnp.NINF, jnp.array([[0, jnp.NINF], [jnp.NINF, jnp.NINF]]))
+    true_lower_root = (jnp.array(0.0), jnp.array([[1.0, 0.0], [0.0, -1.0]]))
+    y0 = (jnp.array(0.1), jnp.array([[1.1, 0.1], [0.1, -1.1]]))
+    lower_root = optx.root_find(f, solver, y0, options=dict(lower=lower_bound)).value
+    assert tree_allclose(lower_root, true_lower_root, rtol=tol, atol=tol)
+
+    upper_bound = (jnp.inf, jnp.array([[0, jnp.inf], [jnp.inf, jnp.inf]]))
+    true_upper_root = (jnp.array(0.0), jnp.array([[-1.0, 0.0], [0.0, -1.0]]))
+    y0 = (jnp.array(0.1), jnp.array([[-1.1, 0.1], [0.1, -1.1]]))
+    upper_root = optx.root_find(f, solver, y0, options=dict(upper=upper_bound)).value
+    assert tree_allclose(upper_root, true_upper_root, rtol=tol, atol=tol)

@@ -18,7 +18,10 @@ from ._adjoint import (
     ImplicitAdjoint as ImplicitAdjoint,
     RecursiveCheckpointAdjoint as RecursiveCheckpointAdjoint,
 )
-from ._descent import AbstractDescent as AbstractDescent
+from ._descent import (
+    AbstractDescent as AbstractDescent,
+    AbstractLineSearch as AbstractLineSearch,
+)
 from ._fixed_point import (
     AbstractFixedPointSolver as AbstractFixedPointSolver,
     fixed_point as fixed_point,
@@ -46,11 +49,8 @@ from ._root_find import (
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solver import (
-    AbstractBFGS as AbstractBFGS,
     AbstractGaussNewton as AbstractGaussNewton,
     AbstractGradientDescent as AbstractGradientDescent,
-    AbstractNonlinearCG as AbstractNonlinearCG,
-    AbstractTrustRegion as AbstractTrustRegion,
     BacktrackingArmijo as BacktrackingArmijo,
     BFGS as BFGS,
     Bisection as Bisection,
@@ -63,7 +63,6 @@ from ._solver import (
     FixedPointIteration as FixedPointIteration,
     fletcher_reeves as fletcher_reeves,
     GaussNewton as GaussNewton,
-    Gradient as Gradient,
     GradientDescent as GradientDescent,
     hestenes_stiefel as hestenes_stiefel,
     IndirectIterativeDual as IndirectIterativeDual,
@@ -78,6 +77,7 @@ from ._solver import (
     NonlinearCGDescent as NonlinearCGDescent,
     OptaxMinimiser as OptaxMinimiser,
     polak_ribiere as polak_ribiere,
+    SteepestDescent as SteepestDescent,
 )
 
 

@@ -20,9 +20,14 @@ import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Float, Int, PyTree, Scalar
 
-from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
-from .._descent import AbstractDescent
-from .._minimise import AbstractMinimiser
+from .._custom_types import (
+    AbstractLineSearchState,
+    Aux,
+    Fn,
+    sentinel,
+    Y,
+)
+from .._descent import AbstractDescent, AbstractLineSearch
 from .._misc import (
     is_linear,
     tree_full_like,
@@ -34,6 +39,7 @@ from .._solution import RESULTS
 
 def _descent_no_results(descent, args, options, step_size):
     diff, results = descent(step_size, args, options)
+    del results
     return diff
 
 
@@ -50,12 +56,15 @@ class _BacktrackingState(AbstractLineSearchState, Generic[Y]):
     step: Int[Array, ""]
 
 
-class BacktrackingArmijo(AbstractMinimiser[_BacktrackingState[Y], Y, Aux]):
+class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState[Y], Y, Aux]):
     """Compute `y_new` from `y` using backtracking Armijo line search.
 
     This requires the following to be passed via `options`:
 
-    - `f0`: The value of the function to perform at line search at the point `y`.
+    - `f0`: The value of the function at the initial point `y`. (This could be computed
+        by making another function evaluation inside the line search -- but this would
+        increase runtime and compilation time, and it's usually already available from
+        the caller.)
     - `init_step_size`: The initial `step_size` that the line search will try.
     - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
         otherwise.
@@ -220,13 +229,12 @@ class BacktrackingArmijo(AbstractMinimiser[_BacktrackingState[Y], Y, Aux]):
 
 BacktrackingArmijo.__init__.__doc__ = """**Arguments:**
 
-- `descent`: A `descent` object to compute what update to take given a
-    step-size.
+- `descent`: An [`optimistix.AbstractDescent`][] object, describing how to map from
+    step-size (a scalar) to update (in y-space).
 - `gauss_newton`: `True` if this is used for a least squares problem, `False`
     otherwise.
-- `decrease_factor`: The rate at which to backtrack. ie.
-    `next_stepsize = backtrack_slope * current_stepsize`.
-    Must be greater than 0.
+- `decrease_factor`: The rate at which to backtrack, i.e.
+    `next_stepsize = backtrack_slope * current_stepsize`. Must be greater than 0.
 - `backtrack_slope`: The slope of of the linear approximation to
     `f` that the backtracking algorithm must exceed to terminate. Larger
     means stricter termination criteria. Must be between 0 and 1.

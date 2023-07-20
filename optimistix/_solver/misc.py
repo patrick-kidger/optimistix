@@ -14,11 +14,11 @@
 
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import cast, TypeVar
 
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import Array, Bool
+from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import Y
 from .._solution import RESULTS
@@ -30,7 +30,7 @@ _F = TypeVar("_F")
 def cauchy_termination(
     rtol: float,
     atol: float,
-    norm: Callable,
+    norm: Callable[[PyTree], Scalar],
     y_prev: Y,
     y_diff: Y,  # *Not* y_val
     f_val: _F,
@@ -49,4 +49,5 @@ def cauchy_termination(
     y_converged = norm((ω(y_diff).call(jnp.abs) / y_scale**ω).ω) < 1
     f_converged = norm((ω(f_diff).call(jnp.abs) / f_scale**ω).ω) < 1
     terminate = (result != RESULTS.successful) | (y_converged & f_converged)
+    terminate = cast(Array, terminate)
     return terminate, result

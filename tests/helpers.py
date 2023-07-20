@@ -15,7 +15,8 @@
 import functools as ft
 import operator
 import random
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import equinox as eqx
 import jax
@@ -36,7 +37,7 @@ def getkey():
     return jr.PRNGKey(random.randint(0, 2**31 - 1))
 
 
-def _shaped_allclose(x, y, **kwargs):
+def _tree_allclose(x, y, **kwargs):
     if type(x) is not type(y):
         return False
     if isinstance(x, jnp.ndarray):  # pyright: ignore
@@ -63,13 +64,13 @@ def _shaped_allclose(x, y, **kwargs):
         return x == y
 
 
-def shaped_allclose(x, y, **kwargs):
+def tree_allclose(x, y, **kwargs):
     """As `jnp.allclose`, except:
     - It also supports PyTree arguments.
     - It mandates that shapes match as well (no broadcasting)
     """
     same_structure = jtu.tree_structure(x) == jtu.tree_structure(y)
-    allclose = ft.partial(_shaped_allclose, **kwargs)
+    allclose = ft.partial(_tree_allclose, **kwargs)
     return same_structure and jtu.tree_reduce(
         operator.and_, jtu.tree_map(allclose, x, y), True
     )
@@ -124,6 +125,11 @@ def finite_difference_jvp(fn, primals, tangents):
 class DoglegMax(optx.AbstractGaussNewton):
     """Dogleg with trust region shape given by the max norm instead of the two norm."""
 
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    line_search: optx.AbstractLineSearch
+
     def __init__(
         self,
         rtol: float,
@@ -143,75 +149,77 @@ class DoglegMax(optx.AbstractGaussNewton):
         )
 
 
-class BFGSDirectDual(optx.AbstractBFGS):
+def bfgs_direct_dual(rtol: float, atol: float):
     """BFGS Hessian + direct Levenberg Marquardt update."""
+    line_search = optx.ClassicalTrustRegion(
+        optx.DirectIterativeDual(gauss_newton=False),
+        gauss_newton=False,
+    )
+    return optx.BFGS(
+        rtol=rtol,
+        atol=atol,
+        line_search=line_search,
+        norm=optx.max_norm,
+        use_inverse=False,
+    )
 
-    def __init__(self, rtol: float, atol: float):
-        self.rtol = rtol
-        self.atol = atol
-        self.line_search = optx.ClassicalTrustRegion(
-            optx.DirectIterativeDual(gauss_newton=False),
-            gauss_newton=False,
-        )
-        self.norm = optx.max_norm
-        self.use_inverse = False
 
-
-class BFGSIndirectDual(optx.AbstractBFGS):
+def bfgs_indirect_dual(rtol: float, atol: float):
     """BFGS Hessian + indirect Levenberg Marquardt update."""
+    line_search = optx.ClassicalTrustRegion(
+        optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1),
+        gauss_newton=False,
+    )
+    return optx.BFGS(
+        rtol=rtol,
+        atol=atol,
+        line_search=line_search,
+        norm=optx.max_norm,
+        use_inverse=False,
+    )
 
-    def __init__(self, rtol: float, atol: float):
-        self.rtol = rtol
-        self.atol = atol
-        self.line_search = optx.ClassicalTrustRegion(
-            optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1),
-            gauss_newton=False,
-        )
-        self.norm = optx.max_norm
-        self.use_inverse = False
 
-
-class BFGSDogleg(optx.AbstractBFGS):
+def bfgs_dogleg(rtol: float, atol: float):
     """BFGS Hessian + dogleg update."""
 
-    def __init__(self, rtol: float, atol: float):
-        self.rtol = rtol
-        self.atol = atol
-        self.line_search = optx.ClassicalTrustRegion(
-            optx.DoglegDescent(
-                gauss_newton=False,
-                linear_solver=lx.AutoLinearSolver(well_posed=False),
-            ),
+    line_search = optx.ClassicalTrustRegion(
+        optx.DoglegDescent(
             gauss_newton=False,
-        )
-        self.norm = optx.max_norm
-        self.use_inverse = False
+            linear_solver=lx.AutoLinearSolver(well_posed=False),
+        ),
+        gauss_newton=False,
+    )
+    return optx.BFGS(
+        rtol=rtol,
+        atol=atol,
+        line_search=line_search,
+        norm=optx.max_norm,
+        use_inverse=False,
+    )
 
 
-class BFGSBacktracking(optx.AbstractBFGS):
+def bfgs_backtracking(rtol: float, atol: float, use_inverse: bool):
     """Standard BFGS + backtracking line search."""
+    line_search = optx.BacktrackingArmijo(optx.NewtonDescent(), gauss_newton=False)
+    return optx.BFGS(
+        rtol=rtol,
+        atol=atol,
+        line_search=line_search,
+        norm=optx.max_norm,
+        use_inverse=False,
+    )
 
-    def __init__(self, rtol: float, atol: float, use_inverse=False):
-        self.rtol = rtol
-        self.atol = atol
-        self.line_search = optx.BacktrackingArmijo(
-            optx.NewtonDescent(), gauss_newton=False
-        )
-        self.norm = optx.max_norm
-        self.use_inverse = use_inverse
 
-
-class BFGSTrustRegion(optx.AbstractBFGS):
+def bfgs_trust_region(rtol: float, atol: float, use_inverse: bool):
     """Standard BFGS + classical trust region upate."""
-
-    def __init__(self, rtol: float, atol: float, use_inverse=False):
-        self.rtol = rtol
-        self.atol = atol
-        self.line_search = optx.LinearTrustRegion(
-            optx.NewtonDescent(), gauss_newton=False
-        )
-        self.norm = optx.max_norm
-        self.use_inverse = use_inverse
+    line_search = optx.LinearTrustRegion(optx.NewtonDescent(), gauss_newton=False)
+    return optx.BFGS(
+        rtol=rtol,
+        atol=atol,
+        line_search=line_search,
+        norm=optx.max_norm,
+        use_inverse=False,
+    )
 
 
 atol = rtol = 1e-8
@@ -229,14 +237,14 @@ minimisers = (
     optx.NelderMead(rtol, atol),
     optx.BFGS(rtol, atol, use_inverse=False),
     optx.BFGS(rtol, atol, use_inverse=True),
-    BFGSDirectDual(rtol, atol),
-    BFGSIndirectDual(rtol, atol),
-    BFGSDogleg(rtol, atol),
-    BFGSBacktracking(rtol, atol),
-    BFGSBacktracking(rtol, atol, use_inverse=True),
-    BFGSTrustRegion(rtol, atol),
-    BFGSTrustRegion(rtol, atol, use_inverse=True),
-    optx.GradientDescent(rtol, atol, learning_rate=1.5e-2),
+    bfgs_direct_dual(rtol, atol),
+    bfgs_indirect_dual(rtol, atol),
+    bfgs_dogleg(rtol, atol),
+    bfgs_backtracking(rtol, atol, use_inverse=False),
+    bfgs_backtracking(rtol, atol, use_inverse=True),
+    bfgs_trust_region(rtol, atol, use_inverse=False),
+    bfgs_trust_region(rtol, atol, use_inverse=True),
+    optx.GradientDescent(1.5e-2, rtol, atol),
     optx.NonlinearCG(rtol, atol),  # only test one version of NonlinearCG
     optx.OptaxMinimiser(optax.adam, rtol=rtol, atol=atol, learning_rate=3e-3),
 )

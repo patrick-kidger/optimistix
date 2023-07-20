@@ -10,7 +10,7 @@ from .helpers import (
     finite_difference_jvp,
     minimisation_fn_minima_init_args,
     minimisers,
-    shaped_allclose,
+    tree_allclose,
 )
 
 
@@ -34,7 +34,7 @@ def test_minimise(solver, _fn, minimum, init, args, has_aux):
         optx_min, _ = out
     else:
         optx_min = out
-    assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
+    assert tree_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize("solver", minimisers)
@@ -64,4 +64,4 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
     out, t_out = eqx.filter_jvp(
         minimise, (optx_argmin, dynamic_args), (t_init, t_dynamic_args)
     )
-    assert shaped_allclose(out, expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)

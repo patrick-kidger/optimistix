@@ -22,8 +22,8 @@ import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
-from .._descent import AbstractDescent
+from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
+from .._descent import AbstractDescent, AbstractLineSearch
 from .._minimise import AbstractMinimiser, minimise
 from .._misc import max_norm, sum_squares, tree_full_like, tree_inner_prod, tree_where
 from .._solution import RESULTS
@@ -35,15 +35,8 @@ def _gradient_step(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     return jnp.array(0.0)
 
 
-def fletcher_reeves(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
-    numerator = sum_squares(vector)
-    denominator = sum_squares(vector_prev)
-    pred = denominator > jnp.finfo(denominator.dtype).eps
-    safe_denom = jnp.where(pred, denominator, 1)
-    return jnp.where(pred, numerator / safe_denom, jnp.inf)
-
-
 def polak_ribiere(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
+    """The Polak--Ribière formula for β."""
     numerator = tree_inner_prod(vector, (vector**ω - vector_prev**ω).ω)
     denominator = sum_squares(vector_prev)
     pred = denominator > jnp.finfo(denominator.dtype).eps
@@ -54,7 +47,17 @@ def polak_ribiere(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     return beta
 
 
+def fletcher_reeves(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
+    """The Fletcher--Reeves formula for β."""
+    numerator = sum_squares(vector)
+    denominator = sum_squares(vector_prev)
+    pred = denominator > jnp.finfo(denominator.dtype).eps
+    safe_denom = jnp.where(pred, denominator, 1)
+    return jnp.where(pred, numerator / safe_denom, jnp.inf)
+
+
 def hestenes_stiefel(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
+    """The Hestenes--Stiefel formula for β."""
     grad_diff = (vector**ω - vector_prev**ω).ω
     numerator = tree_inner_prod(vector, grad_diff)
     denominator = tree_inner_prod(diff_prev, grad_diff)
@@ -64,6 +67,7 @@ def hestenes_stiefel(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
 
 
 def dai_yuan(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
+    """The Dai--Yuan formula for β."""
     numerator = sum_squares(vector)
     denominator = tree_inner_prod(diff_prev, (vector**ω - vector_prev**ω).ω)
     pred = denominator > jnp.finfo(denominator.dtype).eps
@@ -74,15 +78,16 @@ def dai_yuan(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
 class NonlinearCGDescent(AbstractDescent[Y]):
     """The nonlinear conjugate gradient step.
 
-
     This requires the following `options`:
+
     - `vector`: The gradient of the objective function to minimise.
     - `vector_prev`: The gradient of the objective function to minimise at the
         previous step.
-    - `diff_prev`: The `diff` of the previous step.
+    - `diff_prev`: The `diff` of the previous step. (That is to say, the output of the
+        previous call to `NonlinearCGDescent`.)
     """
 
-    method: Callable
+    method: Callable[[Y, Y, Y], Scalar]
 
     def __call__(
         self,
@@ -111,6 +116,19 @@ class NonlinearCGDescent(AbstractDescent[Y]):
         return (step_size * diff**ω).ω, RESULTS.successful
 
 
+NonlinearCGDescent.__init__.__doc__ = """**Arguments:**
+
+- `method`: A callable `method(vector, vector_prev, diff_prev)` describing how to
+    calculate the beta parameter of nonlinear CG. Each of these inputs has the meaning
+    described above. The "beta parameter" is the sake as can be described as e.g. the
+    β_n value
+    [on Wikipedia](https://en.wikipedia.org/wiki/Nonlinear_conjugate_gradient_method).
+    In practice Optimistix includes four built-in methods:
+    [`optimistix.polak_ribiere`][], [`optimistix.fletcher_reeves`][],
+    [`optimistix.hestenes_stiefel`][], and [`optimistix.dai_yuan`][].
+"""
+
+
 class _NonlinearCGState(eqx.Module, Generic[Y]):
     step_size: Scalar
     f_val: Scalar
@@ -121,31 +139,74 @@ class _NonlinearCGState(eqx.Module, Generic[Y]):
     result: RESULTS
 
 
-class AbstractNonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux]):
+#
+# TODO(raderj): replace the default line search in all of these with a better
+# line search algorithm.
+#
+# NOTE: we choose not to make `method` a private method for each of these
+# classes because it simplifies the API that an end-user may want to write
+# to create a new NonlinearCG method.
+#
+
+
+class NonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux]):
     """The nonlinear conjugate gradient method.
 
-    This can be used with all compatible `line_search` and `descent`s.
+    The line search can only require `options` from the list of:
 
-    ** Attributes:**
-
-    - `rtol`: Relative tolerance for terminating solve.
-    - `atol`: Absolute tolerance for terminating solve.
-    - `norm`: The norm used to determine the difference between two iterates in the
-        convergence criteria. Defaults to `max_norm`.
-    - `line_search`: An line-search minimiser which takes a `descent` object. The
-        line-search must only require `options` from the list of:
-        - "init_step_size"
-        - "vector"
-        - "vector_prev"
-        - "diff"
-        - "diff_prev"
-        - "f0"
+    - "init_step_size"
+    - "vector"
+    - "vector_prev"
+    - "diff"
+    - "diff_prev"
+    - "f0"
     """
 
     rtol: float
     atol: float
-    norm: Callable
-    line_search: AbstractMinimiser[AbstractLineSearchState, Y, Aux]
+    norm: Callable[[PyTree], Scalar]
+    line_search: AbstractLineSearch[AbstractLineSearchState, Y, Aux]
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree[Array]], Scalar] = max_norm,
+        method: Callable[[Y, Y, Y], Scalar] = polak_ribiere,
+        line_search: AbstractLineSearch[AbstractLineSearchState, Y, Aux] = sentinel,
+    ):
+        """**Arguments:**
+
+        - `rtol`: Relative tolerance for terminating solve.
+        - `atol`: Absolute tolerance for terminating solve.
+        - `norm`: The norm used to determine the difference between two iterates in the
+            convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+            includes three built-in norms: [`optimistix.max_norm`][],
+            [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+        - `method`: The function which computes `beta` in `NonlinearCG`. Defaults to
+            `polak_ribiere`. Optimistix includes four built-in methods:
+            [`optimistix.polak_ribiere`][], [`optimistix.fletcher_reeves`][],
+            [`optimistix.hestenes_stiefel`][], and [`optimistix.dai_yuan`][], but any
+            function `(Y, Y, Y) -> Scalar` will work.
+        - `line_search`: The line search to use. Note that this argument is mutually
+            exclusive with `method`.
+        """
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        if line_search is sentinel:
+            if method is not polak_ribiere:
+                raise ValueError(
+                    "Cannot pass both `method=...` and `line_search=...` to "
+                    "`optimistix.NonlinearCG`."
+                )
+            line_search = BacktrackingArmijo(
+                NonlinearCGDescent(method=method),
+                gauss_newton=False,
+                decrease_factor=0.5,
+                backtrack_slope=0.1,
+            )
+        self.line_search = line_search
 
     def init(
         self,
@@ -153,15 +214,16 @@ class AbstractNonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        f_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _NonlinearCGState[Y]:
         del fn, aux_struct
+        maxval = jnp.finfo(f_struct.dtype).max
         return _NonlinearCGState(
             step_size=jnp.array(1.0),
-            f_val=jnp.array(jnp.inf, f_struct.dtype),
-            f_prev=jnp.array(jnp.inf, f_struct.dtype),
+            f_val=jnp.array(maxval, f_struct.dtype),
+            f_prev=jnp.array(0.5 * maxval, f_struct.dtype),
             diff=tree_full_like(y, jnp.inf),
             diff_prev=tree_full_like(y, jnp.inf),
             vector=tree_full_like(y, 1.0),
@@ -234,36 +296,3 @@ class AbstractNonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux]):
 
     def buffers(self, state: _NonlinearCGState[Y]) -> tuple[()]:
         return ()
-
-
-#
-# TODO(raderj): replace the default line search in all of these with a better
-# line search algorithm.
-#
-# NOTE: we choose not to make `method` a private method for each of these
-# classes because it simplifies the API that an end-user may want to write
-# to create a new NonlinearCG method.
-#
-
-
-class NonlinearCG(AbstractNonlinearCG):
-    def __init__(self, rtol, atol, norm=max_norm, method=polak_ribiere):
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
-        self.line_search = BacktrackingArmijo(
-            NonlinearCGDescent(method=method),
-            gauss_newton=False,
-            decrease_factor=0.5,
-            backtrack_slope=0.1,
-        )
-
-
-NonlinearCG.__init__.__doc__ = """**Arguments:**
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
-- `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
-- `method`: The function which computes `beta` in `NonlinearCG`. Defaults to
-    `polak_ribiere`
-"""

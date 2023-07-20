@@ -34,14 +34,16 @@ _OptState: TypeAlias = tuple[Any, Any, Any, Any]
 
 
 class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
-    """A wrapper for Optax gradient-based optimisers."""
+    """A wrapper to use Optax first-order gradient-based optimisers with
+    [`optimistix.minimise`][].
+    """
 
     optax_cls: _OptaxClass
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
     rtol: float
     atol: float
-    norm: Callable
+    norm: Callable[[PyTree], Scalar]
 
     def __init__(
         self,
@@ -49,9 +51,23 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
         *args,
         rtol: float,
         atol: float,
-        norm: Callable = max_norm,
+        norm: Callable[[PyTree], Scalar] = max_norm,
         **kwargs
     ):
+        """**Arguments:**
+
+        - `optax_cls`: The **class** of the Optax method to use. Do not pass an
+            **instance** of the Optax class.
+        - `args`: The arguments used to instantiate `optax_cls`.
+        - `kwargs`: The keyword arguments used to instantiate `optax_cls`.
+        - `rtol`: Relative tolerance for terminating the solve. Keyword only argument.
+        - `atol`: Absolute tolerance for terminating the solve. Keyword only argument.
+        - `norm`: The norm used to determine the difference between two iterates in the
+            convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+            includes three built-in norms: [`optimistix.max_norm`][],
+            [`optimistix.rms_norm`][], and [`optimistix.two_norm`][]. Keyword only
+            argument.
+        """
         self.optax_cls = optax_cls
         self.args = args
         self.kwargs = kwargs
@@ -118,13 +134,3 @@ class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux]):
 
     def buffers(self, state: _OptState) -> tuple[()]:
         return ()
-
-
-OptaxMinimiser.__init__.__doc__ = """**Arguments:**
-
-- `optax_cls`: The class of the Optax method to use. Do not pass an instance of
-    the Optax class.
-- `args`: The arguments used to instantiate `optax_cls`. 
-- `kwargs`: The keyword arguments used to instantiate `optax_cls`.
-- `max_steps`: The number of steps to take.
-"""

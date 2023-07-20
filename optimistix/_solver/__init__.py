@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from .backtracking import BacktrackingArmijo as BacktrackingArmijo
-from .bfgs import AbstractBFGS as AbstractBFGS, BFGS as BFGS
+from .bfgs import BFGS as BFGS
 from .bisection import Bisection as Bisection
 from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
 from .fixed_point import FixedPointIteration as FixedPointIteration
@@ -24,8 +24,8 @@ from .gauss_newton import (
 )
 from .gradient_methods import (
     AbstractGradientDescent as AbstractGradientDescent,
-    Gradient as Gradient,
     GradientDescent as GradientDescent,
+    SteepestDescent as SteepestDescent,
 )
 from .learning_rate import LearningRate as LearningRate
 from .levenberg_marquardt import (
@@ -37,7 +37,6 @@ from .levenberg_marquardt import (
 from .nelder_mead import NelderMead as NelderMead
 from .newton_chord import Chord as Chord, Newton as Newton
 from .nonlinear_cg import (
-    AbstractNonlinearCG as AbstractNonlinearCG,
     dai_yuan as dai_yuan,
     fletcher_reeves as fletcher_reeves,
     hestenes_stiefel as hestenes_stiefel,
@@ -47,7 +46,6 @@ from .nonlinear_cg import (
 )
 from .optax import OptaxMinimiser as OptaxMinimiser
 from .trust_region import (
-    AbstractTrustRegion as AbstractTrustRegion,
     ClassicalTrustRegion as ClassicalTrustRegion,
     LinearTrustRegion as LinearTrustRegion,
 )

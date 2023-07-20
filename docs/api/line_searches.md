@@ -1,5 +1,19 @@
 # Line searches
 
+??? abstract "`optimistix.AbstractLineSearch`"
+
+    ::: optimistix.AbstractLineSearch
+        selection:
+            members:
+                false
+
+::: optimistix.LearningRate
+    selection:
+        members:
+            - __init__
+
+---
+
 ::: optimistix.BacktrackingArmijo
     selection:
         members:

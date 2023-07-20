@@ -32,9 +32,18 @@ class _FixedPointState(eqx.Module):
 
 
 class FixedPointIteration(AbstractFixedPointSolver[_FixedPointState, Y, Aux]):
+    """Repeatedly calls a function in search of a fixed point.
+
+    This is one of the simplest ways to find a fixed point `y` of `f`: simply
+    repeatedly call `y_{n+1}=f(y_n)` until `y_n` stops changing.
+
+    Note that this is often not a very effective method, and root-finding algorithms are
+    frequently preferred in practice.
+    """
+
     rtol: float
     atol: float
-    norm: Callable = max_norm
+    norm: Callable[[PyTree], Scalar] = max_norm
 
     def init(
         self,
@@ -81,8 +90,10 @@ class FixedPointIteration(AbstractFixedPointSolver[_FixedPointState, Y, Aux]):
 
 FixedPointIteration.__init__.__doc__ = """**Arguments:**
 
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
 - `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 """

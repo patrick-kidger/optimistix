@@ -18,6 +18,7 @@ from typing import Any, cast, Generic, Optional, TYPE_CHECKING
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
@@ -32,7 +33,7 @@ from .misc import cauchy_termination
 if TYPE_CHECKING:
     from typing import ClassVar as AbstractClassVar
 else:
-    from equinox.internal import AbstractClassVar
+    from equinox import AbstractClassVar
 
 
 def _small(diffsize: Scalar) -> Bool[Array, " "]:
@@ -52,8 +53,7 @@ def _converged(factor: Scalar, tol: float) -> Bool[Array, " "]:
 
 class _NewtonChordState(eqx.Module, Generic[Y]):
     f_val: PyTree[Array]
-    f_prev: PyTree[Array]
-    linear_state: Optional[tuple[lx.AuxLinearOperator, PyTree]]
+    linear_state: Optional[tuple[lx.AbstractLinearOperator, PyTree]]
     diff: Y
     diffsize: Scalar
     diffsize_prev: Scalar
@@ -64,11 +64,9 @@ class _NewtonChordState(eqx.Module, Generic[Y]):
 class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
     rtol: float
     atol: float
+    norm: Callable[[PyTree], Scalar] = max_norm
     kappa: float = 1e-2
-    norm: Callable = max_norm
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
-    lower: Optional[float] = None
-    upper: Optional[float] = None
     cauchy_termination: bool = True
 
     _is_newton: AbstractClassVar[bool]
@@ -93,13 +91,10 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
             linear_state = (jac, self.linear_solver.init(jac, options={}))
         if self.cauchy_termination:
             f_val = tree_full_like(f_struct, jnp.inf)
-            f_prev = tree_full_like(f_struct, 0)
         else:
             f_val = None
-            f_prev = None
         return _NewtonChordState(
             f_val=f_val,
-            f_prev=f_prev,
             linear_state=linear_state,
             diff=tree_full_like(y, jnp.inf),
             diffsize=jnp.array(jnp.inf),
@@ -117,8 +112,9 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
         state: _NewtonChordState[Y],
         tags: frozenset[object],
     ) -> tuple[Y, _NewtonChordState[Y], Aux]:
+        lower = options.get("lower")
+        upper = options.get("upper")
         del options
-        fx, _ = fn(y, args)
         if self._is_newton:
             fx, lin_fn, aux = jax.linearize(lambda _y: fn(_y, args), y, has_aux=True)
             jac = lx.FunctionLinearOperator(
@@ -133,10 +129,12 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
             )
         diff = sol.value
         new_y = (y**ω - diff**ω).ω
-        if self.lower is not None:
-            new_y = jnp.clip(new_y, a_min=self.lower)
-        if self.upper is not None:
-            new_y = jnp.clip(new_y, a_max=self.upper)
+        if lower is not None:
+            new_y = jtu.tree_map(lambda a, b: jnp.clip(a, a_min=b), new_y, lower)
+        if upper is not None:
+            new_y = jtu.tree_map(lambda a, b: jnp.clip(a, a_max=b), new_y, upper)
+        if lower is not None or upper is not None:
+            diff = (y**ω - new_y**ω).ω
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         diffsize = self.norm((diff**ω / scale**ω).ω)
         if self.cauchy_termination:
@@ -145,7 +143,6 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
             f_val = None
         new_state = _NewtonChordState(
             f_val=f_val,
-            f_prev=state.f_val,
             linear_state=state.linear_state,
             diff=diff,
             diffsize=diffsize,
@@ -168,6 +165,10 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
         linsolve_fail = state.result != RESULTS.successful
         linsolve_fail = cast(Array, linsolve_fail)
         if self.cauchy_termination:
+            # Compare `f_val` against 0, not against some `f_prev`. This is because
+            # we're doing a root-find and know that we're aiming to get close to zero.
+            # Note that this does mean that the `rtol` is ignored in f-space, and only
+            # `atol` matters.
             terminate, result = cauchy_termination(
                 self.rtol,
                 self.atol,
@@ -175,7 +176,7 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
                 y,
                 state.diff,
                 state.f_val,
-                state.f_prev,
+                jtu.tree_map(jnp.zeros_like, state.f_val),
                 state.result,
             )
         else:
@@ -199,39 +200,67 @@ class _NewtonChord(AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux]):
 
 
 class Newton(_NewtonChord):
-    """Newton's method of root finding."""
+    """Newton's method for root finding. Also sometimes known as Newton--Raphson.
+
+    Unlike the SciPy implementation of Newton's method, the Optimistix version also
+    works for vector-valued (or PyTree-valued) `y`.
+
+    This solver optionally accepts the following `options`:
+
+    - `lower`: The lower bound on the hypercube which contains the root. Should be a
+        PyTree of arrays each broadcastable to the corresponding element of `y`. The
+        iterates of `y` will be clipped to this hypercube.
+    - `upper`: The upper bound on the hypercube which contains the root. Should be a
+        PyTree of arrays each broadcastable to the corresponding element of `y`. The
+        iterates of `y` will be clipped to this hypercube.
+    """
 
     _is_newton = True
 
 
 class Chord(_NewtonChord):
-    """The chord method of root finding."""
+    """The Chord method of root finding.
+
+    This is equivalent to the Newton method, except that the Jacobian is computed only
+    once at the initial point `y0`, and then reused throughout the computation. This is
+    a useful way to cheapen the solve, if `y0` is expected to be a good initial guess
+    and the target function does not change too rapidly. (For example this is the
+    standard technique used in implicit Runge--Kutta methods, when solving differential
+    equations.)
+
+    This solver optionally accepts the following `options`:
+
+    - `lower`: The lower bound on the hypercube which contains the root. Should be a
+        PyTree of arrays each broadcastable to the corresponding element of `y`. The
+        iterates of `y` will be clipped to this hypercube.
+    - `upper`: The upper bound on the hypercube which contains the root. Should be a
+        PyTree of arrays each broadcastable to the corresponding element of `y`. The
+        iterates of `y` will be clipped to this hypercube.
+    """
 
     _is_newton = False
-
-    rtol: float
-    atol: float
-    kappa: float = 1e-2
-    norm: Callable = max_norm
-    linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
-    lower: Optional[float] = None
-    upper: Optional[float] = None
-    cauchy_termination: bool = True
 
 
 _init_doc = """**Arguments:**
 
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
-- `kappa`: A tolerance for early convergence check when `cauchy_termination=False`.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
 - `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
-- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
-    `lx.AutoLinearSolver(well_posed=None)`.
-- `lower`: The lowe bound on the interval which contains the root.
-- `upper`: The upper bound on the interval which contains the root.
-- `cauchy_termination`: When `True`, use a cauchy-like termination condition. When
-    `False`, use a condition more likely to terminate early.
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][]. Only used when
+    `cauchy_termination=True`.
+- `kappa`: A tolerance for early convergence check when `cauchy_termination=False`.
+- `linear_solver`: The linear solver used to compute the Newton step.
+- `cauchy_termination`: When `True`, use the Cauchy termination condition, that
+    two adjacent iterates should have a small difference between them. This is usually
+    the standard choice when solving general root finding problems. When `False`, use
+    a procedure which attempts to detect slow convergence, and quickly fail the solve
+    if so. This is useful when iteratively performing the root-find, refining the
+    target problem for those which fail. This comes up when solving differential
+    equations with adaptive step sizing and implicit solvers. The exact procedure is as
+    described in Section IV.8 of Hairer & Wanner, "Solving Ordinary Differential
+    Equations II".
 """
 
 Newton.__init__.__doc__ = _init_doc

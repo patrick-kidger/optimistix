@@ -25,6 +25,7 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
+from .._descent import AbstractLineSearch
 from .._minimise import AbstractMinimiser, minimise
 from .._misc import (
     jacobian,
@@ -63,6 +64,8 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
             else:
                 eye_leaves.append(jnp.zeros(l1.shape + l2.shape))
 
+    # NOTE: this has a Lineax positive_semidefinite tag.
+    # This is okay because the BFGS update preserves positive-definiteness.
     return lx.PyTreeLinearOperator(
         jtu.tree_unflatten(eye_structure, eye_leaves),
         jax.eval_shape(lambda: pytree),
@@ -93,39 +96,27 @@ class _BFGSState(eqx.Module, Generic[Y, Aux]):
     result: RESULTS
 
 
-class AbstractBFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
-    """Use the BFGS approximate Hessian to solve a nonlinear minimisation problem.
+class BFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
+    """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
-    This can be used with all compatible `line_search` and `descent`s.
-
-    ** Attributes:**
-
-    - `rtol`: Relative tolerance for terminating solve.
-    - `atol`: Absolute tolerance for terminating solve.
-    - `norm`: The norm used to determine the difference between two iterates in the
-        convergence criteria. Defaults to `max_norm`.
-    - `line_search`: An line-search minimiser which takes a `descent` object. The
-        line-search must only require `options` from the list of:
-
-        - "init_step_size"
-        - "vector"
-        - "operator"
-        - "operator_inv"
-        - "f0"
-        - "fn"
-        - "y"
-
-    - `use_inverse`: Whether to compute and update the approximate Hessian `B` or its
-        inverse `B^†`. `use_inverse=True` means the Hessian cannot be used to create an
-        approximation of the objective function, and is incompatible with methods like
-        `ClassicalTrustRegion`.
+    This is a "second-order" optimisation algorithm, whose defining feature is that the
+    second-order quantites are actually approximated using only first-order gradient
+    information; this approximation is updated and improved at every step.
     """
 
     rtol: float
     atol: float
-    norm: Callable
-    line_search: AbstractMinimiser[AbstractLineSearchState, Y, Aux]
-    use_inverse: bool
+    norm: Callable[[PyTree], Scalar] = max_norm
+    use_inverse: bool = True
+    # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
+    line_search: AbstractLineSearch[
+        AbstractLineSearchState, Y, Aux
+    ] = BacktrackingArmijo(
+        NewtonDescent(linear_solver=lx.Cholesky()),
+        gauss_newton=False,
+        backtrack_slope=0.1,
+        decrease_factor=0.5,
+    )
 
     def init(
         self,
@@ -138,24 +129,22 @@ class AbstractBFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
         tags: frozenset[object],
     ) -> _BFGSState[Y, Aux]:
         del fn, aux_struct
-        identity_pytree_operator = _identity_pytree(y)
-        # NOTE: identity_pytree_operator has a Lineax positive_semidefinite tag.
-        # This is okay because the BFGS update preserves positive-definiteness.
         if self.use_inverse:
             operator = None
-            operator_inv = identity_pytree_operator
+            operator_inv = _identity_pytree(y)
         else:
-            operator = identity_pytree_operator
+            operator = _identity_pytree(y)
             operator_inv = None
+        maxval = jnp.finfo(f_struct.dtype).max
         return _BFGSState(
             step_size=jnp.array(1.0),
-            vector=tree_full_like(y, jnp.array(1.0)),
+            vector=tree_full_like(y, 1.0),
             operator=operator,
             operator_inv=operator_inv,
             diff=tree_full_like(y, jnp.inf),
             result=RESULTS.successful,
-            f_val=jnp.array(jnp.inf, f_struct.dtype),
-            f_prev=jnp.array(jnp.inf, f_struct.dtype),
+            f_val=jnp.array(maxval, f_struct.dtype),
+            f_prev=jnp.array(0.5 * maxval, f_struct.dtype),
         )
 
     def step(
@@ -299,30 +288,32 @@ class AbstractBFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
         return ()
 
 
-class BFGS(AbstractBFGS):
-    def __init__(self, rtol: float, atol: float, norm=max_norm, use_inverse=True):
-        self.rtol = rtol
-        self.atol = atol
-        # TODO(raderj): switch out `BacktrackingArmijo` with a better
-        # line search.
-        self.line_search = BacktrackingArmijo(
-            NewtonDescent(linear_solver=lx.Cholesky()),
-            gauss_newton=False,
-            backtrack_slope=0.1,
-            decrease_factor=0.5,
-        )
-        self.norm = norm
-        self.use_inverse = use_inverse
-
-
 BFGS.__init__.__doc__ = """**Arguments:**
 
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
 - `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
-- `use_inverse`: Whether to compute and update the approximate Hessian `B` or its
-    inverse `B^†`. `use_inverse=True` means the Hessian cannot be used to create an
-    approximation of the objective function, and is incompatible with methods like
-    `ClassicalTrustRegion`.
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `use_inverse`: The BFGS algorithm involves computing matrix-vector products of the
+    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
+    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
+    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
+    and do a matrix-vector product on every step. Option (a) is generally cheaper for
+    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
+    dense Hessians (as matrix-vector products are cheaper than linear solves). The
+    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
+    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
+    Hessian approximation `B` as part of their own computations.
+- `line_search`: The line search for the update. This can only require `options` from
+    the list of:
+
+        - "init_step_size"
+        - "vector"
+        - "operator"
+        - "operator_inv"
+        - "f0"
+        - "fn"
+        - "y"
 """

@@ -11,7 +11,7 @@ from .helpers import (
     bisection_fn_init_options_args,
     finite_difference_jvp,
     fixed_point_fn_init_args,
-    shaped_allclose,
+    tree_allclose,
     trivial,
 )
 
@@ -38,7 +38,7 @@ def test_fixed_point(solver, _fn, init, args, has_aux):
         f_val, _ = out
     else:
         f_val = out
-    assert shaped_allclose(optx_fp, f_val, atol=atol, rtol=rtol)
+    assert tree_allclose(optx_fp, f_val, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize("solver", _fp_solvers)
@@ -68,7 +68,7 @@ def test_fixed_point_jvp(getkey, solver, _fn, init, args, has_aux):
     out, t_out = eqx.filter_jvp(
         fixed_point, (optx_fp, dynamic_args), (t_init, t_dynamic_args)
     )
-    assert shaped_allclose(out, expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize(
@@ -108,4 +108,4 @@ def test_bisection(_fn, init, bisection_options, args, has_aux):
     else:
         f_val = out
     zeros = jtu.tree_map(jnp.zeros_like, f_val)
-    assert shaped_allclose(f_val, zeros, atol=atol, rtol=rtol)
+    assert tree_allclose(f_val, zeros, atol=atol, rtol=rtol)

@@ -11,8 +11,8 @@ from .helpers import (
     finite_difference_jvp,
     least_squares_fn_minima_init_args,
     least_squares_optimisers,
-    shaped_allclose,
     simple_nn,
+    tree_allclose,
 )
 
 
@@ -46,7 +46,7 @@ def test_least_squares(solver, _fn, minimum, init, args, has_aux):
     optx_min = jtu.tree_reduce(
         lambda x, y: x + y, jtu.tree_map(lambda x: jnp.sum(x**2), residual)
     )
-    assert shaped_allclose(optx_min, minimum, atol=atol, rtol=rtol)
+    assert tree_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize("solver", least_squares_optimisers)
@@ -89,4 +89,4 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
     out, t_out = eqx.filter_jvp(
         least_squares, (optx_argmin, dynamic_args), (t_init, t_dynamic_args)
     )
-    assert shaped_allclose(out, expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)

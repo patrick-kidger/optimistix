@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Generic
+from typing import Any, Generic, TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -22,10 +22,16 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import PyTree, Scalar
 
-from .._custom_types import AbstractLineSearchState, Args, Aux, Fn, Out, Y
-from .._descent import AbstractDescent
+
+if TYPE_CHECKING:
+    from typing import ClassVar as AbstractVar
+else:
+    from equinox import AbstractVar
+
+from .._custom_types import Args, Aux, Fn, Out, Y
+from .._descent import AbstractDescent, AbstractLineSearch
 from .._least_squares import AbstractLeastSquaresSolver
-from .._minimise import AbstractMinimiser, minimise
+from .._minimise import minimise
 from .._misc import (
     max_norm,
     sum_squares,
@@ -42,6 +48,22 @@ def _is_array_or_struct(x):
 
 
 class NewtonDescent(AbstractDescent[Y]):
+    """Newton descent direction.
+
+    Given a quadratic bowl `x -> x^T A x` -- typically a local quadratic approximation
+    to the target function -- this corresponds to moving in the direction of the bottom
+    of the bowl. (Which is *not* the same as steepest descent.)
+
+    This is done by solving a linear system of the form `A^{-1} b`.
+
+    This requires the following `options`:
+
+    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
+        otherwise.
+    - `operator`: The Jacobian operator of a least-squares problem if
+        `gauss_newton=True`, the approximate Hessian of the objective function if not.
+    """
+
     normalise: bool = False
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
@@ -84,6 +106,14 @@ class NewtonDescent(AbstractDescent[Y]):
         return (-step_size * diff**ω).ω, result
 
 
+NewtonDescent.__init__.__doc__ = """**Arguments:**
+
+- `normalise`: If `normalise=True` then normalise the gradient and return a step of 
+    length `step_size`.
+- `linear_solver`: The linear solver used to compute the Newton step.
+"""
+
+
 class _GaussNewtonState(eqx.Module, Generic[Y, Aux]):
     step_size: Scalar
     diff: Y
@@ -100,32 +130,23 @@ def _minimise_fn(fn: Fn[Y, Out, Aux], y: Y, args: Args) -> tuple[Scalar, Aux]:
 class AbstractGaussNewton(
     AbstractLeastSquaresSolver[_GaussNewtonState[Y, Aux], Y, Out, Aux]
 ):
-    """Use the Jacobian and residual to solve a nonlinear least-squares probelm
+    """Abstract base class for all Gauss-Newton type methods.
 
-    This can be used with all compatible `line_search` and `descent`s.
+    This includes methods such as [`optimistix.GaussNewton`][],
+    [`optimistix.LevenbergMarquardt`][], and [`optimistix.Dogleg`][].
 
-
-    ** Attributes:**
-
-    - `rtol`: Relative tolerance for terminating solve.
-    - `atol`: Absolute tolerance for terminating solve.
-    - `line_search`: An line-search minimiser which takes a `descent` object. The
-        line-search must only require `options` from the list of:
+    The line search can only require `options` from the list of:
 
         - "init_step_size"
         - "vector"
         - "operator"
-        - "operator_inv" (always `None`)
         - "f0"
-
-    - `norm`: The norm used to determine the difference between two iterates in the
-        convergence criteria. Defaults to `max_norm`.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable
-    line_search: AbstractMinimiser[AbstractLineSearchState, Y, Aux]
+    rtol: AbstractVar[float]
+    atol: AbstractVar[float]
+    norm: AbstractVar[Callable[[PyTree], Scalar]]
+    line_search: AbstractVar[AbstractLineSearch]
 
     def init(
         self,
@@ -222,11 +243,22 @@ class AbstractGaussNewton(
 
 
 class GaussNewton(AbstractGaussNewton):
+    """Gauss-Newton algorithm, for solving nonlinear least-squares problems.
+
+    Note that regularised approaches like [`optimistix.LevenbergMarquardt`][] are
+    usually preferred instead.
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    line_search: AbstractLineSearch
+
     def __init__(
         self,
         rtol: float,
         atol: float,
-        norm: Callable = max_norm,
+        norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
     ):
         self.rtol = rtol
@@ -237,20 +269,13 @@ class GaussNewton(AbstractGaussNewton):
         )
 
 
-NewtonDescent.__init__.__doc__ = """**Arguments:**
-
-- `normalise`: If `normalise=True` then normalise the gradient and return a step of 
-    length `step_size`.
-- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
-    `lx.AutoLinearSolver(well_posed=None)`.
-"""
-
 GaussNewton.__init__.__doc__ = """**Arguments:**
 
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
 - `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
-- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
-    `lx.AutoLinearSolver(well_posed=None)`.
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `linear_solver`: The linear solver used to compute the Newton step.
 """

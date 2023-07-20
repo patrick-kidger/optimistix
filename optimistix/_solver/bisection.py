@@ -28,17 +28,23 @@ from .._solution import RESULTS
 class _BisectionState(eqx.Module):
     lower: Scalar
     upper: Scalar
-    error: Scalar
     flip: Bool[Array, ""]
     step: Int[Array, ""]
 
 
 class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
-    """The bisection method of root finding.
+    """The bisection method of root finding. This may only be used with functions
+    `R->R`, i.e. functions with scalar input and scalar output.
 
     This requires the following `options`:
+
+    - `lower`: The lower bound on the interval which contains the root.
     - `upper`: The upper bound on the interval which contains the root.
-    - `lower`: The lowe bound on the interval which contains the root.
+
+    This algorithm works by considering the interval `[lower, upper]`, checking the
+    sign of the evaluated function at the midpoint of the interval, and then keeping
+    whichever half contains the root. This is then repeated. The iteration stops once
+    the interval is sufficiently small.
     """
 
     rtol: float
@@ -50,13 +56,13 @@ class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
         y: Scalar,
         args: PyTree,
         options: dict[str, Any],
-        f_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _BisectionState:
-        del aux_struct
-        upper = options["upper"]
         lower = options["lower"]
+        upper = options["upper"]
+        del options, aux_struct
         if jnp.shape(y) != () or jnp.shape(lower) != () or jnp.shape(upper) != ():
             raise ValueError(
                 "Bisection can only be used to find the roots of a function taking a "
@@ -76,9 +82,8 @@ class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
         extended_range = extended_upper - lower
         extended_lower = lower - extended_range
         return _BisectionState(
-            lower=extended_lower,
-            upper=extended_upper,
-            error=jnp.asarray(jnp.inf),
+            lower=jnp.asarray(extended_lower, f_struct.dtype),
+            upper=jnp.asarray(extended_upper, f_struct.dtype),
             flip=jnp.array(False),
             step=jnp.array(0),
         )
@@ -103,17 +108,16 @@ class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
         too_large = jnp.where(state.step == 1, False, too_large)
         new_lower = jnp.where(too_large, new_y, state.lower)
         new_upper = jnp.where(too_large, state.upper, new_y)
-        flip = jnp.where(state.step == 1, error < 0, state.flip)
+        flip = jnp.where(state.step < 2, error < 0, state.flip)
         # `step` is passed through to make sure this error check does not get DCEd.
         step = eqxi.error_if(
             state.step,
-            (state.step == 1) & (state.error * error > 0),
+            (state.step == 1) & (state.flip ^ (error > 0)),
             msg="The root is not contained in [lower, upper]",
         )
         new_state = _BisectionState(
             lower=new_lower,
             upper=new_upper,
-            error=error,
             flip=flip,
             step=step + 1,
         )
@@ -130,7 +134,7 @@ class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
     ) -> tuple[Bool[Array, ""], RESULTS]:
         del fn, args, options
         scale = self.atol + self.rtol * jnp.abs(y)
-        return jnp.abs(state.error) < scale, RESULTS.successful
+        return jnp.abs(state.lower - state.upper) < scale, RESULTS.successful
 
     def buffers(self, state: _BisectionState) -> tuple[()]:
         return ()

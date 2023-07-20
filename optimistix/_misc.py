@@ -24,6 +24,7 @@ from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Float, PyTree, Scalar
 
 
+# TODO: can we just unify this with `two_norm`?
 def sum_squares(x: PyTree[Array]) -> Scalar:
     """Compute the sum of the squares of the elements of a PyTree of arrays."""
     return jtu.tree_reduce(
@@ -32,7 +33,11 @@ def sum_squares(x: PyTree[Array]) -> Scalar:
 
 
 def two_norm(x: PyTree[Array]) -> Scalar:
-    """Compute the two_norm of a pytree of arrays."""
+    """Computes the L2 norm of a PyTree of arrays.
+
+    Considering the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
+    `sqrt(Σ_i x_i^2)`
+    """
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
         return jnp.array(0.0)
@@ -59,7 +64,12 @@ def _two_norm_jvp(x, tx):
 
 
 def rms_norm(x: PyTree[Array]) -> Scalar:
-    """Cmopute the rms norm of a pytree of arrays."""
+    """Compute the RMS (root-mean-squared) norm of a PyTree of arrays.
+
+    This is the same as the L2 norm, averaged by the size of the input `x`. Considering
+    the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
+    `sqrt((Σ_i x_i^2)/n)`
+    """
     x, _ = jfu.ravel_pytree(x)
     if x.size == 0:
         return jnp.array(0.0)
@@ -88,7 +98,11 @@ def _rms_norm_jvp(x, tx):
 
 
 def max_norm(x: PyTree[Array]) -> Scalar:
-    """Return the largest value of the elementwise absolute value of a pytree."""
+    """Compute the L-infinity norm of a PyTree of arrays.
+
+    This is the largest absolute elementwise value. Considering the input `x` as a flat
+    vector `(x_1, ..., x_n)`, then this computes `max_i |x_i|`.
+    """
     leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)]
     return jtu.tree_reduce(jnp.maximum, leaf_maxes)
 

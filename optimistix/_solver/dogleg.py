@@ -22,7 +22,7 @@ from equinox.internal import ω
 from jaxtyping import PyTree, Scalar
 
 from .._custom_types import Y
-from .._descent import AbstractDescent
+from .._descent import AbstractDescent, AbstractLineSearch
 from .._misc import (
     max_norm,
     sum_squares,
@@ -39,7 +39,8 @@ from .trust_region import ClassicalTrustRegion
 
 
 class DoglegDescent(AbstractDescent[Y]):
-    """The Dogleg trust region step.
+    """The Dogleg descent step, which switches between the Cauchy and the Newton
+    descent directions.
 
     This requires the following `options`:
 
@@ -52,7 +53,7 @@ class DoglegDescent(AbstractDescent[Y]):
     gauss_newton: bool
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
     root_finder: AbstractRootFinder = Bisection(rtol=1e-3, atol=1e-3)
-    trust_region_norm: Callable = two_norm
+    trust_region_norm: Callable[[PyTree], Scalar] = two_norm
 
     def __call__(
         self,
@@ -96,9 +97,8 @@ class DoglegDescent(AbstractDescent[Y]):
         cauchy = (-scaling * grad**ω).ω
         cauchy_norm = self.trust_region_norm(cauchy)
 
-        def accept_cauchy_or_newton(cauchy_newton):
+        def accept_cauchy_or_newton(cauchy, newton):
             """Scale and return the Cauchy or Newton step."""
-            cauchy, newton = cauchy_newton
             norm_nonzero = cauchy_norm > jnp.finfo(cauchy_norm.dtype).eps
             safe_norm = jnp.where(norm_nonzero, cauchy_norm, 1)
             # Return zeros in degenerate case instead of inf because if `cauchy_norm` is
@@ -111,11 +111,10 @@ class DoglegDescent(AbstractDescent[Y]):
             )
             return tree_where(cauchy_norm > scaled_step_size, normalised_cauchy, newton)
 
-        def interpolate_cauchy_and_newton(cauchy_newton):
+        def interpolate_cauchy_and_newton(cauchy, newton):
             """Find the point interpolating the Cauchy and Newton steps which
             intersects the trust region radius.
             """
-            cauchy, newton = cauchy_newton
 
             def interpolate(t):
                 return (cauchy**ω + (t - 1) * (newton**ω - cauchy**ω)).ω
@@ -141,9 +140,9 @@ class DoglegDescent(AbstractDescent[Y]):
                     ((2 * c) / (-b - jnp.sqrt(b**2 - 4 * a * c))), a_min=1, a_max=2
                 )
                 # The quadratic formula is not numerically stable, and it is best to
-                # use slightly different formulas when `b >=` and `b < 0` to avoid
-                # See this issue: https://github.com/fortran-lang/stdlib/issues/674
-                # for a number of references.
+                # use slightly different formulas when `b >=` and `b < 0`.
+                # See https://github.com/fortran-lang/stdlib/issues/674 for a number of
+                # references.
                 interp_amount = jnp.where(b >= 0, quadratic_1, quadratic_2)
             else:
                 root_find_options = {"lower": jnp.array(1.0), "upper": jnp.array(2.0)}
@@ -157,24 +156,53 @@ class DoglegDescent(AbstractDescent[Y]):
                 ).value
             return interpolate(interp_amount)
 
-        # Pass and unpack the tuple `(cauchy_dynamic, newton_dynamic)` rather than
-        # directly pass `cauchy_dynamic` and `newton_dynamic` to work around JAX
-        # issue #16413
         diff = lax.cond(
             (cauchy_norm > scaled_step_size) | (step_size >= 1),
             accept_cauchy_or_newton,
             interpolate_cauchy_and_newton,
-            (cauchy, newton),
+            cauchy,
+            newton,
         )
         return diff, RESULTS.promote(newton_soln.result)
 
 
+DoglegDescent.__init__.__doc__ = """**Arguments:**
+
+- `gauss_newton`: `True` if this is used for a least squares problem, `False`
+    otherwise.
+- `linear_solver`: The linear solver used to compute the Newton step.
+- `root_finder`: The root finder used to find the point where the trust-region
+    intersects the dogleg path. This is ignored if
+    `trust_region_norm=optimistix.two_norm`, for which there is an analytic formula
+    instead.
+- `trust_region_norm`: The norm used to determine the trust-region shape.
+"""
+
+
 class Dogleg(AbstractGaussNewton):
+    """Dogleg algorithm. Used for nonlinear least squares problems.
+
+    Given a quadratic bowl that locally approximates the function to be minimised, then
+    there are two different ways we might try to move downhill: in the steepest descent
+    direction (as in gradient descent; this is also sometimes called the Cauchy
+    direction), and in the direction of the minima of the quadratic bowl (as in Newton's
+    method; correspondingly this is called the Newton direction).
+
+    The distinguishing feature of this algorithm is the "dog leg" shape of its descent
+    path, in which it begins by moving in the steepest descent direction, and then
+    switches to moving in the Newton direction.
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    line_search: AbstractLineSearch
+
     def __init__(
         self,
         rtol: float,
         atol: float,
-        norm: Callable = max_norm,
+        norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
     ):
         # NOTE: we don't expose root_finder to the defaul API for Dogleg because
@@ -189,27 +217,13 @@ class Dogleg(AbstractGaussNewton):
         )
 
 
-DoglegDescent.__init__.__doc__ = """**Arguments:**
-
-- `gauss_newton`: `True` if this is used for a least squares problem, `False`
-    otherwise.
-- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
-    `lx.AutoLinearSolver(well_posed=None)`.
-- `root_finder`: The root finder used to find the point where the trust-region
-    intersects the dogleg path. This is unnecessary if
-    `trust_region_norm=two_norm`.
-- `trust_region_norm`: The norm used to determine the trust-region shape. Defaults to 
-    `two_norm`.
-"""
-
 Dogleg.__init__.__doc__ = """**Arguments:**
 
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
 - `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
-- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
-    `lx.AutoLinearSolver(well_posed=None)`.
-- `trust_region_norm`: The norm used to determine the trust-region shape. Defaults to 
-    `two_norm`.
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `linear_solver`: The linear solver used to compute the Newton step.
 """

@@ -23,7 +23,7 @@ import optimistix._misc as optx_misc
 
 descent_linear = (
     (optx.NewtonDescent(), True),
-    (optx.Gradient(), True),
+    (optx.SteepestDescent(), True),
     (optx.NonlinearCGDescent(method=lambda v, v_p, d_p: jnp.array(0.0)), True),
     (optx.DoglegDescent(gauss_newton=False), False),
     (optx.DirectIterativeDual(gauss_newton=False), False),
@@ -36,7 +36,7 @@ def test_linear_descents(descent, expected_linear):
     args = ()
     options = {
         "operator": jnp.array(16.0)
-        * lx.IdentityLinearOperator(structure=jax.ShapeDtypeStruct((), jnp.float64)),
+        * lx.IdentityLinearOperator(jax.ShapeDtypeStruct((), jnp.float64)),
         "vector": jnp.array(17.0),
         "vector_prev": jnp.array(17.0),
         "diff_prev": jnp.array(17.0),

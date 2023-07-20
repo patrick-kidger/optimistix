@@ -24,7 +24,7 @@ from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Y
-from .._descent import AbstractDescent
+from .._descent import AbstractDescent, AbstractLineSearch
 from .._misc import max_norm, tree_full_like, tree_where, two_norm
 from .._root_find import AbstractRootFinder, root_find
 from .._solution import RESULTS
@@ -87,7 +87,7 @@ class _Damped(eqx.Module):
 
 
 class DirectIterativeDual(AbstractDescent[Y]):
-    """The direct iterative dual (Levenberg-Marquardt) method.
+    """The direct iterative dual (Levenberg--Marquardt) method.
 
     This requires the following `options`:
 
@@ -150,8 +150,15 @@ class DirectIterativeDual(AbstractDescent[Y]):
         return diff, RESULTS.promote(linear_sol.result)
 
 
+DirectIterativeDual.__init__.__doc__ = """**Arguments:**
+
+- `gauss_newton`: `True` if this is used for a least squares problem, `False`
+    otherwise.
+"""
+
+
 class IndirectIterativeDual(AbstractDescent[Y]):
-    """The indirect iterative dual (Levenberg-Marquardt) trust-region method.
+    """The indirect iterative dual (Levenberg--Marquardt) trust-region method.
 
     This requires the following `options`:
 
@@ -170,8 +177,8 @@ class IndirectIterativeDual(AbstractDescent[Y]):
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
     # Default tol for `root_finder` only because a user would override this entirely
     # with `FooRootFinder(rtol, atol, ...)` and the tol doesn't have to be very strict.
-    root_finder: AbstractRootFinder = Newton(rtol=1e-2, atol=1e-2, lower=1e-5)
-    trust_region_norm: Callable = two_norm
+    root_finder: AbstractRootFinder = Newton(rtol=1e-2, atol=1e-2)
+    trust_region_norm: Callable[[PyTree], Scalar] = two_norm
 
     def __call__(
         self,
@@ -222,7 +229,7 @@ class IndirectIterativeDual(AbstractDescent[Y]):
                 solver=self.root_finder,
                 y0=jnp.array(self.lambda_0),
                 args=args,
-                options={},
+                options=dict(lower=1e-5),
                 max_steps=32,
                 throw=False,
             ).value
@@ -231,17 +238,41 @@ class IndirectIterativeDual(AbstractDescent[Y]):
         return lax.cond(step_size >= 1, accept_newton, reject_newton)
 
 
-class LevenbergMarquardt(AbstractGaussNewton):
-    """The Levenberg-Marquardt method.
+IndirectIterativeDual.__init__.__doc__ = """**Arguments:**    
 
-    This adjusts the Levenberg-Marquardt parameter directly via `ClassicalTrustRegion`.
+- `gauss_newton`: `True` if this is used for a least squares problem, `False`
+    otherwise.
+- `lambda_0`: The initial value of the Levenberg--Marquardt parameter used in the root-
+    find to hit the trust-region radius. If `IndirectIterativeDual` is failing, this
+    value may need to be increased.
+- `linear_solver`: The linear solver used to compute the Newton step.
+- `root_finder`: The root finder used to find the Levenberg--Marquardt parameter which
+    hits the trust-region radius.
+- `trust_region_norm`: The norm used to determine the trust-region shape.
+"""
+
+
+class LevenbergMarquardt(AbstractGaussNewton):
+    """The Levenberg--Marquardt method.
+
+    This is a classical solver for nonlinear least squares, which works by regularising
+    [`optimistix.GaussNewton`][] with a damping factor. This serves to (a) interpolate
+    between Gauss--Newton and steepest descent, and (b) limit step size to a local
+    region around the current point.
+
+    This is usually a good choice of algorithm for many problems.
     """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    line_search: AbstractLineSearch
 
     def __init__(
         self,
         rtol: float,
         atol: float,
-        norm: Callable = max_norm,
+        norm: Callable[[PyTree], Scalar] = max_norm,
     ):
         self.rtol = rtol
         self.atol = atol
@@ -251,71 +282,69 @@ class LevenbergMarquardt(AbstractGaussNewton):
         )
 
 
-class IndirectLevenbergMarquardt(AbstractGaussNewton):
-    """The Levenberg-Marquardt method as a trust-region method.
+LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 
-    This adjusts the Levenberg-Marquardt parameter to hit a specified trust-region
-    size. The trust-region size is adjusted via `ClassicalTrustRegion`.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+"""
+
+
+class IndirectLevenbergMarquardt(AbstractGaussNewton):
+    """The Levenberg--Marquardt method as a true trust-region method.
+
+    This is a variant of [`optimistix.LevenbergMarquardt`][]. The other algorithm works
+    by updating the damping factor directly -- this version instead updates a trust
+    region, and then fits the damping factor to the size of the trust region.
+
+    Generally speaking [`optimistix.LevenbergMarquardt`][] is preferred, as it performs
+    nearly the same algorithm, without the computational overhead of an extra (scalar)
+    nonlinear solve.
     """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    line_search: AbstractLineSearch
 
     def __init__(
         self,
         rtol: float,
         atol: float,
-        norm: Callable = max_norm,
+        norm: Callable[[PyTree], Scalar] = max_norm,
         lambda_0: float = 1.0,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False),
-        root_finder: AbstractRootFinder = Newton(rtol=0.01, atol=0.01, lower=1e-5),
+        root_finder: AbstractRootFinder = Newton(rtol=0.01, atol=0.01),
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.line_search = ClassicalTrustRegion(
-            IndirectIterativeDual(gauss_newton=True, lambda_0=lambda_0),
+            IndirectIterativeDual(
+                gauss_newton=True,
+                lambda_0=lambda_0,
+                linear_solver=linear_solver,
+                root_finder=root_finder,
+            ),
             gauss_newton=True,
         )
 
 
-DirectIterativeDual.__init__.__doc__ = """**Arguments:**
-
-- `gauss_newton`: `True` if this is used for a least squares problem, `False`
-    otherwise.
-"""
-
-IndirectIterativeDual.__init__.__doc__ = """**Arguments:**    
-
-- `gauss_newton`: `True` if this is used for a least squares problem, `False`
-    otherwise.
-- `lambda_0`: The initial value of the Levenberg-Marquardt parameter used in the root-
-    find to hit the trust-region radius. If `IndirectIterativeDual` is failing, this
-    value may need to be increased.
-- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
-    `lx.AutoLinearSolver(well_posed=None)`.
-- `root_finder`: The root finder used to find the Levenberg-Marquardt parameter which
-    hits the trust-region radius. Defaults to `Newton`.
-- `trust_region_norm`: The norm used to determine the trust-region shape. Defaults to 
-    `two_norm`.
-"""
-
-LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
-
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
-- `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
-"""
-
 IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
     
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
 - `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
-- `lambda_0`: The initial value of the Levenberg-Marquardt parameter used in the root-
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `lambda_0`: The initial value of the Levenberg--Marquardt parameter used in the root-
     find to hit the trust-region radius. If `IndirectIterativeDual` is failing, this
     value may need to be increased.
-- `linear_solver`: The linear solver used to compute the Newton step. Defaults to
-    `lx.AutoLinearSolver(well_posed=None)`.
-- `root_finder`: The root finder used to find the Levenberg-Marquardt parameter which
-    hits the trust-region radius. Defaults to `Newton`.
+- `linear_solver`: The linear solver used to compute the Newton step.
+- `root_finder`: The root finder used to find the Levenberg--Marquardt parameter which
+    hits the trust-region radius.
 """

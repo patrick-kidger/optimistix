@@ -20,8 +20,7 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
 
 from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
-from .._descent import AbstractDescent
-from .._minimise import AbstractMinimiser
+from .._descent import AbstractDescent, AbstractLineSearch
 from .._misc import tree_full_like
 from .._solution import RESULTS
 
@@ -32,8 +31,8 @@ class _LearningRateState(AbstractLineSearchState):
     aux: PyTree
 
 
-class LearningRate(AbstractMinimiser[_LearningRateState, Y, Aux]):
-    """Compute `y_new` from `y` by taking a steps of the fixed size `learning_rate`."""
+class LearningRate(AbstractLineSearch[_LearningRateState, Y, Aux]):
+    """Compute `y_new` from `y`, by taking a step of the fixed size `learning_rate`."""
 
     descent: AbstractDescent[Y]
     learning_rate: ScalarLike = eqx.field(converter=jnp.asarray)
@@ -88,7 +87,7 @@ class LearningRate(AbstractMinimiser[_LearningRateState, Y, Aux]):
 
 LearningRate.__init__.__doc__ = """**Arguments:**
 
-- `descent`: A `descent` object to compute what update to take given a
-    step-size.
-- `learning_rate`: The step-size used at each step.
+- `descent`: An [`optimistix.AbstractDescent`][] object, describing how to map from
+    step-size (a scalar) to update (in y-space).
+- `learning_rate`: The fixed step-size used at each step.
 """

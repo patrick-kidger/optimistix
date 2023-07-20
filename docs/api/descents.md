@@ -7,7 +7,7 @@
             members:
                 - __call__
 
-::: optimistix.Gradient
+::: optimistix.SteepestDescent
     selection:
         members:
             false

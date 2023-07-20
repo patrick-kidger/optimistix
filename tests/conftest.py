@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
 import random
 
 import jax
@@ -22,10 +23,26 @@ import pytest
 jax.config.update("jax_enable_x64", True)
 
 
+# This offers reproducability -- the initial seed is printed in the repr so we can see
+# it when a test fails.
+# Note the `eq=False`, which means that `_GetKey `objects have `__eq__` and `__hash__`
+# based on object identity.
+@dataclasses.dataclass(eq=False)
+class _GetKey:
+    seed: int
+    call: int
+    key: jr.PRNGKeyArray
+
+    def __init__(self, seed: int):
+        self.seed = seed
+        self.call = 0
+        self.key = jr.PRNGKey(seed)
+
+    def __call__(self):
+        self.call += 1
+        return jr.fold_in(self.key, self.call)
+
+
 @pytest.fixture
 def getkey():
-    def _getkey():
-        # Not sure what the maximum actually is but this will do
-        return jr.PRNGKey(random.randint(0, 2**31 - 1))
-
-    return _getkey
+    return _GetKey(random.randint(0, 2**31 - 1))

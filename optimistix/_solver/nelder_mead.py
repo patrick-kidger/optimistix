@@ -42,7 +42,7 @@ class _NelderMeadState(eqx.Module, Generic[Y, Aux]):
     """
     Information to update and store the simplex of the Nelder Mead update. If
     `dim` is the dimension of the problem, we expect there to be
-    `n_vertices` = `dim + 1` vertices. We expect the leading axis of each leaf
+    `n_vertices = dim + 1` vertices. We expect the leading axis of each leaf
     to be of length `n_vertices`, and the sum of the rest of the axes of all leaves
     together to be `dim`.
 
@@ -63,11 +63,11 @@ class _NelderMeadState(eqx.Module, Generic[Y, Aux]):
         `second_worst_vertex` is the vertex which maximises `f` among all vertices
         in `simplex` with `worst_vertex` removed.
     - `step`: A scalar. How many steps have been taken so far.
-    - `stats`: A _NMStats PyTree. This tracks information about the Nelder Mead
+    - `stats`: A `_NMStats` PyTree. This tracks information about the Nelder Mead
         algorithm. Specifically, how many times each of the operations reflect,
         expand, inner contract, outer contract, and shrink are performed.
-    - `result`: a RESULTS object which indicates if we have diverged during the
-        course of optimisation.
+    - `result`: a [`optimistix.RESULTS`][] object which indicates if we have diverged
+        during the course of optimisation.
     - `first_pass`: A bool which indicates if this is the first call to Nelder Mead
         which allows for extra setup. This ultimately exists to save on compilation
         time.
@@ -103,14 +103,21 @@ def _update_stats(
 
 
 class NelderMead(AbstractMinimiser[_NelderMeadState[Y, Aux], Y, Aux]):
-    """The Nelder-Mead or downhill simplex derivative-free method.
+    """The Nelder-Mead minimisation algorithm. (Downhill simplex derivative-free
+    method.)
 
-    Comparable to scipy.optimize.minimize(method="Nelder-Mead").
+    This algorithm is notable in that it only uses function evaluations, and does not
+    need gradient evaluations.
+
+    This is usually an "algorithm of last resort". Gradient-based algorithms are usually
+    much faster, and be more likely to converge to a minima.
+
+    Comparable to `scipy.optimize.minimize(method="Nelder-Mead")`.
     """
 
     rtol: float
     atol: float
-    norm: Callable = max_norm
+    norm: Callable[[PyTree], Scalar] = max_norm
     rdelta: float = 5e-2
     adelta: float = 2.5e-4
 
@@ -457,14 +464,16 @@ class NelderMead(AbstractMinimiser[_NelderMeadState[Y, Aux], Y, Aux]):
 
 NelderMead.__init__.__doc__ = """**Arguments:**
 
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
 - `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Defaults to `max_norm`.
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `rdelta`: Nelder-Mead creates an initial simplex by appending a scaled identity 
     matrix to `y`. The `i`th element of this matrix is `rdelta * y_i + adelta`.
-    Ie. this is the relative size for creating the initial simplex.
-- `rdelta`: Nelder-Mead creates an initial simplex by appending a scaled identity 
+    That is, this is the relative size for creating the initial simplex.
+- `adelta`: Nelder-Mead creates an initial simplex by appending a scaled identity 
     matrix to `y`. The `i`th element of this matrix is `rdelta * y_i + adelta`.
-    Ie. This is the absolute size for creating the initial simplex.
+    That is, this is the absolute size for creating the initial simplex.
 """

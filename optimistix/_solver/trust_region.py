@@ -23,8 +23,7 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
-from .._descent import AbstractDescent
-from .._minimise import AbstractMinimiser
+from .._descent import AbstractDescent, AbstractLineSearch
 from .._misc import (
     is_linear,
     sum_squares,
@@ -95,7 +94,7 @@ def _predict_quadratic_reduction(
 
     **Arguments**:
 
-    - `gauss_newton`: a bool indicating if the quasi-Newton method is a gauss-Newton
+    - `gauss_newton`: a bool indicating if the quasi-Newton method is a Gauss-Newton
         method. If it is, `vector` is the residual vector and `operator`
         is the Jacobian, and the computation differs slightly from the standard
         quasi-Newton case where `vector` is the gradient and `operator` is the
@@ -157,23 +156,22 @@ class _TrustRegionState(AbstractLineSearchState, Generic[Y]):
 #
 
 
-class AbstractTrustRegion(AbstractMinimiser[_TrustRegionState[Y], Y, Aux]):
+class _AbstractTrustRegion(AbstractLineSearch[_TrustRegionState[Y], Y, Aux]):
     """The abstract base class of the trust-region update algorithm.
 
     Trust region line searches compute the ratio
-    (`true_reduction`)/(`predicted_reduction`), where `true_reduction`
-    is the decrease in `fn` between `y` and `new_y`, and `predicted_reduction` is how
-    much we expected the function to decrease using a linear approximation to `fn`.
+    `true_reduction/predicted_reduction`, where `true_reduction` is the decrease in `fn`
+    between `y` and `new_y`, and `predicted_reduction` is how much we expected the
+    function to decrease using a linear approximation to `fn`.
 
     The trust-region ratio determines whether to accept or reject a step and the
     next choice of step-size. Specifically:
 
     - reject the step and decrease stepsize if the ratio is smaller than a
         cutoff `low_cutoff`
-    - accept the step and make no change to the step-size if the ratio is greater than
-        `low_cutoff`
     - accept the step and increase the step-size if the ratio is greater than
         another cutoff `high_cutoff` with `low_cutoff < high_cutoff`.
+    - else, accept the step and make no change to the step-size.
     """
 
     descent: AbstractDescent
@@ -183,9 +181,9 @@ class AbstractTrustRegion(AbstractMinimiser[_TrustRegionState[Y], Y, Aux]):
     high_constant: float
     low_constant: float
     #
-    # NOTE: we never actually compute the ratio
-    # `(true_reduction)/(predicted_reduction)`. Instead, we rewrite the conditions as
-    # `(true_reduction) < const * (predicted_reduction)` instead, where the inequality
+    # Note: we never actually compute the ratio
+    # `true_reduction/predicted_reduction`. Instead, we rewrite the conditions as
+    # `true_reduction < const * predicted_reduction` instead, where the inequality
     # flips because we assume `predicted_reduction` is negative.
     # This is for numerical reasons, it avoids an uneccessary subtraction and division.
     #
@@ -193,7 +191,7 @@ class AbstractTrustRegion(AbstractMinimiser[_TrustRegionState[Y], Y, Aux]):
     # "Sensitivity of trust region algorithms to their parameters."
     #
     #
-    # TECHNICAL NOTE: when using a gradient-based method, `ClassicalTrustRegion` is a
+    # Technical note: when using a gradient-based method, `ClassicalTrustRegion` is a
     # variant of `BacktrackingLineSearch` with the Armijo condition, since the linear
     # predicted reduction is the same as the Armijo condition. However, unlike standard
     # backtracking, `ClassicalTrustRegion` chooses an initial backtracking length
@@ -216,18 +214,6 @@ class AbstractTrustRegion(AbstractMinimiser[_TrustRegionState[Y], Y, Aux]):
             raise ValueError(
                 "`high_constant` must be greater than `0` in `ClassicalTrustRegion`"
             )
-
-    def init(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
-        tags: frozenset[object],
-    ) -> _TrustRegionState[Y]:
-        ...
 
     def step(
         self,
@@ -295,7 +281,7 @@ class AbstractTrustRegion(AbstractMinimiser[_TrustRegionState[Y], Y, Aux]):
         return ()
 
 
-class ClassicalTrustRegion(AbstractTrustRegion):
+class ClassicalTrustRegion(_AbstractTrustRegion):
     """The classic trust-region update algorithm which uses a quadratic approximation of
     the objective function to predict reduction.
 
@@ -365,7 +351,7 @@ class ClassicalTrustRegion(AbstractTrustRegion):
         )
 
 
-class LinearTrustRegion(AbstractTrustRegion):
+class LinearTrustRegion(_AbstractTrustRegion):
     """The trust-region update algorithm which uses a linear approximation of the
     objective function to predict reduction.
 
@@ -423,24 +409,24 @@ class LinearTrustRegion(AbstractTrustRegion):
         )
 
 
-_init_doc = """
-    `ratio` refers to the ratio (`true_reduction`)/(`predicted_reduction`).
-    
-    **Arguments**:
+_init_doc = """In the following, `ratio` refers to the ratio
+`true_reduction/predicted_reduction`.
 
-    - `descent`: a `descent` object to compute what update to take given a step-size.
-    - `gauss_newton`: is backtracking a subroutine in least squares problem or a
-    minimisation problem?
-    - `high_cutoff`: the cutoff such that `ratio > high_cutoff` will accept the step
-    and increase the step-size on the next iteration.
-    - `low_cutoff`: the cutoff such that `ratio < low_cutoff` will reject the step
-    and decrease the step-size on the next iteration, and `ratio > low_cutoff`
-    will accept the step with no change to the step-size.
-    - `high_constant`: when `ratio > high_cutoff`, multiply the previous step-size by
-    high_constant`.
-    - `low_constant`: when `ratio < low_cutoff`, multiply the previous step-size by
-    low_constant`.
-    """
+**Arguments**:
+
+- `descent`: a `descent` object to compute what update to take given a step-size.
+- `gauss_newton`: is backtracking a subroutine in least squares problem (True) or a
+minimisation problem (False)?
+- `high_cutoff`: the cutoff such that `ratio > high_cutoff` will accept the step
+and increase the step-size on the next iteration.
+- `low_cutoff`: the cutoff such that `ratio < low_cutoff` will reject the step
+and decrease the step-size on the next iteration, and `ratio > low_cutoff`
+will accept the step with no change to the step-size.
+- `high_constant`: when `ratio > high_cutoff`, multiply the previous step-size by
+high_constant`.
+- `low_constant`: when `ratio < low_cutoff`, multiply the previous step-size by
+low_constant`.
+"""
 
 LinearTrustRegion.__init__.__doc__ = _init_doc
 ClassicalTrustRegion.__init__.__doc__ = _init_doc
