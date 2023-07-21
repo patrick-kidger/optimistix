@@ -18,9 +18,9 @@ from ._adjoint import (
     ImplicitAdjoint as ImplicitAdjoint,
     RecursiveCheckpointAdjoint as RecursiveCheckpointAdjoint,
 )
-from ._descent import (
-    AbstractDescent as AbstractDescent,
-    AbstractLineSearch as AbstractLineSearch,
+from ._base_solver import (
+    AbstractHasTol as AbstractHasTol,
+    AbstractSolver as AbstractSolver,
 )
 from ._fixed_point import (
     AbstractFixedPointSolver as AbstractFixedPointSolver,
@@ -28,11 +28,15 @@ from ._fixed_point import (
 )
 from ._iterate import (
     AbstractIterativeSolver as AbstractIterativeSolver,
-    iterative_solve as iterative_solve,
 )
 from ._least_squares import (
     AbstractLeastSquaresSolver as AbstractLeastSquaresSolver,
     least_squares as least_squares,
+)
+from ._line_search import (
+    AbstractDescent as AbstractDescent,
+    AbstractLineSearch as AbstractLineSearch,
+    line_search as line_search,
 )
 from ._minimise import (
     AbstractMinimiser as AbstractMinimiser,

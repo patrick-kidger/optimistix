@@ -26,9 +26,9 @@ from jaxtyping import Array, ArrayLike, Bool, Inexact, PyTree, Scalar
 
 
 if TYPE_CHECKING:
-    from typing import ClassVar as AbstractVar
+    pass
 else:
-    from equinox import AbstractVar
+    pass
 
 
 def default_floating_dtype():
@@ -211,11 +211,3 @@ def is_linear(fn, *args, output):
         return False
     else:
         return True
-
-
-class AbstractHasTol(eqx.Module):
-    """A solver guaranteed to have `atol` and `rtol` fields."""
-
-    rtol: AbstractVar[float]
-    atol: AbstractVar[float]
-    norm: AbstractVar[Callable[[PyTree], Scalar]]

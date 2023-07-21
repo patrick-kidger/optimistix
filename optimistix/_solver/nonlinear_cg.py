@@ -22,11 +22,12 @@ import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
+from .._base_solver import AbstractHasTol
 from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
-from .._descent import AbstractDescent, AbstractLineSearch
-from .._minimise import AbstractMinimiser, minimise
+from .._iterate import AbstractIterativeSolver
+from .._line_search import AbstractDescent, AbstractLineSearch, line_search
+from .._minimise import AbstractMinimiser
 from .._misc import (
-    AbstractHasTol,
     max_norm,
     sum_squares,
     tree_dot,
@@ -156,18 +157,12 @@ class _NonlinearCGState(eqx.Module, Generic[Y]):
 #
 
 
-class NonlinearCG(AbstractMinimiser[Y, Aux, _NonlinearCGState[Y]], AbstractHasTol):
-    """The nonlinear conjugate gradient method.
-
-    The line search can only require `options` from the list of:
-
-    - "init_step_size"
-    - "vector"
-    - "vector_prev"
-    - "diff"
-    - "diff_prev"
-    - "f0"
-    """
+class NonlinearCG(
+    AbstractMinimiser[Y, Aux, _NonlinearCGState[Y]],
+    AbstractIterativeSolver[Y, Scalar, Aux, _NonlinearCGState[Y]],
+    AbstractHasTol,
+):
+    """The nonlinear conjugate gradient method."""
 
     rtol: float
     atol: float
@@ -196,7 +191,15 @@ class NonlinearCG(AbstractMinimiser[Y, Aux, _NonlinearCGState[Y]], AbstractHasTo
             [`optimistix.hestenes_stiefel`][], and [`optimistix.dai_yuan`][], but any
             function `(Y, Y, Y) -> Scalar` will work.
         - `line_search`: The line search to use. Note that this argument is mutually
-            exclusive with `method`.
+            exclusive with `method`. This can only require `options` from the list of:
+
+            - "init_step_size"
+            - "vector"
+            - "vector_prev"
+            - "diff"
+            - "diff_prev"
+            - "f0"
+            - "aux"
         """
         self.rtol = rtol
         self.atol = atol
@@ -225,7 +228,7 @@ class NonlinearCG(AbstractMinimiser[Y, Aux, _NonlinearCGState[Y]], AbstractHasTo
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _NonlinearCGState[Y]:
-        del fn, aux_struct
+        del fn, options, aux_struct
         maxval = jnp.finfo(f_struct.dtype).max
         return _NonlinearCGState(
             step_size=jnp.array(1.0),
@@ -246,6 +249,7 @@ class NonlinearCG(AbstractMinimiser[Y, Aux, _NonlinearCGState[Y]], AbstractHasTo
         state: _NonlinearCGState[Y],
         tags: frozenset[object],
     ) -> tuple[Y, _NonlinearCGState[Y], Aux]:
+        del options
         (f_val, aux), new_grad = jax.value_and_grad(fn, has_aux=True)(y, args)
         line_search_options = {
             "init_step_size": state.step_size,
@@ -254,8 +258,9 @@ class NonlinearCG(AbstractMinimiser[Y, Aux, _NonlinearCGState[Y]], AbstractHasTo
             "diff": state.diff,
             "diff_prev": state.diff_prev,
             "f0": f_val,
+            "aux": aux,
         }
-        line_sol = minimise(
+        line_sol = line_search(
             fn,
             self.line_search,
             y,

@@ -23,8 +23,10 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
+from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, Out, Y
-from .._misc import AbstractHasTol, max_norm, tree_full_like
+from .._iterate import AbstractIterativeSolver
+from .._misc import max_norm, tree_full_like
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
 from .misc import cauchy_termination
@@ -62,7 +64,9 @@ class _NewtonChordState(eqx.Module, Generic[Y]):
 
 
 class _NewtonChord(
-    AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]], AbstractHasTol
+    AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]],
+    AbstractIterativeSolver[Y, Out, Aux, _NewtonChordState[Y]],
+    AbstractHasTol,
 ):
     rtol: float
     atol: float
@@ -201,7 +205,7 @@ class _NewtonChord(
         return ()
 
 
-class Newton(_NewtonChord):
+class Newton(_NewtonChord[Y, Out, Aux]):
     """Newton's method for root finding. Also sometimes known as Newton--Raphson.
 
     Unlike the SciPy implementation of Newton's method, the Optimistix version also
@@ -220,7 +224,7 @@ class Newton(_NewtonChord):
     _is_newton = True
 
 
-class Chord(_NewtonChord):
+class Chord(_NewtonChord[Y, Out, Aux]):
     """The Chord method of root finding.
 
     This is equivalent to the Newton method, except that the Jacobian is computed only

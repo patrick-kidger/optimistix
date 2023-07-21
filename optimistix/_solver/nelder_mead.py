@@ -24,9 +24,11 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
+from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, Y
+from .._iterate import AbstractIterativeSolver
 from .._minimise import AbstractMinimiser
-from .._misc import AbstractHasTol, max_norm, tree_full_like, tree_where
+from .._misc import max_norm, tree_full_like, tree_where
 from .._solution import RESULTS
 
 
@@ -102,7 +104,11 @@ def _update_stats(
     )
 
 
-class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], AbstractHasTol):
+class NelderMead(
+    AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]],
+    AbstractIterativeSolver[Y, Scalar, Aux, _NelderMeadState[Y, Aux]],
+    AbstractHasTol,
+):
     """The Nelder-Mead minimisation algorithm. (Downhill simplex derivative-free
     method.)
 

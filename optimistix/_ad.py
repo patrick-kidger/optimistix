@@ -14,6 +14,7 @@
 
 import types
 from collections.abc import Callable
+from typing import TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -30,10 +31,15 @@ def _is_global_function(x):
     return isinstance(x, types.FunctionType) and x.__closure__ is None
 
 
+_Inputs = TypeVar("_Inputs")
+_Root = TypeVar("_Root")
+_Residual = TypeVar("_Residual")
+
+
 def implicit_jvp(
-    fn_primal: Callable,
-    fn_rewrite: Callable,
-    inputs: PyTree,
+    fn_primal: Callable[[_Inputs], tuple[_Root, _Residual]],
+    fn_rewrite: Callable[[_Root, _Residual, _Inputs], PyTree],
+    inputs: _Inputs,
     tags: frozenset[object],
     linear_solver: lx.AbstractLinearSolver,
 ):

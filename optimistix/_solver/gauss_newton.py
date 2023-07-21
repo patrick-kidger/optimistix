@@ -28,12 +28,12 @@ if TYPE_CHECKING:
 else:
     from equinox import AbstractVar
 
+from .._base_solver import AbstractHasTol
 from .._custom_types import Args, Aux, Fn, Out, Y
-from .._descent import AbstractDescent, AbstractLineSearch
+from .._iterate import AbstractIterativeSolver
 from .._least_squares import AbstractLeastSquaresSolver
-from .._minimise import minimise
+from .._line_search import AbstractDescent, AbstractLineSearch, line_search
 from .._misc import (
-    AbstractHasTol,
     max_norm,
     sum_squares,
     tree_full_like,
@@ -123,13 +123,15 @@ class _GaussNewtonState(eqx.Module, Generic[Y, Aux]):
     result: RESULTS
 
 
-def _minimise_fn(fn: Fn[Y, Out, Aux], y: Y, args: Args) -> tuple[Scalar, Aux]:
+def _line_search_fn(fn: Fn[Y, Out, Aux], y: Y, args: Args) -> tuple[Scalar, Aux]:
     residual, aux = fn(y, args)
     return sum_squares(residual), aux
 
 
 class AbstractGaussNewton(
-    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState[Y, Aux]], AbstractHasTol
+    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState[Y, Aux]],
+    AbstractIterativeSolver[Y, Out, Aux, _GaussNewtonState[Y, Aux]],
+    AbstractHasTol,
 ):
     """Abstract base class for all Gauss-Newton type methods.
 
@@ -142,6 +144,7 @@ class AbstractGaussNewton(
         - "vector"
         - "operator"
         - "f0"
+        - "aux"
     """
 
     rtol: AbstractVar[float]
@@ -185,18 +188,16 @@ class AbstractGaussNewton(
         new_operator = lx.FunctionLinearOperator(lin_fn, in_structure)
         f_val = sum_squares(residual)
 
-        # TODO(raderj): remove the `fn` and `y` options.
         line_search_options = {
             "init_step_size": state.step_size,
             "vector": residual,
             "operator": new_operator,
             "operator_inv": None,
             "f0": f_val,
-            "fn": fn,
-            "y": y,
+            "aux": aux,
         }
-        line_sol = minimise(
-            eqx.Partial(_minimise_fn, fn),
+        line_sol = line_search(
+            eqx.Partial(_line_search_fn, fn),
             self.line_search,
             y,
             args,
@@ -243,7 +244,7 @@ class AbstractGaussNewton(
         return ()
 
 
-class GaussNewton(AbstractGaussNewton):
+class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
     """Gauss-Newton algorithm, for solving nonlinear least-squares problems.
 
     Note that regularised approaches like [`optimistix.LevenbergMarquardt`][] are

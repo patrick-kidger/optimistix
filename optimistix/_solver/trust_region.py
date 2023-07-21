@@ -23,7 +23,8 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
-from .._descent import AbstractDescent, AbstractLineSearch
+from .._iterate import AbstractIterativeSolver
+from .._line_search import AbstractDescent, AbstractLineSearch
 from .._misc import (
     is_linear,
     sum_squares,
@@ -156,7 +157,10 @@ class _TrustRegionState(AbstractLineSearchState, Generic[Y]):
 #
 
 
-class _AbstractTrustRegion(AbstractLineSearch[Y, Aux, _TrustRegionState[Y]]):
+class _AbstractTrustRegion(
+    AbstractLineSearch[Y, Aux, _TrustRegionState[Y]],
+    AbstractIterativeSolver[Y, Scalar, Aux, _TrustRegionState[Y]],
+):
     """The abstract base class of the trust-region update algorithm.
 
     Trust region line searches compute the ratio
@@ -230,7 +234,7 @@ class _AbstractTrustRegion(AbstractLineSearch[Y, Aux, _TrustRegionState[Y]]):
             diff = (state.next_init * state.cached_diff**ω).ω
             result = state.result
         proposed_y = (state.current_y**ω + diff**ω).ω
-        f_val, aux = fn(proposed_y, args)
+        f_val, _ = fn(proposed_y, args)
 
         predicted_reduction = state.predict_reduction(diff, args)
         finished = f_val <= state.current_f + self.low_cutoff * predicted_reduction
@@ -264,7 +268,7 @@ class _AbstractTrustRegion(AbstractLineSearch[Y, Aux, _TrustRegionState[Y]]):
             finished=finished,
             result=result,
         )
-        return new_y, new_state, aux
+        return new_y, new_state, options["aux"]
 
     def terminate(
         self,
@@ -281,13 +285,14 @@ class _AbstractTrustRegion(AbstractLineSearch[Y, Aux, _TrustRegionState[Y]]):
         return ()
 
 
-class ClassicalTrustRegion(_AbstractTrustRegion):
+class ClassicalTrustRegion(_AbstractTrustRegion[Y, Aux]):
     """The classic trust-region update algorithm which uses a quadratic approximation of
     the objective function to predict reduction.
 
     This requires the following `options`:
 
     - `f0`: The value of the function to perform at line search at the point `y`.
+    - `aux`: The auxiliary output of the function at the point `y`.
     - `init_step_size`: The initial `step_size` that the line search will try.
     - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
         otherwise.
@@ -351,13 +356,14 @@ class ClassicalTrustRegion(_AbstractTrustRegion):
         )
 
 
-class LinearTrustRegion(_AbstractTrustRegion):
+class LinearTrustRegion(_AbstractTrustRegion[Y, Aux]):
     """The trust-region update algorithm which uses a linear approximation of the
     objective function to predict reduction.
 
     This requires the following `options`:
 
     - `f0`: The value of the function to perform at line search at the point `y`.
+    - `aux`: The auxiliary output of the function at the point `y`.
     - `init_step_size`: The initial `step_size` that the line search will try.
     - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
         otherwise.

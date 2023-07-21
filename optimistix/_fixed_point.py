@@ -21,8 +21,8 @@ from equinox.internal import ω
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
+from ._base_solver import AbstractSolver
 from ._custom_types import Args, Aux, Fn, MaybeAuxFn, SolverState, Y
-from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver
 from ._minimise import AbstractMinimiser
 from ._misc import inexact_asarray, NoneAux
@@ -30,15 +30,15 @@ from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
 
 
-class AbstractFixedPointSolver(AbstractIterativeSolver[Y, Y, Aux, SolverState]):
+class AbstractFixedPointSolver(AbstractSolver[Y, Y, Aux, SolverState]):
     """Abstract base class for all fixed point solvers."""
 
-
-def _fixed_point(fixed_point, _, inputs):
-    fixed_point_fn, args, *_ = inputs
-    del inputs
-    f_val, _ = fixed_point_fn(fixed_point, args)
-    return (f_val**ω - fixed_point**ω).ω
+    @staticmethod
+    def rewrite_fn(fixed_point, _, inputs):
+        _, fixed_point_fn, args, *_ = inputs
+        del inputs
+        f_val, _ = fixed_point_fn(fixed_point, args)
+        return (f_val**ω - fixed_point**ω).ω
 
 
 class _ToRootFn(eqx.Module, Generic[Y, Aux]):
@@ -60,10 +60,10 @@ class _ToRootFn(eqx.Module, Generic[Y, Aux]):
 def fixed_point(
     fn: MaybeAuxFn[Y, Y, Aux],
     solver: Union[
-        AbstractFixedPointSolver,
-        AbstractRootFinder,
-        AbstractLeastSquaresSolver,
-        AbstractMinimiser,
+        AbstractFixedPointSolver[Y, Aux, SolverState],
+        AbstractRootFinder[Y, Y, Aux, SolverState],
+        AbstractLeastSquaresSolver[Y, Y, Aux, SolverState],
+        AbstractMinimiser[Y, Aux, SolverState],
     ],
     y0: Y,
     args: PyTree[Any] = None,
@@ -74,7 +74,7 @@ def fixed_point(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset()
-) -> Solution[Y, Aux]:
+) -> Solution[Y, Aux, SolverState]:
     """Find a fixed-point of a function.
 
     Given a nonlinear function `fn(y, args)` which returns a pytree of arrays of the
@@ -122,6 +122,9 @@ def fixed_point(
     if not has_aux:
         fn = NoneAux(fn)
     fn = cast(Fn[Y, Y, Aux], fn)
+    if options is None:
+        options = {}
+
     if isinstance(
         solver, (AbstractRootFinder, AbstractLeastSquaresSolver, AbstractMinimiser)
     ):
@@ -144,13 +147,11 @@ def fixed_point(
             raise ValueError(
                 "The input and output of `fixed_point_fn` must have the same structure"
             )
-        return iterative_solve(
+        return solver.solve(
             fn,
-            solver,
             y0,
             args,
             options,
-            rewrite_fn=_fixed_point,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,

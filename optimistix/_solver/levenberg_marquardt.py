@@ -23,8 +23,8 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar, ScalarLike
 
-from .._custom_types import Y
-from .._descent import AbstractDescent, AbstractLineSearch
+from .._custom_types import Aux, Out, Y
+from .._line_search import AbstractDescent, AbstractLineSearch
 from .._misc import max_norm, tree_full_like, tree_where, two_norm
 from .._root_find import AbstractRootFinder, root_find
 from .._solution import RESULTS
@@ -76,14 +76,13 @@ from .trust_region import ClassicalTrustRegion
 
 
 class _Damped(eqx.Module):
-    fn: Callable
+    operator: lx.AbstractLinearOperator
     damping: Float[Array, " "]
 
-    def __call__(self, y: PyTree[Array], args: PyTree):
-        damping = jnp.sqrt(self.damping)
-        residual, aux = self.fn(y, args)
-        damped = jtu.tree_map(lambda yi: damping * yi, y)
-        return (residual, damped), aux
+    def __call__(self, y: PyTree[Array]):
+        residual = self.operator.mv(y)
+        damped = jtu.tree_map(lambda yi: jnp.sqrt(self.damping) * yi, y)
+        return residual, damped
 
 
 class DirectIterativeDual(AbstractDescent[Y]):
@@ -95,10 +94,6 @@ class DirectIterativeDual(AbstractDescent[Y]):
         otherwise.
     - `operator`: The Jacobian operator of a least-squares problem if
         `gauss_newton=True`, the approximate Hessian of the objective function if not.
-    - `fn`: The resdidual function used for least-squares. Only necessary if
-        `gauss_newton=True`
-    - `y`: The current iterate in the least-squares problem. Only necessary if
-        `gauss_newton=True`.
     """
 
     gauss_newton: bool
@@ -117,17 +112,9 @@ class DirectIterativeDual(AbstractDescent[Y]):
             jnp.finfo(step_size).max,
         )
         if self.gauss_newton:
-            # TODO(raderj): remove both of these options! Use block operators
-            # to remove the call to `fn`. We can get the shape of `y` via
-            # `operator.out_structure`.
-            y = options["y"]
-            fn = options["fn"]
-            vector = (vector, ω(y).call(jnp.zeros_like).ω)
-            operator = lx.JacobianLinearOperator(
-                _Damped(fn, lm_param),
-                y,
-                args,
-                _has_aux=True,
+            vector = (vector, tree_full_like(operator.in_structure(), 0))
+            operator = lx.FunctionLinearOperator(
+                _Damped(operator, lm_param), operator.in_structure()
             )
         else:
             vector = vector
@@ -136,6 +123,7 @@ class DirectIterativeDual(AbstractDescent[Y]):
             )
         linear_sol = lx.linear_solve(operator, vector, lx.QR(), throw=False)
         diff = (-linear_sol.value**ω).ω
+        # TODO(kidger): is the following still necessary?
         # TODO(raderj): Remove the following section,
         # it still computes `nan`s and is just a bandaid.
         # It seems that using `_Damped` with inf values
@@ -166,10 +154,6 @@ class IndirectIterativeDual(AbstractDescent[Y]):
         otherwise.
     - `operator`: The Jacobian operator of a least-squares problem if
         `gauss_newton=True`, the approximate Hessian of the objective function if not.
-    - `fn`: The resdidual function used for least-squares. Only necessary if
-        `gauss_newton=True`
-    - `y`: The current iterate in the least-squares problem. Only necessary if
-        `gauss_newton=True`.
     """
 
     gauss_newton: bool
@@ -252,7 +236,7 @@ IndirectIterativeDual.__init__.__doc__ = """**Arguments:**
 """
 
 
-class LevenbergMarquardt(AbstractGaussNewton):
+class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     """The Levenberg--Marquardt method.
 
     This is a classical solver for nonlinear least squares, which works by regularising
@@ -293,7 +277,7 @@ LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 """
 
 
-class IndirectLevenbergMarquardt(AbstractGaussNewton):
+class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     """The Levenberg--Marquardt method as a true trust-region method.
 
     This is a variant of [`optimistix.LevenbergMarquardt`][]. The other algorithm works

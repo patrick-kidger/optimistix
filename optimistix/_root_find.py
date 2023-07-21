@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from typing import Any, cast, Optional, Union
 
 import equinox as eqx
@@ -21,29 +22,33 @@ import jax.tree_util as jtu
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
+from ._base_solver import AbstractHasTol, AbstractSolver
 from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
-from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver, least_squares
 from ._minimise import AbstractMinimiser
-from ._misc import AbstractHasTol, inexact_asarray, NoneAux
+from ._misc import inexact_asarray, NoneAux
 from ._solution import RESULTS, Solution
 
 
-class AbstractRootFinder(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
+class AbstractRootFinder(AbstractSolver[Y, Out, Aux, SolverState]):
     """Abstract base class for all root finders."""
 
-
-def _root(root, _, inputs):
-    root_fn, args, *_ = inputs
-    del inputs
-    f_val, _ = root_fn(root, args)
-    return f_val
+    @staticmethod
+    def rewrite_fn(root, _, inputs):
+        _, root_fn, args, *_ = inputs
+        del inputs
+        f_val, _ = root_fn(root, args)
+        return f_val
 
 
 @eqx.filter_jit
 def root_find(
     fn: MaybeAuxFn[Y, Out, Aux],
-    solver: Union[AbstractRootFinder, AbstractLeastSquaresSolver, AbstractMinimiser],
+    solver: Union[
+        AbstractRootFinder[Y, Out, Aux, SolverState],
+        AbstractLeastSquaresSolver[Y, Out, Aux, SolverState],
+        AbstractMinimiser[Y, Aux, SolverState],
+    ],
     y0: Y,
     args: PyTree = None,
     options: Optional[dict[str, Any]] = None,
@@ -53,7 +58,7 @@ def root_find(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
-) -> Solution[Y, Aux]:
+) -> Solution[Y, Aux, SolverState]:
     """Solve a root-finding problem.
 
     Given a nonlinear function `fn(y, args)` which returns a pytree of arrays,
@@ -85,9 +90,10 @@ def root_find(
         field indicating whether any failures occured. (See [`optimistix.Solution`][].)
         Keyword only argument.
     - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing the
-        any structure of the Jacobian of `fn` with respect to `y`. Used with
-        [`optimistix.ImplicitAdjoint`][] to implement the implicit function theorem as
-        efficiently as possible. Keyword only argument.
+        any structure of the Jacobian of `fn` with respect to `y`. Used with some
+        solvers (e.g. [`optimistix.Neweton`][]), and with some adjoint methods (e.g.
+        [`optimistix.ImplicitAdjoint`][]) to improve the efficiency of linear solves.
+        Keyword only argument.
 
     **Returns:**
 
@@ -98,6 +104,8 @@ def root_find(
     if not has_aux:
         fn = NoneAux(fn)
     fn = cast(Fn[Y, Out, Aux], fn)
+    if options is None:
+        options = {}
 
     if isinstance(solver, (AbstractMinimiser, AbstractLeastSquaresSolver)):
         del tags
@@ -121,18 +129,22 @@ def root_find(
             )
             sol = eqx.tree_at(lambda s: s.result, sol, result)
             del f_val, success, result
+        else:
+            solver_name = solver.__class__.__name__
+            warnings.warn(
+                f"`optimistix.root_find(solver={solver_name}(...), ...)` does not "
+                "check that the returned solution is actually a root."
+            )
         if throw:
             sol = sol.result.error_if(sol, sol.result != RESULTS.successful)
         return sol
     else:
         f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
-        return iterative_solve(
+        return solver.solve(
             fn,
-            solver,
             y0,
             args,
             options,
-            rewrite_fn=_root,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,

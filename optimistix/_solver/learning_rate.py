@@ -11,78 +11,59 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
+from typing import Any, cast, Optional
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
+from jaxtyping import Array, PyTree, Scalar, ScalarLike
 
+from .._adjoint import AbstractAdjoint
 from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
-from .._descent import AbstractDescent, AbstractLineSearch
-from .._misc import tree_full_like
-from .._solution import RESULTS
+from .._line_search import AbstractDescent, AbstractLineSearch
+from .._solution import RESULTS, Solution
 
 
 class _LearningRateState(AbstractLineSearchState):
     next_init: Scalar
-    finished: Bool[Array, ""]
-    aux: PyTree
 
 
 class LearningRate(AbstractLineSearch[Y, Aux, _LearningRateState]):
-    """Compute `y_new` from `y`, by taking a step of the fixed size `learning_rate`."""
+    """Compute `y_new` from `y`, by taking a step of the fixed size `learning_rate`.
+
+    This requires the following `options`:
+
+    - `aux`: The auxiliary output of the function at the point `y`.
+    """
 
     descent: AbstractDescent[Y]
     learning_rate: ScalarLike = eqx.field(converter=jnp.asarray)
 
-    def init(
+    def solve(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        y0: PyTree[Array],
         args: PyTree,
         options: dict[str, Any],
+        *,
+        max_steps: Optional[int],
+        adjoint: AbstractAdjoint,
+        throw: bool,
+        tags: frozenset[object],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
-        tags: frozenset[object],
-    ) -> _LearningRateState:
-        del fn, y, args, f_struct
-        aux = tree_full_like(aux_struct, 0.0)
-        return _LearningRateState(
-            self.learning_rate, finished=jnp.array(False), aux=aux
+    ) -> Solution[Y, Aux, _LearningRateState]:
+        del max_steps, adjoint, throw, tags, f_struct, aux_struct
+        diff, _ = self.descent(cast(Array, self.learning_rate), args, options)
+        value = (y0**ω + diff**ω).ω
+        return Solution(
+            value=value,
+            result=RESULTS.successful,
+            aux=options["aux"],
+            stats={},
+            state=_LearningRateState(self.learning_rate),
         )
-
-    def step(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        state: _LearningRateState,
-        tags: frozenset[object],
-    ) -> tuple[Y, _LearningRateState, Aux]:
-        del fn, tags
-        diff, _ = self.descent(state.next_init, args, options)
-        new_state = _LearningRateState(
-            self.learning_rate, jnp.array(True), aux=state.aux
-        )
-        return (y**ω + diff**ω).ω, new_state, state.aux
-
-    def terminate(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        state: _LearningRateState,
-        tags: frozenset[object],
-    ) -> tuple[Bool[Array, ""], RESULTS]:
-        del fn, y, args, options, tags
-        return state.finished, RESULTS.successful
-
-    def buffers(self, state: _LearningRateState) -> tuple[()]:
-        return ()
 
 
 LearningRate.__init__.__doc__ = """**Arguments:**

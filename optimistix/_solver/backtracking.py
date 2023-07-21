@@ -27,7 +27,8 @@ from .._custom_types import (
     sentinel,
     Y,
 )
-from .._descent import AbstractDescent, AbstractLineSearch
+from .._iterate import AbstractIterativeSolver
+from .._line_search import AbstractDescent, AbstractLineSearch
 from .._misc import (
     is_linear,
     tree_dot,
@@ -56,7 +57,10 @@ class _BacktrackingState(AbstractLineSearchState, Generic[Y]):
     step: Int[Array, ""]
 
 
-class BacktrackingArmijo(AbstractLineSearch[Y, Aux, _BacktrackingState[Y]]):
+class BacktrackingArmijo(
+    AbstractLineSearch[Y, Aux, _BacktrackingState[Y]],
+    AbstractIterativeSolver[Y, Scalar, Aux, _BacktrackingState[Y]],
+):
     """Compute `y_new` from `y` using backtracking Armijo line search.
 
     This requires the following to be passed via `options`:
@@ -65,6 +69,7 @@ class BacktrackingArmijo(AbstractLineSearch[Y, Aux, _BacktrackingState[Y]]):
         by making another function evaluation inside the line search -- but this would
         increase runtime and compilation time, and it's usually already available from
         the caller.)
+    - `aux`: The auxiliary output of the function at the point `y`.
     - `init_step_size`: The initial `step_size` that the line search will try.
     - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
         otherwise.
@@ -167,7 +172,7 @@ class BacktrackingArmijo(AbstractLineSearch[Y, Aux, _BacktrackingState[Y]]):
             diff = (state.step_size * state.cached_diff**ω).ω
             result = state.result
         proposed_y = (state.current_y**ω + diff**ω).ω
-        f_val, aux = fn(proposed_y, args)
+        f_val, _ = fn(proposed_y, args)
         new_min = f_val < state.best_f_val
         new_y = tree_where(new_min, proposed_y, y)
         best_f_val = jnp.where(new_min, f_val, state.best_f_val)
@@ -184,7 +189,7 @@ class BacktrackingArmijo(AbstractLineSearch[Y, Aux, _BacktrackingState[Y]]):
             result=result,
             step=state.step + 1,
         )
-        return new_y, new_state, aux
+        return new_y, new_state, options["aux"]
 
     def terminate(
         self,

@@ -24,11 +24,12 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
+from .._base_solver import AbstractHasTol
 from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
-from .._descent import AbstractLineSearch
-from .._minimise import AbstractMinimiser, minimise
+from .._iterate import AbstractIterativeSolver
+from .._line_search import AbstractLineSearch, line_search
+from .._minimise import AbstractMinimiser
 from .._misc import (
-    AbstractHasTol,
     jacobian,
     max_norm,
     tree_dot,
@@ -97,7 +98,11 @@ class _BFGSState(eqx.Module, Generic[Y, Aux]):
     result: RESULTS
 
 
-class BFGS(AbstractMinimiser[Y, Aux, _BFGSState[Y, Aux]], AbstractHasTol):
+class BFGS(
+    AbstractMinimiser[Y, Aux, _BFGSState[Y, Aux]],
+    AbstractIterativeSolver[Y, Scalar, Aux, _BFGSState[Y, Aux]],
+    AbstractHasTol,
+):
     """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a "second-order" optimisation algorithm, whose defining feature is that the
@@ -237,8 +242,9 @@ class BFGS(AbstractMinimiser[Y, Aux, _BFGSState[Y, Aux]], AbstractHasTol):
             "f0": f_val,
             "fn": fn,
             "y": y,
+            "aux": aux,
         }
-        line_sol = minimise(
+        line_sol = line_search(
             fn,
             self.line_search,
             y,
@@ -317,4 +323,5 @@ BFGS.__init__.__doc__ = """**Arguments:**
         - "f0"
         - "fn"
         - "y"
+        - "aux"
 """

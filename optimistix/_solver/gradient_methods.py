@@ -27,10 +27,12 @@ if TYPE_CHECKING:
 else:
     from equinox import AbstractVar
 
+from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, Y
-from .._descent import AbstractDescent, AbstractLineSearch
-from .._minimise import AbstractMinimiser, minimise
-from .._misc import AbstractHasTol, max_norm
+from .._iterate import AbstractIterativeSolver
+from .._line_search import AbstractDescent, AbstractLineSearch, line_search
+from .._minimise import AbstractMinimiser
+from .._misc import max_norm
 from .._solution import RESULTS
 from .learning_rate import LearningRate
 from .misc import cauchy_termination
@@ -78,7 +80,9 @@ class _GradientDescentState(eqx.Module, Generic[Y, Aux]):
 
 
 class AbstractGradientDescent(
-    AbstractMinimiser[Y, Aux, _GradientDescentState[Y, Aux]], AbstractHasTol
+    AbstractMinimiser[Y, Aux, _GradientDescentState[Y, Aux]],
+    AbstractIterativeSolver[Y, Scalar, Aux, _GradientDescentState[Y, Aux]],
+    AbstractHasTol,
 ):
     """The gradient descent method for unconstrained minimisation.
 
@@ -91,6 +95,7 @@ class AbstractGradientDescent(
     - "init_step_size"
     - "vector"
     - "f0"
+    - "aux"
     """
 
     rtol: AbstractVar[float]
@@ -132,8 +137,9 @@ class AbstractGradientDescent(
             "init_step_size": state.step_size,
             "vector": new_grad,
             "f0": f_val,
+            "aux": aux,
         }
-        line_sol = minimise(
+        line_sol = line_search(
             fn,
             self.line_search,
             y,
@@ -180,7 +186,7 @@ class AbstractGradientDescent(
         return ()
 
 
-class GradientDescent(AbstractGradientDescent):
+class GradientDescent(AbstractGradientDescent[Y, Aux]):
     """Classic gradient descent with a learning rate `learning_rate`."""
 
     rtol: float

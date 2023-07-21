@@ -21,8 +21,8 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import PyTree, Scalar
 
-from .._custom_types import Y
-from .._descent import AbstractDescent, AbstractLineSearch
+from .._custom_types import Aux, Out, Y
+from .._line_search import AbstractDescent, AbstractLineSearch
 from .._misc import (
     max_norm,
     sum_squares,
@@ -179,7 +179,7 @@ DoglegDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class Dogleg(AbstractGaussNewton):
+class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
     """Dogleg algorithm. Used for nonlinear least squares problems.
 
     Given a quadratic bowl that locally approximates the function to be minimised, then
