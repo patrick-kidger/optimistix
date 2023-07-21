@@ -27,7 +27,7 @@ from .._descent import AbstractDescent, AbstractLineSearch
 from .._misc import (
     is_linear,
     sum_squares,
-    tree_inner_prod,
+    tree_dot,
     tree_where,
 )
 from .._solution import RESULTS
@@ -71,7 +71,7 @@ def _predict_linear_reduction(
     The expected decrease in loss from moving from `y` to `y + diff`.
     """
     del args
-    return tree_inner_prod(vector, diff)
+    return tree_dot(vector, diff)
 
 
 def _predict_quadratic_reduction(
@@ -120,8 +120,8 @@ def _predict_quadratic_reduction(
         jacobian_term = sum_squares((ω(operator.mv(diff)) + ω(vector)).ω)
         reduction = 0.5 * (jacobian_term - rtr)
     else:
-        operator_quadratic = 0.5 * tree_inner_prod(diff, operator.mv(diff))
-        steepest_descent = tree_inner_prod(vector, diff)
+        operator_quadratic = 0.5 * tree_dot(diff, operator.mv(diff))
+        steepest_descent = tree_dot(vector, diff)
         reduction = (operator_quadratic**ω + steepest_descent**ω).ω
     return reduction
 

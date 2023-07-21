@@ -26,8 +26,8 @@ from .._descent import AbstractDescent, AbstractLineSearch
 from .._misc import (
     max_norm,
     sum_squares,
+    tree_dot,
     tree_full_like,
-    tree_inner_prod,
     tree_where,
     two_norm,
 )
@@ -90,7 +90,7 @@ class DoglegDescent(AbstractDescent[Y]):
         #
         scaled_step_size = newton_norm * step_size
 
-        denom = tree_inner_prod(grad, mvp)
+        denom = tree_dot(grad, mvp)
         denom_nonzero = denom > jnp.finfo(denom.dtype).eps
         safe_denom = jnp.where(denom_nonzero, denom, 1)
         scaling = jnp.where(denom_nonzero, sum_squares(grad) / safe_denom, 0.0)
@@ -130,7 +130,7 @@ class DoglegDescent(AbstractDescent[Y]):
             # find the value which hits the trust region radius.
             if self.trust_region_norm == two_norm:
                 a = sum_squares((newton**ω - cauchy**ω).ω)
-                inner_prod = tree_inner_prod(cauchy, (newton**ω - cauchy**ω).ω)
+                inner_prod = tree_dot(cauchy, (newton**ω - cauchy**ω).ω)
                 b = 2 * (inner_prod - a)
                 c = cauchy_norm**2 - 2 * inner_prod + a - scaled_step_size**2
                 quadratic_1 = jnp.clip(

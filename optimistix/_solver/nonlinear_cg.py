@@ -25,7 +25,13 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
 from .._descent import AbstractDescent, AbstractLineSearch
 from .._minimise import AbstractMinimiser, minimise
-from .._misc import max_norm, sum_squares, tree_full_like, tree_inner_prod, tree_where
+from .._misc import (
+    max_norm,
+    sum_squares,
+    tree_dot,
+    tree_full_like,
+    tree_where,
+)
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .misc import cauchy_termination
@@ -37,7 +43,7 @@ def _gradient_step(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
 
 def polak_ribiere(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     """The Polak--Ribière formula for β."""
-    numerator = tree_inner_prod(vector, (vector**ω - vector_prev**ω).ω)
+    numerator = tree_dot(vector, (vector**ω - vector_prev**ω).ω)
     denominator = sum_squares(vector_prev)
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
@@ -59,8 +65,8 @@ def fletcher_reeves(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
 def hestenes_stiefel(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     """The Hestenes--Stiefel formula for β."""
     grad_diff = (vector**ω - vector_prev**ω).ω
-    numerator = tree_inner_prod(vector, grad_diff)
-    denominator = tree_inner_prod(diff_prev, grad_diff)
+    numerator = tree_dot(vector, grad_diff)
+    denominator = tree_dot(diff_prev, grad_diff)
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
     return jnp.where(pred, numerator / safe_denom, jnp.inf)
@@ -69,7 +75,7 @@ def hestenes_stiefel(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
 def dai_yuan(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     """The Dai--Yuan formula for β."""
     numerator = sum_squares(vector)
-    denominator = tree_inner_prod(diff_prev, (vector**ω - vector_prev**ω).ω)
+    denominator = tree_dot(diff_prev, (vector**ω - vector_prev**ω).ω)
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
     return jnp.where(pred, numerator / safe_denom, jnp.inf)
@@ -109,7 +115,7 @@ class NonlinearCGDescent(AbstractDescent[Y]):
         negative_gradient = (-(vector**ω)).ω
         nonlinear_cg_direction = (negative_gradient**ω + beta * diff_prev**ω).ω
         diff = tree_where(
-            tree_inner_prod(vector, nonlinear_cg_direction) < 0,
+            tree_dot(vector, nonlinear_cg_direction) < 0,
             nonlinear_cg_direction,
             negative_gradient,
         )

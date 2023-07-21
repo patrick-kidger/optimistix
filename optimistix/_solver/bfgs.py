@@ -30,8 +30,8 @@ from .._minimise import AbstractMinimiser, minimise
 from .._misc import (
     jacobian,
     max_norm,
+    tree_dot,
     tree_full_like,
-    tree_inner_prod,
 )
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
@@ -167,7 +167,7 @@ class BFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
         diff_finite = jtu.tree_reduce(
             lambda x, y: x | y, jtu.tree_map(_finite, state.diff)
         )
-        inner = tree_inner_prod(grad_diff, state.diff)
+        inner = tree_dot(grad_diff, state.diff)
         inner_nonzero = inner > jnp.finfo(inner.dtype).eps
 
         operator_dynamic, operator_static = eqx.partition(state.operator, eqx.is_array)
@@ -182,7 +182,7 @@ class BFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
             if self.use_inverse:
                 # Use Woodbury identity for rank-1 update of approximate Hessian.
                 inv_mvp = operator_inv.mv(grad_diff)
-                operator_inner = tree_inner_prod(grad_diff, inv_mvp)
+                operator_inner = tree_dot(grad_diff, inv_mvp)
                 diff_outer = _outer(state.diff, state.diff)
                 mvp_outer = _outer(state.diff, operator_inv.transpose().mv(grad_diff))
                 term1 = (
@@ -199,7 +199,7 @@ class BFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
                 # BFGS update to the operator directly, not inverse
                 mvp = operator.mv(state.diff)
                 term1 = (_outer(grad_diff, grad_diff) ** ω / inner).ω
-                term2 = (_outer(mvp, mvp) ** ω / tree_inner_prod(state.diff, mvp)).ω
+                term2 = (_outer(mvp, mvp) ** ω / tree_dot(state.diff, mvp)).ω
                 operator = lx.PyTreeLinearOperator(
                     (operator.pytree**ω + term1**ω - term2**ω).ω,
                     output_structure=jax.eval_shape(lambda: y),

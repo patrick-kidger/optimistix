@@ -30,8 +30,8 @@ from .._custom_types import (
 from .._descent import AbstractDescent, AbstractLineSearch
 from .._misc import (
     is_linear,
+    tree_dot,
     tree_full_like,
-    tree_inner_prod,
     tree_where,
 )
 from .._solution import RESULTS
@@ -211,7 +211,7 @@ class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState[Y], Y, Aux]):
         del tags
         # This should maybe include a cauchy_like condition as well, especially
         # if we pass `step_size=0`
-        predicted_reduction = tree_inner_prod(state.grad, state.diff)
+        predicted_reduction = tree_dot(state.grad, state.diff)
         satisfies_armijo = (
             state.best_f_val
             <= state.current_f + self.backtrack_slope * predicted_reduction

@@ -12,99 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools as ft
+import math
 from collections.abc import Callable
-from typing import cast, Union
+from typing import Union
 
 import equinox as eqx
 import jax
-import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, Float, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Bool, Inexact, PyTree, Scalar
 
 
-# TODO: can we just unify this with `two_norm`?
-def sum_squares(x: PyTree[Array]) -> Scalar:
-    """Compute the sum of the squares of the elements of a PyTree of arrays."""
-    return jtu.tree_reduce(
-        lambda a, b: a + b, jtu.tree_map(lambda c: jnp.sum(jnp.square(c)), x)
-    )
-
-
-def two_norm(x: PyTree[Array]) -> Scalar:
-    """Computes the L2 norm of a PyTree of arrays.
-
-    Considering the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
-    `sqrt(Σ_i x_i^2)`
-    """
-    x, _ = jfu.ravel_pytree(x)
-    if x.size == 0:
-        return jnp.array(0.0)
-    return _two_norm(x)
-
-
-@jax.custom_jvp
-def _two_norm(x):
-    x_sq = jnp.real(x * jnp.conj(x))
-    return jnp.sqrt(jnp.sum(x_sq))
-
-
-@_two_norm.defjvp
-def _two_norm_jvp(x, tx):
-    (x,) = x
-    (tx,) = tx
-    out = _two_norm(x)
-    # Get zero gradient, rather than NaN gradient, in these cases
-    pred = (out == 0) | jnp.isinf(out)
-    numerator = jnp.where(pred, 0, jnp.dot(x, tx))
-    denominator = jnp.where(pred, 1, out)
-    t_out = numerator / denominator
-    return out, t_out
-
-
-def rms_norm(x: PyTree[Array]) -> Scalar:
-    """Compute the RMS (root-mean-squared) norm of a PyTree of arrays.
-
-    This is the same as the L2 norm, averaged by the size of the input `x`. Considering
-    the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
-    `sqrt((Σ_i x_i^2)/n)`
-    """
-    x, _ = jfu.ravel_pytree(x)
-    if x.size == 0:
-        return jnp.array(0.0)
-    return _rms_norm(x)
-
-
-@jax.custom_jvp
-def _rms_norm(x):
-    x_sq = jnp.real(x * jnp.conj(x))
-    return jnp.sqrt(jnp.mean(x_sq))
-
-
-@_rms_norm.defjvp
-def _rms_norm_jvp(x, tx):
-    (x,) = x
-    (tx,) = tx
-    x = cast(Array, x)
-    tx = cast(Array, x)
-    out = _rms_norm(x)
-    # Get zero gradient, rather than NaN gradient, in these cases
-    pred = (out == 0) | jnp.isinf(out)
-    numerator = jnp.where(pred, 0, x)
-    denominator = jnp.where(pred, 1, out * x.size)
-    t_out = jnp.dot(numerator / denominator, tx)
-    return out, t_out
-
-
-def max_norm(x: PyTree[Array]) -> Scalar:
-    """Compute the L-infinity norm of a PyTree of arrays.
-
-    This is the largest absolute elementwise value. Considering the input `x` as a flat
-    vector `(x_1, ..., x_n)`, then this computes `max_i |x_i|`.
-    """
-    leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)]
-    return jtu.tree_reduce(jnp.maximum, leaf_maxes)
+def default_floating_dtype():
+    if jax.config.jax_enable_x64:  # pyright: ignore
+        return jnp.float64
+    else:
+        return jnp.float32
 
 
 def tree_full_like(
@@ -122,12 +47,27 @@ def tree_full_like(
     return jtu.tree_map(fn, struct)
 
 
-def tree_inner_prod(tree1: PyTree[Array], tree2: PyTree[Array]) -> Float[Array, ""]:
+def tree_dot(tree1: PyTree[Array], tree2: PyTree[Array]) -> Inexact[Array, ""]:
     """Compute the dot product of two pytrees of arrays with the same pytree
-    structure.
-    """
-    prod = (tree1**ω * tree2**ω).call(jnp.sum).ω
-    return jtu.tree_reduce(lambda x, y: x + y, prod)
+    structure."""
+    leaves1, treedef1 = jtu.tree_flatten(tree1)
+    leaves2, treedef2 = jtu.tree_flatten(tree2)
+    if treedef1 != treedef2:
+        raise ValueError("trees must have the same structure")
+    assert len(leaves1) == len(leaves2)
+    dots = []
+    for leaf1, leaf2 in zip(leaves1, leaves2):
+        dots.append(
+            jnp.dot(
+                leaf1.reshape(-1),
+                jnp.conj(leaf2).reshape(-1),
+                precision=jax.lax.Precision.HIGHEST,
+            )
+        )
+    if len(dots) == 0:
+        return jnp.array(0, default_floating_dtype())
+    else:
+        return ft.reduce(jnp.add, dots)
 
 
 def tree_where(
@@ -136,6 +76,67 @@ def tree_where(
     """Return the `true` or `false` pytree depending on `pred`."""
     keep = lambda a, b: jnp.where(pred, a, b)
     return jtu.tree_map(keep, true, false)
+
+
+def sum_squares(x: PyTree[ArrayLike]) -> Scalar:
+    """Computes the square of the L2 norm of a PyTree of arrays.
+
+    Considering the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
+    `Σ_i x_i^2`
+    """
+    return tree_dot(x, x).real
+
+
+@jax.custom_jvp
+def two_norm(x: PyTree[Array]) -> Scalar:
+    """Computes the L2 norm of a PyTree of arrays.
+
+    Considering the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
+    `sqrt(Σ_i x_i^2)`
+    """
+    return jnp.sqrt(sum_squares(x))
+
+
+@two_norm.defjvp
+def _two_norm_jvp(x, tx):
+    (x,) = x
+    (tx,) = tx
+    out = two_norm(x)
+    # Get zero gradient, rather than NaN gradient, in these cases.
+    pred = (out == 0) | jnp.isinf(out)
+    denominator = jnp.where(pred, 1, out)
+    # We could also switch the dot and the division.
+    # This approach is a bit more expensive (more divisions), but should be more
+    # numerically stable (`x` and `denominator` should be of the same scale; `tx` is of
+    # unknown scale).
+    t_out = tree_dot((x**ω / denominator).ω, tx).real
+    t_out = jnp.where(pred, 0, t_out)
+    return out, t_out
+
+
+def rms_norm(x: PyTree[Array]) -> Scalar:
+    """Compute the RMS (root-mean-squared) norm of a PyTree of arrays.
+
+    This is the same as the L2 norm, averaged by the size of the input `x`. Considering
+    the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
+    `sqrt((Σ_i x_i^2)/n)`
+    """
+    leaves = jtu.tree_leaves(x)
+    size = sum([jnp.size(x) for x in leaves])
+    return two_norm(x) / math.sqrt(size)
+
+
+def max_norm(x: PyTree[Array]) -> Scalar:
+    """Compute the L-infinity norm of a PyTree of arrays.
+
+    This is the largest absolute elementwise value. Considering the input `x` as a flat
+    vector `(x_1, ..., x_n)`, then this computes `max_i |x_i|`.
+    """
+    leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)]
+    if len(leaf_maxes) == 0:
+        return jnp.array(0, default_floating_dtype())
+    else:
+        return ft.reduce(jnp.maximum, leaf_maxes)
 
 
 def resolve_rcond(rcond, n, m, dtype):
@@ -171,13 +172,6 @@ def jacobian(fn, in_size, out_size, has_aux=False):
         return jax.jacfwd(fn, has_aux=has_aux)
     else:
         return jax.jacrev(fn, has_aux=has_aux)
-
-
-def default_floating_dtype():
-    if jax.config.jax_enable_x64:  # pyright: ignore
-        return jnp.float64
-    else:
-        return jnp.float32
 
 
 def _asarray(dtype, x):

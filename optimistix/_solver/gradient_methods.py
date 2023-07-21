@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Generic, TYPE_CHECKING
+from typing import Any, Generic, Optional, TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -30,7 +30,7 @@ else:
 from .._custom_types import Aux, Fn, Y
 from .._descent import AbstractDescent, AbstractLineSearch
 from .._minimise import AbstractMinimiser, minimise
-from .._misc import max_norm, two_norm
+from .._misc import max_norm
 from .._solution import RESULTS
 from .learning_rate import LearningRate
 from .misc import cauchy_termination
@@ -44,7 +44,7 @@ class SteepestDescent(AbstractDescent[Y]):
     - `vector`: The gradient of the objective function to minimise.
     """
 
-    normalise: bool = False
+    norm: Optional[Callable[[PyTree], Scalar]] = None
 
     def __call__(
         self,
@@ -53,17 +53,19 @@ class SteepestDescent(AbstractDescent[Y]):
         options: dict[str, Any],
     ) -> tuple[Y, RESULTS]:
         vector = options["vector"]
-        if self.normalise:
-            diff = (vector**ω / two_norm(vector)).ω
-        else:
+        if self.norm is None:
             diff = vector
+        else:
+            diff = (vector**ω / self.norm(vector)).ω
         return (-step_size * diff**ω).ω, RESULTS.successful
 
 
 SteepestDescent.__init__.__doc__ = """**Arguments:**
 
-- `normalise`: If `normalise=True` then normalise the gradient and return a step of 
-    length `step_size`.
+- `norm`: If passed, then normalise the gradient using this norm. (The returned step
+    will have length `step_size` with respect to this norm.) Optimistix includes three
+    built-in norms: [`optimistix.max_norm`][], [`optimistix.rms_norm`][], and
+    [`optimistix.two_norm`][].
 """
 
 
