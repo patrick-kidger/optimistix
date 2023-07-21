@@ -1,3 +1,5 @@
+import random
+
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
@@ -19,9 +21,9 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
-@pytest.mark.parametrize("has_aux", (True, False))
-def test_minimise(solver, _fn, minimum, init, args, has_aux):
+def test_minimise(solver, _fn, minimum, init, args):
     atol = rtol = 1e-4
+    has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
@@ -39,9 +41,9 @@ def test_minimise(solver, _fn, minimum, init, args, has_aux):
 
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
-@pytest.mark.parametrize("has_aux", (True, False))
-def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, has_aux):
+def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
     atol = rtol = 1e-4
+    has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:

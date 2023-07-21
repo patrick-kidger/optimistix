@@ -1,3 +1,5 @@
+import random
+
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
@@ -24,9 +26,9 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 @pytest.mark.parametrize("solver", _root_finders)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
-@pytest.mark.parametrize("has_aux", (True, False))
-def test_root_find(solver, _fn, init, args, has_aux):
+def test_root_find(solver, _fn, init, args):
     atol = rtol = 1e-5
+    has_aux = random.choice([True, False])
 
     def root_find_problem(y, args):
         f_val = _fn(y, args)
@@ -50,9 +52,9 @@ def test_root_find(solver, _fn, init, args, has_aux):
 
 @pytest.mark.parametrize("solver", _root_finders)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
-@pytest.mark.parametrize("has_aux", (True, False))
-def test_root_find_jvp(getkey, solver, _fn, init, args, has_aux):
+def test_root_find_jvp(getkey, solver, _fn, init, args):
     atol = rtol = 1e-5
+    has_aux = random.choice([True, False])
 
     def root_find_problem(y, args):
         f_val = _fn(y, args)

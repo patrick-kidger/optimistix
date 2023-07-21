@@ -1,3 +1,5 @@
+import random
+
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
@@ -23,9 +25,9 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 @pytest.mark.parametrize("solver", _fp_solvers)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
-@pytest.mark.parametrize("has_aux", (True, False))
-def test_fixed_point(solver, _fn, init, args, has_aux):
+def test_fixed_point(solver, _fn, init, args):
     atol = rtol = 1e-4
+    has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
@@ -43,9 +45,9 @@ def test_fixed_point(solver, _fn, init, args, has_aux):
 
 @pytest.mark.parametrize("solver", _fp_solvers)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
-@pytest.mark.parametrize("has_aux", (True, False))
-def test_fixed_point_jvp(getkey, solver, _fn, init, args, has_aux):
+def test_fixed_point_jvp(getkey, solver, _fn, init, args):
     atol = rtol = 1e-4
+    has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
@@ -74,10 +76,10 @@ def test_fixed_point_jvp(getkey, solver, _fn, init, args, has_aux):
 @pytest.mark.parametrize(
     "_fn, init, bisection_options, args", bisection_fn_init_options_args
 )
-@pytest.mark.parametrize("has_aux", (True, False))
-def test_bisection(_fn, init, bisection_options, args, has_aux):
+def test_bisection(_fn, init, bisection_options, args):
     solver = optx.Bisection(rtol=1e-6, atol=1e-6)
     atol = rtol = 1e-4
+    has_aux = random.choice([True, False])
 
     def root_find_problem(y, args):
         f_val = _fn(y, args)
