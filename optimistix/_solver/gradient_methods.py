@@ -32,10 +32,9 @@ from .._custom_types import Aux, Fn, Y
 from .._iterate import AbstractIterativeSolver
 from .._line_search import AbstractDescent, AbstractLineSearch, line_search
 from .._minimise import AbstractMinimiser
-from .._misc import max_norm, tree_full_like
+from .._misc import cauchy_termination, max_norm, tree_full_like
 from .._solution import RESULTS
 from .learning_rate import LearningRate
-from .misc import cauchy_termination
 
 
 class SteepestDescent(AbstractDescent[Y]):

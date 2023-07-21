@@ -34,6 +34,7 @@ from .._iterate import AbstractIterativeSolver
 from .._least_squares import AbstractLeastSquaresSolver
 from .._line_search import AbstractDescent, AbstractLineSearch, line_search
 from .._misc import (
+    cauchy_termination,
     max_norm,
     sum_squares,
     tree_full_like,
@@ -41,7 +42,6 @@ from .._misc import (
 )
 from .._solution import RESULTS
 from .learning_rate import LearningRate
-from .misc import cauchy_termination
 
 
 def _is_array_or_struct(x):

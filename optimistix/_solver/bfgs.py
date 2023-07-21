@@ -30,6 +30,7 @@ from .._iterate import AbstractIterativeSolver
 from .._line_search import AbstractLineSearch, line_search
 from .._minimise import AbstractMinimiser
 from .._misc import (
+    cauchy_termination,
     jacobian,
     max_norm,
     tree_dot,
@@ -38,7 +39,6 @@ from .._misc import (
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .gauss_newton import NewtonDescent
-from .misc import cauchy_termination
 
 
 def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:

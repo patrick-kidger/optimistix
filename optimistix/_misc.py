@@ -15,7 +15,7 @@
 import functools as ft
 import math
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Union
+from typing import cast, TYPE_CHECKING, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -23,6 +23,9 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Inexact, PyTree, Scalar
+
+from ._custom_types import Y
+from ._solution import RESULTS
 
 
 if TYPE_CHECKING:
@@ -211,3 +214,32 @@ def is_linear(fn, *args, output):
         return False
     else:
         return True
+
+
+_F = TypeVar("_F")
+
+
+def cauchy_termination(
+    rtol: float,
+    atol: float,
+    norm: Callable[[PyTree], Scalar],
+    y_prev: Y,
+    y_diff: Y,  # *Not* y_val
+    f_val: _F,
+    f_prev: _F,
+    result: RESULTS,
+) -> tuple[Bool[Array, ""], RESULTS]:
+    """Terminate if there is a small difference in both `y` space and `f` space, as
+    determined by `rtol` and `atol`.
+
+    Specifically, this checks that `y_difference < atol + rtol * y` and
+    `f_difference < atol + rtol * f_prev`, terminating if both of these are true.
+    """
+    f_diff = (f_val**ω - f_prev**ω).ω
+    y_scale = (atol + rtol * ω(y_prev).call(jnp.abs)).ω
+    f_scale = (atol + rtol * ω(f_prev).call(jnp.abs)).ω
+    y_converged = norm((ω(y_diff).call(jnp.abs) / y_scale**ω).ω) < 1
+    f_converged = norm((ω(f_diff).call(jnp.abs) / f_scale**ω).ω) < 1
+    terminate = (result != RESULTS.successful) | (y_converged & f_converged)
+    terminate = cast(Array, terminate)
+    return terminate, result

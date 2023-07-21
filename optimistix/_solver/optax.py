@@ -26,9 +26,8 @@ from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, Y
 from .._iterate import AbstractIterativeSolver
 from .._minimise import AbstractMinimiser
-from .._misc import max_norm
+from .._misc import cauchy_termination, max_norm
 from .._solution import RESULTS
-from .misc import cauchy_termination
 
 
 _OptaxClass: TypeAlias = Any
