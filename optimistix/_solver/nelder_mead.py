@@ -26,7 +26,7 @@ from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
-from .._misc import max_norm, tree_full_like, tree_where
+from .._misc import AbstractHasTol, max_norm, tree_full_like, tree_where
 from .._solution import RESULTS
 
 
@@ -102,7 +102,7 @@ def _update_stats(
     )
 
 
-class NelderMead(AbstractMinimiser[_NelderMeadState[Y, Aux], Y, Aux]):
+class NelderMead(AbstractMinimiser[_NelderMeadState[Y, Aux], Y, Aux], AbstractHasTol):
     """The Nelder-Mead minimisation algorithm. (Downhill simplex derivative-free
     method.)
 

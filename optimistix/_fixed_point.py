@@ -23,6 +23,8 @@ from jaxtyping import PyTree
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Args, Aux, Fn, MaybeAuxFn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
+from ._least_squares import AbstractLeastSquaresSolver
+from ._minimise import AbstractMinimiser
 from ._misc import inexact_asarray, NoneAux
 from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
@@ -57,7 +59,12 @@ class _ToRootFn(eqx.Module, Generic[Y, Aux]):
 @eqx.filter_jit
 def fixed_point(
     fn: MaybeAuxFn[Y, Y, Aux],
-    solver: Union[AbstractFixedPointSolver, AbstractRootFinder],
+    solver: Union[
+        AbstractFixedPointSolver,
+        AbstractRootFinder,
+        AbstractLeastSquaresSolver,
+        AbstractMinimiser,
+    ],
     y0: Y,
     args: PyTree[Any] = None,
     options: Optional[dict[str, Any]] = None,
@@ -78,10 +85,13 @@ def fixed_point(
     - `fn`: The function to find the fixed-point of. This should take two arguments
         `fn(y, args)`, and return a pytree of arrays of the same shape as the input `y`.
     - `solver`: The root-finder to use. This can be either an
-        [`optimistix.AbstractFixedPointSolver`][] or an
-        [`optimistix.AbstractRootFinder`][]. If `solver` is an
-        [`optimistix.AbstractRootFinder`][] then it will attempt to find the root
-        of `fn(y, args) - y`.
+        [`optimistix.AbstractFixedPointSolver`][] or
+        [`optimistix.AbstractRootFinder`][], or
+        [`optimistix.AbstractLeastSquaresSolver`][], or
+        [`optimistix.AbstractMinimiser`][]. If `solver` is a root-finder then it will
+        will attempt to find the root of `fn(y, args) - y`. If `solver` is a
+        least-squares or minimisation algorithm, then it will attempt to minimise
+        `sum((fn(y, args) - y)^2)`.
     - `y0`: An initial guess for what `y` may be. Used to start the iterative process of
         finding the fixed point; using good initial guesses is often important.
     - `args`: Passed as the `args` of `fn(y, args)`.
@@ -112,7 +122,9 @@ def fixed_point(
     if not has_aux:
         fn = NoneAux(fn)
     fn = cast(Fn[Y, Y, Aux], fn)
-    if isinstance(solver, AbstractRootFinder):
+    if isinstance(
+        solver, (AbstractRootFinder, AbstractLeastSquaresSolver, AbstractMinimiser)
+    ):
         del tags
         return root_find(
             _ToRootFn(fn),

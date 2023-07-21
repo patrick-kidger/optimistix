@@ -224,7 +224,7 @@ def _iterate(inputs, while_loop):
     terminate, result = solver.terminate(fn, final_y, args, options, _final_state, tags)
     result = RESULTS.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
-        RESULTS.max_steps_reached,
+        RESULTS.nonlinear_max_steps_reached,
         result,
     )
     return final_y, (num_steps, result, final_state, aux)

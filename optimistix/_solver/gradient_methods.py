@@ -30,7 +30,7 @@ else:
 from .._custom_types import Aux, Fn, Y
 from .._descent import AbstractDescent, AbstractLineSearch
 from .._minimise import AbstractMinimiser, minimise
-from .._misc import max_norm
+from .._misc import AbstractHasTol, max_norm
 from .._solution import RESULTS
 from .learning_rate import LearningRate
 from .misc import cauchy_termination
@@ -77,7 +77,9 @@ class _GradientDescentState(eqx.Module, Generic[Y, Aux]):
     result: RESULTS
 
 
-class AbstractGradientDescent(AbstractMinimiser[_GradientDescentState[Y, Aux], Y, Aux]):
+class AbstractGradientDescent(
+    AbstractMinimiser[_GradientDescentState[Y, Aux], Y, Aux], AbstractHasTol
+):
     """The gradient descent method for unconstrained minimisation.
 
     At every step, this algorithm performs a line search along the steepest descent
@@ -141,7 +143,7 @@ class AbstractGradientDescent(AbstractMinimiser[_GradientDescentState[Y, Aux], Y
             throw=False,
         )
         result = RESULTS.where(
-            line_sol.result == RESULTS.max_steps_reached,
+            line_sol.result == RESULTS.nonlinear_max_steps_reached,
             RESULTS.successful,
             line_sol.result,
         )

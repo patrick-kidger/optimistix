@@ -12,18 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, cast, Optional
+from typing import Any, cast, Optional, Union
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
-from ._misc import inexact_asarray, NoneAux
-from ._solution import Solution
+from ._least_squares import AbstractLeastSquaresSolver, least_squares
+from ._minimise import AbstractMinimiser
+from ._misc import AbstractHasTol, inexact_asarray, NoneAux
+from ._solution import RESULTS, Solution
 
 
 class AbstractRootFinder(AbstractIterativeSolver[SolverState, Y, Out, Aux]):
@@ -40,7 +43,7 @@ def _root(root, _, inputs):
 @eqx.filter_jit
 def root_find(
     fn: MaybeAuxFn[Y, Out, Aux],
-    solver: AbstractRootFinder,
+    solver: Union[AbstractRootFinder, AbstractLeastSquaresSolver, AbstractMinimiser],
     y0: Y,
     args: PyTree = None,
     options: Optional[dict[str, Any]] = None,
@@ -62,7 +65,10 @@ def root_find(
         `fn(y, args)` and return a pytree of arrays not necessarily of the same shape
         as the input `y`.
     - `solver`: The root-finder to use. This should be an
-        [`optimistix.AbstractRootFinder`][].
+        [`optimistix.AbstractRootFinder`][],
+        [`optimistix.AbstractLeastSquaresSolver`][], or
+        [`optimistix.AbstractMinimiser`][]. If it is a least-squares solver or a
+        minimiser, then the value `sum(fn(y, args)^2)` is minimised.
     - `y0`: An initial guess for what `y` may be.
     - `args`: Passed as the `args` of `fn(y, args)`.
     - `options`: Individual solvers may accept additional runtime arguments.
@@ -92,19 +98,45 @@ def root_find(
     if not has_aux:
         fn = NoneAux(fn)
     fn = cast(Fn[Y, Out, Aux], fn)
-    f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
 
-    return iterative_solve(
-        fn,
-        solver,
-        y0,
-        args,
-        options,
-        rewrite_fn=_root,
-        max_steps=max_steps,
-        adjoint=adjoint,
-        throw=throw,
-        tags=tags,
-        f_struct=f_struct,
-        aux_struct=aux_struct,
-    )
+    if isinstance(solver, (AbstractMinimiser, AbstractLeastSquaresSolver)):
+        del tags
+        # `fn` is unchanged, as `least_squares` expects the residuals.
+        sol = least_squares(
+            fn,
+            solver,
+            y0,
+            args,
+            options,
+            has_aux=True,
+            max_steps=max_steps,
+            adjoint=adjoint,
+            throw=False,
+        )
+        if isinstance(solver, AbstractHasTol):
+            f_val = fn(sol.value, args)
+            success = jnp.abs(solver.norm(f_val)) < solver.atol
+            result = RESULTS.where(
+                success, sol.result, RESULTS.nonlinear_root_conversion_failed
+            )
+            sol = eqx.tree_at(lambda s: s.result, sol, result)
+            del f_val, success, result
+        if throw:
+            sol = sol.result.error_if(sol, sol.result != RESULTS.successful)
+        return sol
+    else:
+        f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
+        return iterative_solve(
+            fn,
+            solver,
+            y0,
+            args,
+            options,
+            rewrite_fn=_root,
+            max_steps=max_steps,
+            adjoint=adjoint,
+            throw=throw,
+            tags=tags,
+            f_struct=f_struct,
+            aux_struct=aux_struct,
+        )

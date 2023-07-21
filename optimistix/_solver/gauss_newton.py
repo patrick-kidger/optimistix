@@ -33,6 +33,7 @@ from .._descent import AbstractDescent, AbstractLineSearch
 from .._least_squares import AbstractLeastSquaresSolver
 from .._minimise import minimise
 from .._misc import (
+    AbstractHasTol,
     max_norm,
     sum_squares,
     tree_full_like,
@@ -128,7 +129,7 @@ def _minimise_fn(fn: Fn[Y, Out, Aux], y: Y, args: Args) -> tuple[Scalar, Aux]:
 
 
 class AbstractGaussNewton(
-    AbstractLeastSquaresSolver[_GaussNewtonState[Y, Aux], Y, Out, Aux]
+    AbstractLeastSquaresSolver[_GaussNewtonState[Y, Aux], Y, Out, Aux], AbstractHasTol
 ):
     """Abstract base class for all Gauss-Newton type methods.
 
@@ -205,7 +206,7 @@ class AbstractGaussNewton(
         )
         new_y = line_sol.value
         result = RESULTS.where(
-            line_sol.result == RESULTS.max_steps_reached,
+            line_sol.result == RESULTS.nonlinear_max_steps_reached,
             RESULTS.successful,
             line_sol.result,
         )

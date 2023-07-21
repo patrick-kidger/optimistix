@@ -8,7 +8,7 @@
 
 !!! info
 
-    In addition to the solvers listed here, all [minimisers](./minimisers.md). This is because a least squares problem $\argmin_\theta \sum_{i=1}^N r_i(\theta)^2$ can be immediately interpreted as a minimisation problem.
+    In addition to the solvers listed here, any [minimiser](./minimisers.md) may also be used as the `solver`. This is because a least squares problem $\argmin_\theta \sum_{i=1}^N r_i(\theta)^2$ is a special case of general minimisation problems.
 
 ??? abstract "`optimistix.AbstractLeastSquaresSolver`"
 

@@ -26,6 +26,7 @@ from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
 from .._descent import AbstractDescent, AbstractLineSearch
 from .._minimise import AbstractMinimiser, minimise
 from .._misc import (
+    AbstractHasTol,
     max_norm,
     sum_squares,
     tree_dot,
@@ -155,7 +156,7 @@ class _NonlinearCGState(eqx.Module, Generic[Y]):
 #
 
 
-class NonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux]):
+class NonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux], AbstractHasTol):
     """The nonlinear conjugate gradient method.
 
     The line search can only require `options` from the list of:
@@ -265,7 +266,7 @@ class NonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux]):
         )
         new_y = line_sol.value
         result = RESULTS.where(
-            line_sol.result == RESULTS.max_steps_reached,
+            line_sol.result == RESULTS.nonlinear_max_steps_reached,
             RESULTS.successful,
             line_sol.result,
         )

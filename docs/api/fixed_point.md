@@ -8,7 +8,9 @@
 
 !!! info
 
-    In addition to the solvers listed here, all [root-finding solvers](./root_find.md) are also supported. This is because any fixed point problem "find `y` such that `y = f(y)`" can be automatically converted to a root finding problem "find `y` such that `g(y) = 0`", where `g` is defined by `g(y) = y - f(y)`.
+    In addition to the solvers listed here, any [root finder](./root-find.md) may also be used as the `solver`. This is because finding the fixed point `x` for which `f(x) = x`, can also be accomplished by finding the root `x` for which `f(x) - x = 0`.
+
+    Likewise, any [least squares solver](./least-squares.md) or [minimiser](./minimisers.md) may also be used as the `solver`. This is because finding the root `x` for which `f(x) = x` can also be accomplished by finding the value `x` for which `sum((f(x) - x)^2)` is minimised.
 
 ??? abstract "`optimistix.AbstractFixedPointSolver`"
 

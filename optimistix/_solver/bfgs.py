@@ -28,6 +28,7 @@ from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
 from .._descent import AbstractLineSearch
 from .._minimise import AbstractMinimiser, minimise
 from .._misc import (
+    AbstractHasTol,
     jacobian,
     max_norm,
     tree_dot,
@@ -96,7 +97,7 @@ class _BFGSState(eqx.Module, Generic[Y, Aux]):
     result: RESULTS
 
 
-class BFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
+class BFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux], AbstractHasTol):
     """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a "second-order" optimisation algorithm, whose defining feature is that the
@@ -248,7 +249,7 @@ class BFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux]):
         )
         new_y = line_sol.value
         result = RESULTS.where(
-            line_sol.result == RESULTS.max_steps_reached,
+            line_sol.result == RESULTS.nonlinear_max_steps_reached,
             RESULTS.successful,
             line_sol.result,
         )

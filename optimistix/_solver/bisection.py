@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, cast
+from collections.abc import Callable
+from typing import Any, cast, ClassVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -21,6 +22,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._custom_types import Aux, Fn
+from .._misc import AbstractHasTol
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
 
@@ -32,7 +34,9 @@ class _BisectionState(eqx.Module):
     step: Int[Array, ""]
 
 
-class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
+class Bisection(
+    AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux], AbstractHasTol
+):
     """The bisection method of root finding. This may only be used with functions
     `R->R`, i.e. functions with scalar input and scalar output.
 
@@ -49,6 +53,8 @@ class Bisection(AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux]):
 
     rtol: float
     atol: float
+    # All norms are the same for scalars.
+    norm: ClassVar[Callable[[PyTree], Scalar]] = jnp.abs
 
     def init(
         self,

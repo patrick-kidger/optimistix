@@ -15,7 +15,7 @@
 import functools as ft
 import math
 from collections.abc import Callable
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 import equinox as eqx
 import jax
@@ -23,6 +23,12 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Inexact, PyTree, Scalar
+
+
+if TYPE_CHECKING:
+    from typing import ClassVar as AbstractVar
+else:
+    from equinox import AbstractVar
 
 
 def default_floating_dtype():
@@ -47,7 +53,7 @@ def tree_full_like(
     return jtu.tree_map(fn, struct)
 
 
-def tree_dot(tree1: PyTree[Array], tree2: PyTree[Array]) -> Inexact[Array, ""]:
+def tree_dot(tree1: PyTree[ArrayLike], tree2: PyTree[ArrayLike]) -> Inexact[Array, ""]:
     """Compute the dot product of two pytrees of arrays with the same pytree
     structure."""
     leaves1, treedef1 = jtu.tree_flatten(tree1)
@@ -59,7 +65,7 @@ def tree_dot(tree1: PyTree[Array], tree2: PyTree[Array]) -> Inexact[Array, ""]:
     for leaf1, leaf2 in zip(leaves1, leaves2):
         dots.append(
             jnp.dot(
-                leaf1.reshape(-1),
+                jnp.reshape(leaf1, -1),
                 jnp.conj(leaf2).reshape(-1),
                 precision=jax.lax.Precision.HIGHEST,
             )
@@ -88,7 +94,7 @@ def sum_squares(x: PyTree[ArrayLike]) -> Scalar:
 
 
 @jax.custom_jvp
-def two_norm(x: PyTree[Array]) -> Scalar:
+def two_norm(x: PyTree[ArrayLike]) -> Scalar:
     """Computes the L2 norm of a PyTree of arrays.
 
     Considering the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
@@ -114,7 +120,7 @@ def _two_norm_jvp(x, tx):
     return out, t_out
 
 
-def rms_norm(x: PyTree[Array]) -> Scalar:
+def rms_norm(x: PyTree[ArrayLike]) -> Scalar:
     """Compute the RMS (root-mean-squared) norm of a PyTree of arrays.
 
     This is the same as the L2 norm, averaged by the size of the input `x`. Considering
@@ -126,7 +132,7 @@ def rms_norm(x: PyTree[Array]) -> Scalar:
     return two_norm(x) / math.sqrt(size)
 
 
-def max_norm(x: PyTree[Array]) -> Scalar:
+def max_norm(x: PyTree[ArrayLike]) -> Scalar:
     """Compute the L-infinity norm of a PyTree of arrays.
 
     This is the largest absolute elementwise value. Considering the input `x` as a flat
@@ -205,3 +211,11 @@ def is_linear(fn, *args, output):
         return False
     else:
         return True
+
+
+class AbstractHasTol(eqx.Module):
+    """A solver guaranteed to have `atol` and `rtol` fields."""
+
+    rtol: AbstractVar[float]
+    atol: AbstractVar[float]
+    norm: AbstractVar[Callable[[PyTree], Scalar]]

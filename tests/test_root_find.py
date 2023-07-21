@@ -128,3 +128,23 @@ def test_newton_bounded(solver):
     y0 = (jnp.array(0.1), jnp.array([[-1.1, 0.1], [0.1, -1.1]]))
     upper_root = optx.root_find(f, solver, y0, options=dict(upper=upper_bound)).value
     assert tree_allclose(upper_root, true_upper_root, rtol=tol, atol=tol)
+
+
+def test_root_via_min():
+    def f(y, _):
+        ya, (yb, yc) = y
+        return jnp.tanh(ya + 0.1), jnp.tanh(yb - 0.5), jnp.tanh(yc * 2)
+
+    y0 = jnp.array(0.5), jnp.array([-0.3, 0.7])
+    sol = optx.root_find(f, optx.BFGS(rtol=1e-8, atol=1e-8), y0)
+    assert tree_allclose(sol.value, (jnp.array(-0.1), jnp.array([0.5, 0.0])))
+
+
+def test_bad_root_via_min():
+    def f(y, _):
+        ya, (yb, yc) = y
+        return 1.0, jnp.tanh(yb - 0.5), jnp.tanh(yc * 2)
+
+    y0 = jnp.array(0.5), jnp.array([-0.3, 0.7])
+    sol = optx.root_find(f, optx.BFGS(rtol=1e-8, atol=1e-8), y0, throw=False)
+    assert sol.result == optx.RESULTS.nonlinear_root_conversion_failed
