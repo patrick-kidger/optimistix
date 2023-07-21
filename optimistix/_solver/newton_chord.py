@@ -62,7 +62,7 @@ class _NewtonChordState(eqx.Module, Generic[Y]):
 
 
 class _NewtonChord(
-    AbstractRootFinder[_NewtonChordState[Y], Y, Out, Aux], AbstractHasTol
+    AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]], AbstractHasTol
 ):
     rtol: float
     atol: float

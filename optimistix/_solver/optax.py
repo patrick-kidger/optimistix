@@ -33,7 +33,7 @@ _OptaxClass: TypeAlias = Any
 _OptState: TypeAlias = tuple[Any, Any, Any, Any]
 
 
-class OptaxMinimiser(AbstractMinimiser[_OptState, Y, Aux], AbstractHasTol):
+class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptState], AbstractHasTol):
     """A wrapper to use Optax first-order gradient-based optimisers with
     [`optimistix.minimise`][].
     """

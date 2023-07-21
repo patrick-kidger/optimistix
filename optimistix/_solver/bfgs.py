@@ -97,7 +97,7 @@ class _BFGSState(eqx.Module, Generic[Y, Aux]):
     result: RESULTS
 
 
-class BFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux], AbstractHasTol):
+class BFGS(AbstractMinimiser[Y, Aux, _BFGSState[Y, Aux]], AbstractHasTol):
     """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a "second-order" optimisation algorithm, whose defining feature is that the
@@ -111,7 +111,7 @@ class BFGS(AbstractMinimiser[_BFGSState[Y, Aux], Y, Aux], AbstractHasTol):
     use_inverse: bool = True
     # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
     line_search: AbstractLineSearch[
-        AbstractLineSearchState, Y, Aux
+        Y, Aux, AbstractLineSearchState
     ] = BacktrackingArmijo(
         NewtonDescent(linear_solver=lx.Cholesky()),
         gauss_newton=False,

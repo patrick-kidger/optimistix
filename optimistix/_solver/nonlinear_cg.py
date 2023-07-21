@@ -156,7 +156,7 @@ class _NonlinearCGState(eqx.Module, Generic[Y]):
 #
 
 
-class NonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux], AbstractHasTol):
+class NonlinearCG(AbstractMinimiser[Y, Aux, _NonlinearCGState[Y]], AbstractHasTol):
     """The nonlinear conjugate gradient method.
 
     The line search can only require `options` from the list of:
@@ -172,7 +172,7 @@ class NonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux], AbstractHasTo
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    line_search: AbstractLineSearch[AbstractLineSearchState, Y, Aux]
+    line_search: AbstractLineSearch[Y, Aux, AbstractLineSearchState]
 
     def __init__(
         self,
@@ -180,7 +180,7 @@ class NonlinearCG(AbstractMinimiser[_NonlinearCGState[Y], Y, Aux], AbstractHasTo
         atol: float,
         norm: Callable[[PyTree[Array]], Scalar] = max_norm,
         method: Callable[[Y, Y, Y], Scalar] = polak_ribiere,
-        line_search: AbstractLineSearch[AbstractLineSearchState, Y, Aux] = sentinel,
+        line_search: AbstractLineSearch[Y, Aux, AbstractLineSearchState] = sentinel,
     ):
         """**Arguments:**
 

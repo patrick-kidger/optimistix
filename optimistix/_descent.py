@@ -13,16 +13,10 @@
 # limitations under the License.
 
 import abc
-from typing import Any, Generic, TYPE_CHECKING
+from typing import Any, Generic
 
 import equinox as eqx
 from jaxtyping import PyTree, Scalar
-
-
-if TYPE_CHECKING:
-    pass
-else:
-    pass
 
 from ._custom_types import Aux, LineSearchState, Y
 from ._minimise import AbstractMinimiser
@@ -70,7 +64,7 @@ class AbstractDescent(eqx.Module, Generic[Y]):
         """
 
 
-class AbstractLineSearch(AbstractMinimiser[LineSearchState, Y, Aux]):
+class AbstractLineSearch(AbstractMinimiser[Y, Aux, LineSearchState]):
     """The abstract base class for all line searches.
 
     In practice these are all just minimisers, and this class really just exists to help

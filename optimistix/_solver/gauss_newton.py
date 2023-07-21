@@ -129,7 +129,7 @@ def _minimise_fn(fn: Fn[Y, Out, Aux], y: Y, args: Args) -> tuple[Scalar, Aux]:
 
 
 class AbstractGaussNewton(
-    AbstractLeastSquaresSolver[_GaussNewtonState[Y, Aux], Y, Out, Aux], AbstractHasTol
+    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState[Y, Aux]], AbstractHasTol
 ):
     """Abstract base class for all Gauss-Newton type methods.
 

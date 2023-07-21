@@ -56,7 +56,7 @@ class _BacktrackingState(AbstractLineSearchState, Generic[Y]):
     step: Int[Array, ""]
 
 
-class BacktrackingArmijo(AbstractLineSearch[_BacktrackingState[Y], Y, Aux]):
+class BacktrackingArmijo(AbstractLineSearch[Y, Aux, _BacktrackingState[Y]]):
     """Compute `y_new` from `y` using backtracking Armijo line search.
 
     This requires the following to be passed via `options`:

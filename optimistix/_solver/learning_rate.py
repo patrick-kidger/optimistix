@@ -31,7 +31,7 @@ class _LearningRateState(AbstractLineSearchState):
     aux: PyTree
 
 
-class LearningRate(AbstractLineSearch[_LearningRateState, Y, Aux]):
+class LearningRate(AbstractLineSearch[Y, Aux, _LearningRateState]):
     """Compute `y_new` from `y`, by taking a step of the fixed size `learning_rate`."""
 
     descent: AbstractDescent[Y]

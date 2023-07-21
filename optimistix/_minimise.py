@@ -27,7 +27,7 @@ from ._misc import inexact_asarray, NoneAux
 from ._solution import Solution
 
 
-class AbstractMinimiser(AbstractIterativeSolver[SolverState, Y, Scalar, Aux]):
+class AbstractMinimiser(AbstractIterativeSolver[Y, Scalar, Aux, SolverState]):
     """Abstract base class for all minimisers."""
 
 

@@ -102,7 +102,7 @@ def _update_stats(
     )
 
 
-class NelderMead(AbstractMinimiser[_NelderMeadState[Y, Aux], Y, Aux], AbstractHasTol):
+class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], AbstractHasTol):
     """The Nelder-Mead minimisation algorithm. (Downhill simplex derivative-free
     method.)
 

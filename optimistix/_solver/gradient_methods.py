@@ -78,7 +78,7 @@ class _GradientDescentState(eqx.Module, Generic[Y, Aux]):
 
 
 class AbstractGradientDescent(
-    AbstractMinimiser[_GradientDescentState[Y, Aux], Y, Aux], AbstractHasTol
+    AbstractMinimiser[Y, Aux, _GradientDescentState[Y, Aux]], AbstractHasTol
 ):
     """The gradient descent method for unconstrained minimisation.
 

@@ -156,7 +156,7 @@ class _TrustRegionState(AbstractLineSearchState, Generic[Y]):
 #
 
 
-class _AbstractTrustRegion(AbstractLineSearch[_TrustRegionState[Y], Y, Aux]):
+class _AbstractTrustRegion(AbstractLineSearch[Y, Aux, _TrustRegionState[Y]]):
     """The abstract base class of the trust-region update algorithm.
 
     Trust region line searches compute the ratio

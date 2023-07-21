@@ -29,7 +29,7 @@ from ._misc import AbstractHasTol, inexact_asarray, NoneAux
 from ._solution import RESULTS, Solution
 
 
-class AbstractRootFinder(AbstractIterativeSolver[SolverState, Y, Out, Aux]):
+class AbstractRootFinder(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
     """Abstract base class for all root finders."""
 
 

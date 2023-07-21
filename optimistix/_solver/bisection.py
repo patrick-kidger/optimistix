@@ -35,7 +35,7 @@ class _BisectionState(eqx.Module):
 
 
 class Bisection(
-    AbstractRootFinder[_BisectionState, Scalar, Scalar, Aux], AbstractHasTol
+    AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState], AbstractHasTol
 ):
     """The bisection method of root finding. This may only be used with functions
     `R->R`, i.e. functions with scalar input and scalar output.

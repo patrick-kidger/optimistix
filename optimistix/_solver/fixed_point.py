@@ -32,7 +32,7 @@ class _FixedPointState(eqx.Module):
 
 
 class FixedPointIteration(
-    AbstractFixedPointSolver[_FixedPointState, Y, Aux], AbstractHasTol
+    AbstractFixedPointSolver[Y, Aux, _FixedPointState], AbstractHasTol
 ):
     """Repeatedly calls a function in search of a fixed point.
 

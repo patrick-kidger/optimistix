@@ -27,7 +27,7 @@ from ._misc import inexact_asarray, NoneAux, sum_squares
 from ._solution import Solution
 
 
-class AbstractLeastSquaresSolver(AbstractIterativeSolver[SolverState, Y, Out, Aux]):
+class AbstractLeastSquaresSolver(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
     """Abstract base class for all least squares solvers."""
 
 

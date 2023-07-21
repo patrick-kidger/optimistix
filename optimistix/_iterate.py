@@ -43,7 +43,7 @@ def _is_array_or_jaxpr(x):
     return _is_jaxpr(x) or eqx.is_array(x)
 
 
-class AbstractIterativeSolver(eqx.Module, Generic[SolverState, Y, Out, Aux]):
+class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
     """Abstract base class for all iterative solvers."""
 
     @abc.abstractmethod
