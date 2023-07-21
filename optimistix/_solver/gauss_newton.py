@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Generic, TYPE_CHECKING
+from typing import Any, Generic, Optional, TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -38,7 +38,6 @@ from .._misc import (
     max_norm,
     sum_squares,
     tree_full_like,
-    two_norm,
 )
 from .._solution import RESULTS
 from .learning_rate import LearningRate
@@ -65,7 +64,7 @@ class NewtonDescent(AbstractDescent[Y]):
         `gauss_newton=True`, the approximate Hessian of the objective function if not.
     """
 
-    normalise: bool = False
+    norm: Optional[Callable[[PyTree], Scalar]] = None
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
     def __call__(
@@ -100,17 +99,19 @@ class NewtonDescent(AbstractDescent[Y]):
                 "At least one of `operator` or `operator_inv` must be "
                 "passed to `NewtonDescent` via `options`."
             )
-        if self.normalise:
-            diff = (newton**ω / two_norm(newton)).ω
-        else:
+        if self.norm is None:
             diff = newton
+        else:
+            diff = (newton**ω / self.norm(newton)).ω
         return (-step_size * diff**ω).ω, result
 
 
 NewtonDescent.__init__.__doc__ = """**Arguments:**
 
-- `normalise`: If `normalise=True` then normalise the gradient and return a step of 
-    length `step_size`.
+- `norm`: If passed, then normalise the gradient using this norm. (The returned step
+    will have length `step_size` with respect to this norm.) Optimistix includes three
+    built-in norms: [`optimistix.max_norm`][], [`optimistix.rms_norm`][], and
+    [`optimistix.two_norm`][].
 - `linear_solver`: The linear solver used to compute the Newton step.
 """
 

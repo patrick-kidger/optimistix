@@ -64,7 +64,6 @@ def _predict_linear_reduction(
         `descent`.
     - `vector`: the residual vector if `gauss_newton=True`, the gradient vector
         otherwise.
-    - `operator`: the Jacobian if `gauss_newton=True`, `None` otherwise
     - `args`: a pytree of array arguments passed to `fn`.
 
     **Returns**:

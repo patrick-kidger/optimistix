@@ -130,7 +130,7 @@ class BFGS(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        f_struct: PyTree[jax.ShapeDtypeStruct],
+        f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _BFGSState[Y, Aux]:

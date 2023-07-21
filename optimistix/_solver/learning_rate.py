@@ -19,7 +19,7 @@ import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar, ScalarLike
 
-from .._adjoint import AbstractAdjoint
+from .._adjoint import AbstractAdjoint, RecursiveCheckpointAdjoint
 from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
 from .._line_search import AbstractDescent, AbstractLineSearch
 from .._solution import RESULTS, Solution
@@ -54,6 +54,7 @@ class LearningRate(AbstractLineSearch[Y, Aux, _LearningRateState]):
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
     ) -> Solution[Y, Aux, _LearningRateState]:
+        assert isinstance(adjoint, RecursiveCheckpointAdjoint)
         del max_steps, adjoint, throw, tags, f_struct, aux_struct
         diff, _ = self.descent(cast(Array, self.learning_rate), args, options)
         value = (y0**ω + diff**ω).ω
