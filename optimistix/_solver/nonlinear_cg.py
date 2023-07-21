@@ -13,30 +13,24 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, cast, Generic
+from typing import Any, cast
 
-import equinox as eqx
-import jax
 import jax.lax as lax
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, PyTree, Scalar
 
-from .._base_solver import AbstractHasTol
-from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
-from .._iterate import AbstractIterativeSolver
-from .._line_search import AbstractDescent, AbstractLineSearch, line_search
-from .._minimise import AbstractMinimiser
+from .._custom_types import Aux, Y
+from .._line_search import AbstractDescent, AbstractLineSearch
 from .._misc import (
     max_norm,
     sum_squares,
     tree_dot,
-    tree_full_like,
     tree_where,
 )
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
-from .misc import cauchy_termination
+from .gradient_methods import AbstractGradientDescent
 
 
 def _gradient_step(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
@@ -49,10 +43,8 @@ def polak_ribiere(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     denominator = sum_squares(vector_prev)
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    beta = cast(
-        Scalar, jnp.where(pred, jnp.clip(numerator / safe_denom, a_min=0), jnp.inf)
-    )
-    return beta
+    out = jnp.where(pred, jnp.clip(numerator / safe_denom, a_min=0), jnp.inf)
+    return cast(Scalar, out)
 
 
 def fletcher_reeves(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
@@ -68,8 +60,8 @@ def hestenes_stiefel(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     """The Hestenes--Stiefel formula for β."""
     grad_diff = (vector**ω - vector_prev**ω).ω
     numerator = tree_dot(vector, grad_diff)
-    denominator = tree_dot(diff_prev, grad_diff)
-    pred = denominator > jnp.finfo(denominator.dtype).eps
+    denominator = -tree_dot(diff_prev, grad_diff)
+    pred = jnp.abs(denominator) > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
     return jnp.where(pred, numerator / safe_denom, jnp.inf)
 
@@ -77,8 +69,8 @@ def hestenes_stiefel(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
 def dai_yuan(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     """The Dai--Yuan formula for β."""
     numerator = sum_squares(vector)
-    denominator = tree_dot(diff_prev, (vector**ω - vector_prev**ω).ω)
-    pred = denominator > jnp.finfo(denominator.dtype).eps
+    denominator = -tree_dot(diff_prev, (vector**ω - vector_prev**ω).ω)
+    pred = jnp.abs(denominator) > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
     return jnp.where(pred, numerator / safe_denom, jnp.inf)
 
@@ -137,37 +129,17 @@ NonlinearCGDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class _NonlinearCGState(eqx.Module, Generic[Y]):
-    step_size: Scalar
-    f_val: Scalar
-    f_prev: Scalar
-    diff: Y
-    diff_prev: Y
-    vector: Y
-    result: RESULTS
-
-
-#
 # TODO(raderj): replace the default line search in all of these with a better
 # line search algorithm.
-#
-# NOTE: we choose not to make `method` a private method for each of these
-# classes because it simplifies the API that an end-user may want to write
-# to create a new NonlinearCG method.
-#
 
 
-class NonlinearCG(
-    AbstractMinimiser[Y, Aux, _NonlinearCGState[Y]],
-    AbstractIterativeSolver[Y, Scalar, Aux, _NonlinearCGState[Y]],
-    AbstractHasTol,
-):
+class NonlinearCG(AbstractGradientDescent[Y, Aux]):
     """The nonlinear conjugate gradient method."""
 
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    line_search: AbstractLineSearch[Y, Aux, AbstractLineSearchState]
+    line_search: AbstractLineSearch
 
     def __init__(
         self,
@@ -175,7 +147,6 @@ class NonlinearCG(
         atol: float,
         norm: Callable[[PyTree[Array]], Scalar] = max_norm,
         method: Callable[[Y, Y, Y], Scalar] = polak_ribiere,
-        line_search: AbstractLineSearch[Y, Aux, AbstractLineSearchState] = sentinel,
     ):
         """**Arguments:**
 
@@ -190,121 +161,13 @@ class NonlinearCG(
             [`optimistix.polak_ribiere`][], [`optimistix.fletcher_reeves`][],
             [`optimistix.hestenes_stiefel`][], and [`optimistix.dai_yuan`][], but any
             function `(Y, Y, Y) -> Scalar` will work.
-        - `line_search`: The line search to use. Note that this argument is mutually
-            exclusive with `method`. This can only require `options` from the list of:
-
-            - "init_step_size"
-            - "vector"
-            - "vector_prev"
-            - "diff"
-            - "diff_prev"
-            - "f0"
-            - "aux"
         """
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        if line_search is sentinel:
-            if method is not polak_ribiere:
-                raise ValueError(
-                    "Cannot pass both `method=...` and `line_search=...` to "
-                    "`optimistix.NonlinearCG`."
-                )
-            line_search = BacktrackingArmijo(
-                NonlinearCGDescent(method=method),
-                gauss_newton=False,
-                decrease_factor=0.5,
-                backtrack_slope=0.1,
-            )
-        self.line_search = line_search
-
-    def init(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        f_struct: jax.ShapeDtypeStruct,
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
-        tags: frozenset[object],
-    ) -> _NonlinearCGState[Y]:
-        del fn, options, aux_struct
-        maxval = jnp.finfo(f_struct.dtype).max
-        return _NonlinearCGState(
-            step_size=jnp.array(1.0),
-            f_val=jnp.array(maxval, f_struct.dtype),
-            f_prev=jnp.array(0.5 * maxval, f_struct.dtype),
-            diff=tree_full_like(y, jnp.inf),
-            diff_prev=tree_full_like(y, jnp.inf),
-            vector=tree_full_like(y, 1.0),
-            result=RESULTS.successful,
+        self.line_search = BacktrackingArmijo(
+            NonlinearCGDescent(method=method),
+            gauss_newton=False,
+            decrease_factor=0.5,
+            backtrack_slope=0.1,
         )
-
-    def step(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        state: _NonlinearCGState[Y],
-        tags: frozenset[object],
-    ) -> tuple[Y, _NonlinearCGState[Y], Aux]:
-        del options
-        (f_val, aux), new_grad = jax.value_and_grad(fn, has_aux=True)(y, args)
-        line_search_options = {
-            "init_step_size": state.step_size,
-            "vector": new_grad,
-            "vector_prev": state.vector,
-            "diff": state.diff,
-            "diff_prev": state.diff_prev,
-            "f0": f_val,
-            "aux": aux,
-        }
-        line_sol = line_search(
-            fn,
-            self.line_search,
-            y,
-            args,
-            line_search_options,
-            has_aux=True,
-            throw=False,
-        )
-        new_y = line_sol.value
-        result = RESULTS.where(
-            line_sol.result == RESULTS.nonlinear_max_steps_reached,
-            RESULTS.successful,
-            line_sol.result,
-        )
-        new_state = _NonlinearCGState(
-            step_size=line_sol.state.next_init,
-            f_val=f_val,
-            f_prev=state.f_val,
-            diff=(new_y**ω - y**ω).ω,
-            diff_prev=state.diff,
-            vector=new_grad,
-            result=result,
-        )
-        return new_y, new_state, aux
-
-    def terminate(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        state: _NonlinearCGState[Y],
-        tags: frozenset[object],
-    ) -> tuple[Bool[Array, ""], RESULTS]:
-        return cauchy_termination(
-            self.rtol,
-            self.atol,
-            self.norm,
-            y,
-            state.diff,
-            state.f_val,
-            state.f_prev,
-            state.result,
-        )
-
-    def buffers(self, state: _NonlinearCGState[Y]) -> tuple[()]:
-        return ()

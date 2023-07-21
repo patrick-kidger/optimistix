@@ -240,8 +240,6 @@ class BFGS(
             "operator": operator,
             "operator_inv": operator_inv,
             "f0": f_val,
-            "fn": fn,
-            "y": y,
             "aux": aux,
         }
         line_sol = line_search(
@@ -321,7 +319,5 @@ BFGS.__init__.__doc__ = """**Arguments:**
         - "operator"
         - "operator_inv"
         - "f0"
-        - "fn"
-        - "y"
         - "aux"
 """

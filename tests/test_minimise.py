@@ -67,3 +67,28 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
         minimise, (optx_argmin, dynamic_args), (t_init, t_dynamic_args)
     )
     assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [optx.polak_ribiere, optx.fletcher_reeves, optx.hestenes_stiefel, optx.dai_yuan],
+)
+def test_nonlinear_cg_methods(method):
+    solver = optx.NonlinearCG(rtol=1e-10, atol=1e-10, method=method)
+
+    def f(y, _):
+        A = jnp.array([[2.0, -1.0], [-1.0, 3.0]])
+        b = jnp.array([-100.0, 5.0])
+        c = jnp.array(100.0)
+        return jnp.einsum("ij,i,j", A, y, y) + jnp.dot(b, y) + c
+
+    # Analytic minimum:
+    # 0 = df/dyk
+    #   = A_kj y_j + A_ik y_i + b_k
+    #   = 2 A_kj y_j + b_k            (A is symmetric)
+    # => y = -0.5 A^{-1} b
+    #      = [[-0.3, 0.1], [0.1, 0.2]] [-100, 5]
+    #      = [29.5, 9]
+    y0 = jnp.array([2.0, 3.0])
+    sol = optx.minimise(f, solver, y0)
+    assert tree_allclose(sol.value, jnp.array([29.5, 9.0]), rtol=1e-5, atol=1e-5)

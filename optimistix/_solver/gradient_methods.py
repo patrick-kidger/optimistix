@@ -32,7 +32,7 @@ from .._custom_types import Aux, Fn, Y
 from .._iterate import AbstractIterativeSolver
 from .._line_search import AbstractDescent, AbstractLineSearch, line_search
 from .._minimise import AbstractMinimiser
-from .._misc import max_norm
+from .._misc import max_norm, tree_full_like
 from .._solution import RESULTS
 from .learning_rate import LearningRate
 from .misc import cauchy_termination
@@ -73,9 +73,11 @@ SteepestDescent.__init__.__doc__ = """**Arguments:**
 
 class _GradientDescentState(eqx.Module, Generic[Y, Aux]):
     step_size: Scalar
-    y_prev: Y
     f_val: Scalar
     f_prev: Scalar
+    y_prev: Y
+    vector_prev: Y
+    diff_prev: Y
     result: RESULTS
 
 
@@ -94,6 +96,9 @@ class AbstractGradientDescent(
 
     - "init_step_size"
     - "vector"
+    - "vector_prev"
+    - "diff"
+    - "diff_prev"
     - "f0"
     - "aux"
     """
@@ -117,9 +122,11 @@ class AbstractGradientDescent(
         maxval = jnp.finfo(f_struct.dtype).max
         return _GradientDescentState(
             step_size=jnp.array(1.0),
-            y_prev=y,
             f_val=jnp.array(maxval, dtype=f_struct.dtype),
             f_prev=jnp.array(0.5 * maxval, dtype=f_struct.dtype),
+            y_prev=y,
+            vector_prev=tree_full_like(y, 1),
+            diff_prev=tree_full_like(y, jnp.inf),
             result=RESULTS.successful,
         )
 
@@ -132,10 +139,14 @@ class AbstractGradientDescent(
         state: _GradientDescentState[Y, Aux],
         tags: frozenset[object],
     ) -> tuple[Y, _GradientDescentState, Aux]:
-        (f_val, aux), new_grad = jax.value_and_grad(fn, has_aux=True)(y, args)
+        (f_val, aux), grad = jax.value_and_grad(fn, has_aux=True)(y, args)
+        diff = (y**ω - state.y_prev**ω).ω
         line_search_options = {
             "init_step_size": state.step_size,
-            "vector": new_grad,
+            "vector": grad,
+            "vector_prev": state.vector_prev,
+            "diff": diff,
+            "diff_prev": state.diff_prev,
             "f0": f_val,
             "aux": aux,
         }
@@ -155,9 +166,11 @@ class AbstractGradientDescent(
         )
         new_state = _GradientDescentState(
             step_size=line_sol.state.next_init,
-            y_prev=y,
             f_val=f_val,
             f_prev=state.f_val,
+            y_prev=y,
+            vector_prev=grad,
+            diff_prev=diff,
             result=result,
         )
         return line_sol.value, new_state, aux
@@ -176,7 +189,7 @@ class AbstractGradientDescent(
             self.atol,
             self.norm,
             y,
-            (y**ω - state.y_prev**ω).ω,
+            state.diff_prev,
             state.f_val,
             state.f_prev,
             state.result,
