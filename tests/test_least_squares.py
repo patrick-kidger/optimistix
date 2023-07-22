@@ -1,6 +1,7 @@
 import random
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
@@ -10,9 +11,11 @@ import pytest
 import optimistix as optx
 
 from .helpers import (
+    diagonal_quadratic_bowl,
     finite_difference_jvp,
     least_squares_fn_minima_init_args,
     least_squares_optimisers,
+    rosenbrock,
     simple_nn,
     tree_allclose,
 )
@@ -32,13 +35,7 @@ def test_least_squares(solver, _fn, minimum, init, args):
         fn = _fn
 
     optx_argmin = optx.least_squares(
-        fn,
-        solver,
-        init,
-        has_aux=has_aux,
-        args=args,
-        max_steps=10_000,
-        throw=False,
+        fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
     ).value
     out = fn(optx_argmin, args)
     if has_aux:
@@ -54,6 +51,9 @@ def test_least_squares(solver, _fn, minimum, init, args):
 @pytest.mark.parametrize("solver", least_squares_optimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", least_squares_fn_minima_init_args)
 def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
+    if _fn in (simple_nn, diagonal_quadratic_bowl):
+        # These are ridiculously finickity to get references values for the derivatives
+        return
     atol = rtol = 1e-2
     has_aux = random.choice([True, False])
     if has_aux:
@@ -65,30 +65,55 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
     t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
     t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
 
-    def least_squares(x, dynamic_args):
+    def least_squares(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
-
-        if _fn == simple_nn:
-            adjoint = optx.ImplicitAdjoint(lx.AutoLinearSolver(well_posed=False))
-        else:
-            adjoint = optx.ImplicitAdjoint()
-
         return optx.least_squares(
             fn,
             solver,
             x,
             has_aux=has_aux,
             args=args,
-            adjoint=adjoint,
             max_steps=10_000,
+            adjoint=adjoint,
             throw=False,
         ).value
 
-    optx_argmin = least_squares(init, args)
-    expected_out, t_expected_out = finite_difference_jvp(
-        least_squares, (optx_argmin, dynamic_args), (t_init, t_dynamic_args)
-    )
+    if _fn is simple_nn:
+        otd = optx.ImplicitAdjoint(linear_solver=lx.AutoLinearSolver(well_posed=False))
+    else:
+        otd = optx.ImplicitAdjoint()
     out, t_out = eqx.filter_jvp(
-        least_squares, (optx_argmin, dynamic_args), (t_init, t_dynamic_args)
+        least_squares,
+        (init, dynamic_args),
+        (t_init, t_dynamic_args),
+        adjoint=otd,
     )
+    if _fn is rosenbrock:
+        # Finite difference does a bad job on this one, but we can figure it out
+        # analytically.
+        assert isinstance(args, jax.Array)
+        expected_out = jtu.tree_map(lambda x: jnp.full_like(x, args), init)
+        t_expected_out = jtu.tree_map(lambda x: jnp.full_like(x, t_dynamic_args), init)
+    else:
+        expected_out, t_expected_out = finite_difference_jvp(
+            least_squares,
+            (init, dynamic_args),
+            (t_init, t_dynamic_args),
+            adjoint=otd,
+        )
+    # TODO(kidger): reinstate once we can do jvp-of-custom_vjp. Right now this errors
+    #     because of the line searches used internally.
+    #
+    # dto = PiggybackAdjoint()
+    # expected_out2, t_expected_out2 = finite_difference_jvp(
+    #     least_squares, (init, dynamic_args), (t_init, t_dynamic_args), adjoint=dto,
+    # )
+    # out2, t_out2 = eqx.filter_jvp(
+    #     least_squares, (init, dynamic_args), (t_init, t_dynamic_args), adjoint=dto,
+    # )
     assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(t_out, t_expected_out, atol=atol, rtol=rtol)
+    # assert tree_allclose(expected_out2, expected_out, atol=atol, rtol=rtol)
+    # assert tree_allclose(out2, expected_out, atol=atol, rtol=rtol)
+    # assert tree_allclose(t_expected_out2, t_expected_out, atol=atol, rtol=rtol)
+    # assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)

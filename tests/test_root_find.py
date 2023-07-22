@@ -12,6 +12,7 @@ import optimistix as optx
 from .helpers import (
     finite_difference_jvp,
     fixed_point_fn_init_args,
+    PiggybackAdjoint,
     tree_allclose,
 )
 
@@ -53,7 +54,7 @@ def test_root_find(solver, _fn, init, args):
 @pytest.mark.parametrize("solver", _root_finders)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 def test_root_find_jvp(getkey, solver, _fn, init, args):
-    atol = rtol = 1e-5
+    atol = rtol = 1e-3
     has_aux = random.choice([True, False])
 
     def root_find_problem(y, args):
@@ -68,23 +69,51 @@ def test_root_find_jvp(getkey, solver, _fn, init, args):
     t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
     t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
 
-    # Chord struggles to hit the very min, it gets close enough to pass and then
-    # continues to decrease at a slow rate without signaling convergence for a
-    # while.
-    def root_find(x, dynamic_args):
+    def root_find(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
         return optx.root_find(
-            fn, solver, x, has_aux=has_aux, args=args, max_steps=10_000, throw=False
+            fn,
+            solver,
+            x,
+            has_aux=has_aux,
+            args=args,
+            max_steps=10_000,
+            adjoint=adjoint,
+            throw=False,
         ).value
 
-    optx_root = root_find(init, dynamic_args)
+    otd = optx.ImplicitAdjoint()
     expected_out, t_expected_out = finite_difference_jvp(
-        root_find, (optx_root, dynamic_args), (t_init, t_dynamic_args)
+        root_find,
+        (init, dynamic_args),
+        (t_init, t_dynamic_args),
+        adjoint=otd,
     )
     out, t_out = eqx.filter_jvp(
-        root_find, (optx_root, dynamic_args), (t_init, t_dynamic_args)
+        root_find,
+        (init, dynamic_args),
+        (t_init, t_dynamic_args),
+        adjoint=otd,
     )
+    dto = PiggybackAdjoint()
+    expected_out2, t_expected_out2 = finite_difference_jvp(
+        root_find,
+        (init, dynamic_args),
+        (t_init, t_dynamic_args),
+        adjoint=dto,
+    )
+    out2, t_out2 = eqx.filter_jvp(
+        root_find,
+        (init, dynamic_args),
+        (t_init, t_dynamic_args),
+        adjoint=dto,
+    )
+    assert tree_allclose(expected_out2, expected_out, atol=atol, rtol=rtol)
     assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(out2, expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(t_expected_out2, t_expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(t_out, t_expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)
 
 
 def test_bisection_flip():

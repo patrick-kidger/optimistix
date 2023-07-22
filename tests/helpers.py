@@ -19,6 +19,7 @@ from collections.abc import Callable
 from typing import Any
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
@@ -76,16 +77,27 @@ def tree_allclose(x, y, **kwargs):
     )
 
 
-def finite_difference_jvp(fn, primals, tangents):
-    out = fn(*primals)
+def finite_difference_jvp(fn, primals, tangents, eps=None, **kwargs):
+    assert jax.config.jax_enable_x64  # pyright: ignore
+    out = fn(*primals, **kwargs)
     # Choose ε to trade-off truncation error and floating-point rounding error.
     max_leaves = [jnp.max(jnp.abs(p)) for p in jtu.tree_leaves(primals)] + [1]
     scale = jnp.max(jnp.stack(max_leaves))
-    ε = np.sqrt(np.finfo(np.float64).eps) * scale
+    if eps is None:
+        ε = np.sqrt(np.finfo(np.float64).eps) * scale
+    else:
+        # Sometimes we may want to set it manually. finite_difference_jvp is actually
+        # pretty inaccurate for nonlinear solves, as these are themselves often only
+        # done to a tolerance of 1e-8 or so: the primal pass is already noisy at about
+        # the scale of ε.
+        ε = eps
     primals_ε = (ω(primals) + ε * ω(tangents)).ω
-    out_ε = fn(*primals_ε)
+    out_ε = fn(*primals_ε, **kwargs)
     tangents_out = jtu.tree_map(lambda x, y: (x - y) / ε, out_ε, out)
-    return out, tangents_out
+    # We actually return the perturbed primal.
+    # This should still be within all tolerance checks, and means that we have aceesss
+    # to both the true primal and the perturbed primal when debugging.
+    return out_ε, tangents_out
 
 
 #
@@ -239,13 +251,14 @@ minimisers = (
     optx.BFGS(rtol, atol, use_inverse=True),
     bfgs_direct_dual(rtol, atol),
     bfgs_indirect_dual(rtol, atol),
-    bfgs_dogleg(rtol, atol),
+    # Tighter tolerance needed to have bfgs_dogleg pass the JVP test.
+    bfgs_dogleg(1e-10, 1e-10),
     bfgs_backtracking(rtol, atol, use_inverse=False),
     bfgs_backtracking(rtol, atol, use_inverse=True),
     bfgs_trust_region(rtol, atol, use_inverse=False),
     bfgs_trust_region(rtol, atol, use_inverse=True),
     optx.GradientDescent(1.5e-2, rtol, atol),
-    optx.NonlinearCG(rtol, atol),  # only test one version of NonlinearCG
+    optx.NonlinearCG(rtol, atol),
     optx.OptaxMinimiser(optax.adam, rtol=rtol, atol=atol, learning_rate=3e-3),
 )
 
@@ -271,20 +284,20 @@ least_squares_optimisers = [
 #
 
 
-def _bowl(tree: PyTree[Array], args: Array):
+def bowl(tree: PyTree[Array], args: Array):
     # Trivial quadratic bowl smoke test for convergence.
     (y, _) = jfu.ravel_pytree(tree)
     matrix = args
     return y.T @ matrix @ y
 
 
-def _diagonal_quadratic_bowl(tree: PyTree[Array], args: PyTree[Array]):
+def diagonal_quadratic_bowl(tree: PyTree[Array], args: PyTree[Array]):
     # A diagonal quadratic bowl smoke test for convergence.
     weight_vector = args
-    return (ω(tree).call(jnp.square) * weight_vector**ω).ω
+    return (ω(tree).call(jnp.square) * (0.1 + weight_vector**ω)).ω
 
 
-def _rosenbrock(tree: PyTree[Array], args: Scalar):
+def rosenbrock(tree: PyTree[Array], args: Scalar):
     # Wiki
     # least squares
     (y, _) = jfu.ravel_pytree(tree)
@@ -301,7 +314,7 @@ def _himmelblau(tree: PyTree[Array], args: PyTree):
     return (term1**ω + term2**ω).ω
 
 
-def _matyas(tree: PyTree[Array], args: PyTree):
+def matyas(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     const1, const2 = args
@@ -320,7 +333,7 @@ def _eggholder(tree: PyTree[Array], args: PyTree):
     return (term1**ω + term2**ω).ω
 
 
-def _beale(tree: PyTree[Array], args: PyTree):
+def beale(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     const1, const2, const3 = args
@@ -439,19 +452,19 @@ ffn_args = (ffn_static, ffn_data)
 
 least_squares_fn_minima_init_args = (
     (
-        _diagonal_quadratic_bowl,
+        diagonal_quadratic_bowl,
         jnp.array(0.0),
         diagonal_bowl_init,
         diagonal_bowl_args,
     ),
     (
-        _rosenbrock,
+        rosenbrock,
         jnp.array(0.0),
         [jnp.array(1.5), jnp.array(1.5)],
         jnp.array(1.0),
     ),
     (
-        _rosenbrock,
+        rosenbrock,
         jnp.array(0.0),
         (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
         jnp.array(1.0),
@@ -492,7 +505,7 @@ matrix = jr.normal(key, (flatten_bowl.size, flatten_bowl.size))
 diagonal_bowl_args = matrix.T @ matrix
 
 minimisation_fn_minima_init_args = (
-    (_bowl, jnp.array(0.0), bowl_init, diagonal_bowl_args),
+    (bowl, jnp.array(0.0), bowl_init, diagonal_bowl_args),
     (
         _himmelblau,
         jnp.array(0.0),
@@ -500,13 +513,13 @@ minimisation_fn_minima_init_args = (
         (jnp.array(11.0), jnp.array(7.0)),
     ),
     (
-        _matyas,
+        matyas,
         jnp.array(0.0),
         [jnp.array(6.0), jnp.array(6.0)],
         (jnp.array(0.26), jnp.array(0.48)),
     ),
     (
-        _beale,
+        beale,
         jnp.array(0.0),
         [jnp.array(2.0), jnp.array(0.0)],
         (jnp.array(1.5), jnp.array(2.25), jnp.array(2.625)),
@@ -626,9 +639,9 @@ def _exponential(tree: PyTree[Array], args: PyTree):
     return jtu.tree_map(lambda x: jnp.exp(-const * x), tree)
 
 
-def _sin(tree: PyTree[Array], args: PyTree):
+def _cos(tree: PyTree[Array], args: PyTree):
     const = args
-    return jtu.tree_map(lambda x: jnp.sin(const * x), tree)
+    return jtu.tree_map(lambda x: jnp.cos(const * x), tree)
 
 
 def _nn(tree: PyTree[Array], args: PyTree):
@@ -756,7 +769,7 @@ bisection_fn_init_options_args = (
         None,
     ),
     (
-        _sin,
+        _cos,
         single,
         {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
         jnp.array(1.0),
@@ -788,7 +801,7 @@ bisection_fn_init_options_args = (
 )
 
 fixed_point_fn_init_args = (
-    (_sin, ones_pytree, jnp.array(1.0)),
+    (_cos, ones_pytree, jnp.array(1.0)),
     (_exponential, ones_pytree, jnp.array(1.0)),
     (_nn, ones_pytree, nn_args),
     (_nonlinear_heat_pde, hundred, jnp.array(1.0)),
@@ -819,3 +832,11 @@ fixed_point_fn_init_args = (
         robertson_args,
     ),
 )
+
+
+# Not really useful enough to be part of the public API, but useful for testing against.
+class PiggybackAdjoint(optx.AbstractAdjoint):
+    def apply(self, primal_fn, rewrite_fn, inputs, tags):
+        del rewrite_fn, tags
+        while_loop = ft.partial(eqxi.while_loop, kind="lax")
+        return primal_fn(inputs, while_loop)

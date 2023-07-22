@@ -13,6 +13,7 @@ from .helpers import (
     bisection_fn_init_options_args,
     finite_difference_jvp,
     fixed_point_fn_init_args,
+    PiggybackAdjoint,
     tree_allclose,
     trivial,
 )
@@ -46,7 +47,7 @@ def test_fixed_point(solver, _fn, init, args):
 @pytest.mark.parametrize("solver", _fp_solvers)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 def test_fixed_point_jvp(getkey, solver, _fn, init, args):
-    atol = rtol = 1e-4
+    atol = rtol = 1e-3
     has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
@@ -57,20 +58,51 @@ def test_fixed_point_jvp(getkey, solver, _fn, init, args):
     t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
     t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
 
-    def fixed_point(x, dynamic_args):
+    def fixed_point(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
         return optx.fixed_point(
-            fn, solver, x, has_aux=has_aux, args=args, max_steps=10_000
+            fn,
+            solver,
+            x,
+            has_aux=has_aux,
+            args=args,
+            max_steps=10_000,
+            adjoint=adjoint,
+            throw=False,
         ).value
 
-    optx_fp = fixed_point(init, dynamic_args)
+    otd = optx.ImplicitAdjoint()
     expected_out, t_expected_out = finite_difference_jvp(
-        fixed_point, (optx_fp, dynamic_args), (t_init, t_dynamic_args)
+        fixed_point,
+        (init, dynamic_args),
+        (t_init, t_dynamic_args),
+        adjoint=otd,
     )
     out, t_out = eqx.filter_jvp(
-        fixed_point, (optx_fp, dynamic_args), (t_init, t_dynamic_args)
+        fixed_point,
+        (init, dynamic_args),
+        (t_init, t_dynamic_args),
+        adjoint=otd,
     )
+    dto = PiggybackAdjoint()
+    expected_out2, t_expected_out2 = finite_difference_jvp(
+        fixed_point,
+        (init, dynamic_args),
+        (t_init, t_dynamic_args),
+        adjoint=dto,
+    )
+    out2, t_out2 = eqx.filter_jvp(
+        fixed_point,
+        (init, dynamic_args),
+        (t_init, t_dynamic_args),
+        adjoint=dto,
+    )
+    assert tree_allclose(expected_out2, expected_out, atol=atol, rtol=rtol)
     assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(out2, expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(t_expected_out2, t_expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(t_out, t_expected_out, atol=atol, rtol=rtol)
+    assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize(

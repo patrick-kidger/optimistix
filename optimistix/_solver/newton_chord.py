@@ -17,6 +17,7 @@ from typing import Any, cast, Generic, Optional, TYPE_CHECKING
 
 import equinox as eqx
 import jax
+import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
@@ -93,7 +94,9 @@ class _NewtonChord(
             # TODO(kidger): evaluate on just the first step, to reduce compile time.
             jac = lx.JacobianLinearOperator(fn, y, args, tags=tags, _has_aux=True)
             jac = lx.linearise(jac)
-            linear_state = (jac, self.linear_solver.init(jac, options={}))
+            init_later_state = self.linear_solver.init(jac, options={})
+            init_later_state = lax.stop_gradient(init_later_state)
+            linear_state = (jac, init_later_state)
         if self.cauchy_termination:
             f_val = tree_full_like(f_struct, jnp.inf)
         else:
@@ -129,6 +132,7 @@ class _NewtonChord(
         else:
             fx, aux = fn(y, args)
             jac, linear_state = state.linear_state  # pyright: ignore
+            linear_state = lax.stop_gradient(linear_state)
             sol = lx.linear_solve(
                 jac, fx, self.linear_solver, state=linear_state, throw=False
             )

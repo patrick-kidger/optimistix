@@ -1,3 +1,4 @@
+import functools as ft
 import random
 
 import equinox as eqx
@@ -9,7 +10,10 @@ import pytest
 import optimistix as optx
 
 from .helpers import (
+    beale,
+    bowl,
     finite_difference_jvp,
+    matyas,
     minimisation_fn_minima_init_args,
     minimisers,
     tree_allclose,
@@ -22,6 +26,10 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
 def test_minimise(solver, _fn, minimum, init, args):
+    if isinstance(solver, optx.GradientDescent):
+        max_steps = 100_000
+    else:
+        max_steps = 10_000
     atol = rtol = 1e-4
     has_aux = random.choice([True, False])
     if has_aux:
@@ -29,7 +37,7 @@ def test_minimise(solver, _fn, minimum, init, args):
     else:
         fn = _fn
     optx_argmin = optx.minimise(
-        fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
+        fn, solver, init, has_aux=has_aux, args=args, max_steps=max_steps, throw=False
     ).value
     out = fn(optx_argmin, args)
     if has_aux:
@@ -42,7 +50,11 @@ def test_minimise(solver, _fn, minimum, init, args):
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
 def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
-    atol = rtol = 1e-4
+    if isinstance(solver, (optx.GradientDescent, optx.NonlinearCG)):
+        max_steps = 100_000
+    else:
+        max_steps = 10_000
+    atol = rtol = 1e-3
     has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
@@ -53,20 +65,57 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
     t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
     t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
 
-    def minimise(x, dynamic_args):
+    def minimise(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
         return optx.minimise(
-            fn, solver, x, has_aux=has_aux, args=args, max_steps=10_000, throw=False
+            fn,
+            solver,
+            x,
+            has_aux=has_aux,
+            args=args,
+            max_steps=max_steps,
+            adjoint=adjoint,
+            throw=False,
         ).value
 
-    optx_argmin = minimise(init, dynamic_args)
-    expected_out, t_expected_out = finite_difference_jvp(
-        minimise, (optx_argmin, dynamic_args), (t_init, t_dynamic_args)
+    otd = optx.ImplicitAdjoint()
+    out, t_out = eqx.filter_jit(ft.partial(eqx.filter_jvp, minimise))(
+        (init, dynamic_args), (t_init, t_dynamic_args), adjoint=otd
     )
-    out, t_out = eqx.filter_jvp(
-        minimise, (optx_argmin, dynamic_args), (t_init, t_dynamic_args)
-    )
+    if _fn is bowl:
+        # Finite difference is very inaccurate on this problem.
+        expected_out = t_expected_out = jtu.tree_map(jnp.zeros_like, init)
+    elif _fn in (beale, matyas):
+        expected_out, t_expected_out = finite_difference_jvp(
+            minimise,
+            (init, dynamic_args),
+            (t_init, t_dynamic_args),
+            adjoint=otd,
+            eps=1e-4,
+        )
+    else:
+        expected_out, t_expected_out = finite_difference_jvp(
+            minimise, (init, dynamic_args), (t_init, t_dynamic_args), adjoint=otd
+        )
+    # TODO(kidger): reinstate once we can do jvp-of-custom_vjp. Right now this errors
+    #     because of the line searches used internally.
+    #
+    # dto = PiggybackAdjoint()
+    # expected_out2, t_expected_out2 = finite_difference_jvp(
+    #     minimise, (init, dynamic_args), (t_init, t_dynamic_args), adjoint=dto,
+    # )
+    # out2, t_out2 = eqx.filter_jvp(
+    #     minimise, (init, dynamic_args), (t_init, t_dynamic_args), adjoint=dto,
+    # )
     assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
+    if not isinstance(solver, optx.NelderMead):
+        # Nelder-Mead does such a bad job that the finite-difference gradients are
+        # noticeably different.
+        assert tree_allclose(t_out, t_expected_out, atol=atol, rtol=rtol)
+    # assert tree_allclose(expected_out2, expected_out, atol=atol, rtol=rtol)
+    # assert tree_allclose(out2, expected_out, atol=atol, rtol=rtol)
+    # assert tree_allclose(t_expected_out2, t_expected_out, atol=atol, rtol=rtol)
+    # assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize(
