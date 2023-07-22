@@ -15,7 +15,6 @@
 from collections.abc import Callable
 from typing import Any, cast
 
-import jax.lax as lax
 import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
@@ -39,6 +38,7 @@ def _gradient_step(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
 
 def polak_ribiere(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     """The Polak--Ribière formula for β."""
+    del diff_prev
     numerator = tree_dot(vector, (vector**ω - vector_prev**ω).ω)
     denominator = sum_squares(vector_prev)
     pred = denominator > jnp.finfo(denominator.dtype).eps
@@ -49,6 +49,7 @@ def polak_ribiere(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
 
 def fletcher_reeves(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
     """The Fletcher--Reeves formula for β."""
+    del diff_prev
     numerator = sum_squares(vector)
     denominator = sum_squares(vector_prev)
     pred = denominator > jnp.finfo(denominator.dtype).eps
@@ -98,14 +99,12 @@ class NonlinearCGDescent(AbstractDescent[Y]):
         vector = options["vector"]
         vector_prev = options["vector_prev"]
         diff_prev = options["diff_prev"]
-        beta = lax.cond(
-            jnp.isfinite(max_norm(vector_prev)) & jnp.isfinite(max_norm(diff_prev)),
-            self.method,
-            _gradient_step,
-            vector,
-            vector_prev,
-            diff_prev,
+        # TODO(kidger): this check seems like overkill? Can we just check if we're on
+        # the first step or not?
+        isfinite = jnp.isfinite(max_norm(vector_prev)) & jnp.isfinite(
+            max_norm(diff_prev)
         )
+        beta = jnp.where(isfinite, self.method(vector, vector_prev, diff_prev), 0)
         negative_gradient = (-(vector**ω)).ω
         nonlinear_cg_direction = (negative_gradient**ω + beta * diff_prev**ω).ω
         diff = tree_where(
