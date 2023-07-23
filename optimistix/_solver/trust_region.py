@@ -30,7 +30,7 @@ else:
 
 from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
 from .._iterate import AbstractIterativeSolver
-from .._line_search import AbstractDescent, AbstractLineSearch
+from .._line_search import AbstractLineSearch
 from .._misc import (
     is_linear,
     sum_squares,
@@ -178,7 +178,6 @@ class _AbstractTrustRegion(
     - else, accept the step and make no change to the step-size.
     """
 
-    descent: AbstractVar[AbstractDescent]
     high_cutoff: AbstractVar[float]
     low_cutoff: AbstractVar[float]
     high_constant: AbstractVar[float]
@@ -227,8 +226,9 @@ class _AbstractTrustRegion(
         state: _TrustRegionState,
         tags: frozenset[object],
     ) -> tuple[Y, _TrustRegionState[Y], Aux]:
+        descent = options["descent"]
         if state.cached_diff is sentinel:
-            diff, result = self.descent(state.next_init, args, options)
+            diff, result = descent(state.next_init, args, options)
         else:
             diff = (state.next_init * state.cached_diff**ω).ω
             result = state.result
@@ -300,8 +300,6 @@ class ClassicalTrustRegion(_AbstractTrustRegion[Y, Aux]):
         Hessian otherwise.
     """
 
-    descent: AbstractDescent
-    gauss_newton: bool
     high_cutoff: float = 0.99
     low_cutoff: float = 0.01
     high_constant: float = 3.5
@@ -320,6 +318,8 @@ class ClassicalTrustRegion(_AbstractTrustRegion[Y, Aux]):
         f0 = options["f0"]
         vector = options["vector"]
         step_size = options["init_step_size"]
+        gauss_newton = options["gauss_newton"]
+        descent = options["descent"]
 
         try:
             operator = options["operator"]
@@ -330,17 +330,17 @@ class ClassicalTrustRegion(_AbstractTrustRegion[Y, Aux]):
             )
 
         predicted_reduction = eqx.Partial(
-            _predict_quadratic_reduction, self.gauss_newton, operator, vector
+            _predict_quadratic_reduction, gauss_newton, operator, vector
         )
         # If the descent computes `step_size * diff` for a fixed vector `diff`
         # that isn't dependent upon `step_size`, then we can cache `diff`
         # and avoid recomputing it. In other words, we do a classical line search.
         if is_linear(
-            eqx.Partial(_descent_no_results, self.descent, args, options),
+            eqx.Partial(_descent_no_results, descent, args, options),
             jnp.array(1.0),
             output=y,
         ):
-            cached_diff, result = self.descent(jnp.array(1.0), args, options)
+            cached_diff, result = descent(jnp.array(1.0), args, options)
         else:
             cached_diff = sentinel
             result = RESULTS.successful
@@ -369,7 +369,6 @@ class LinearTrustRegion(_AbstractTrustRegion[Y, Aux]):
         otherwise.
     """
 
-    descent: AbstractDescent
     high_cutoff: float = 0.99
     low_cutoff: float = 0.01
     high_constant: float = 3.5
@@ -388,17 +387,18 @@ class LinearTrustRegion(_AbstractTrustRegion[Y, Aux]):
         f0 = options["f0"]
         vector = options["vector"]
         step_size = options["init_step_size"]
+        descent = options["descent"]
         predict_reduction = eqx.Partial(_predict_linear_reduction, vector)
 
         # If the descent computes `step_size * diff` for a fixed vector `diff`
         # that isn't dependent upon `step_size`, then we can cache `diff`
         # and avoid recomputing it. In other words, we do a classical line search.
         if is_linear(
-            eqx.Partial(_descent_no_results, self.descent, args, options),
+            eqx.Partial(_descent_no_results, descent, args, options),
             jnp.array(1.0),
             output=y,
         ):
-            cached_diff, result = self.descent(jnp.array(1.0), args, options)
+            cached_diff, result = descent(jnp.array(1.0), args, options)
         else:
             cached_diff = sentinel
             result = RESULTS.successful

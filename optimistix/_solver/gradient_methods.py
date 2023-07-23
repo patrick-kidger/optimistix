@@ -100,11 +100,14 @@ class AbstractGradientDescent(
     - "diff_prev"
     - "f0"
     - "aux"
+    - "descent"
+    - "gauss_newton"
     """
 
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
+    descent: AbstractVar[AbstractDescent]
     line_search: AbstractVar[AbstractLineSearch]
 
     def init(
@@ -148,6 +151,8 @@ class AbstractGradientDescent(
             "diff_prev": state.diff_prev,
             "f0": f_val,
             "aux": aux,
+            "gauss_newton": False,
+            "descent": self.descent,
         }
         line_sol = line_search(
             fn,
@@ -204,6 +209,7 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
+    descent: AbstractDescent
     line_search: AbstractLineSearch
 
     def __init__(
@@ -216,7 +222,8 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.line_search = LearningRate(SteepestDescent(), learning_rate=learning_rate)
+        self.descent = SteepestDescent()
+        self.line_search = LearningRate(learning_rate)
 
 
 GradientDescent.__init__.__doc__ = """**Arguments:**

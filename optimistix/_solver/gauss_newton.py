@@ -151,6 +151,7 @@ class AbstractGaussNewton(
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
+    descent: AbstractVar[AbstractDescent]
     line_search: AbstractVar[AbstractLineSearch]
 
     def init(
@@ -196,6 +197,8 @@ class AbstractGaussNewton(
             "operator_inv": None,
             "f0": f_val,
             "aux": aux,
+            "gauss_newton": True,
+            "descent": self.descent,
         }
         line_sol = line_search(
             eqx.Partial(_line_search_fn, fn),
@@ -255,6 +258,7 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
+    descent: AbstractDescent
     line_search: AbstractLineSearch
 
     def __init__(
@@ -267,9 +271,8 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.line_search = LearningRate(
-            NewtonDescent(linear_solver=linear_solver), jnp.array(1.0)
-        )
+        self.descent = NewtonDescent(linear_solver=linear_solver)
+        self.line_search = LearningRate(1.0)
 
 
 GaussNewton.__init__.__doc__ = """**Arguments:**

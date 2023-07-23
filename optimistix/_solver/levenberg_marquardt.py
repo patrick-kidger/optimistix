@@ -96,8 +96,6 @@ class DirectIterativeDual(AbstractDescent[Y]):
         `gauss_newton=True`, the approximate Hessian of the objective function if not.
     """
 
-    gauss_newton: bool
-
     def __call__(
         self,
         step_size: Scalar,
@@ -106,12 +104,13 @@ class DirectIterativeDual(AbstractDescent[Y]):
     ) -> tuple[Y, RESULTS]:
         vector = options["vector"]
         operator = options["operator"]
+        gauss_newton = options["gauss_newton"]
         lm_param = jnp.where(
             step_size > jnp.finfo(step_size.dtype).eps,
             1 / step_size,
             jnp.finfo(step_size).max,
         )
-        if self.gauss_newton:
+        if gauss_newton:
             vector = (vector, tree_full_like(operator.in_structure(), 0))
             operator = lx.FunctionLinearOperator(
                 _Damped(operator, lm_param), operator.in_structure()
@@ -156,7 +155,6 @@ class IndirectIterativeDual(AbstractDescent[Y]):
         `gauss_newton=True`, the approximate Hessian of the objective function if not.
     """
 
-    gauss_newton: bool
     lambda_0: ScalarLike = 1.0
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
     # Default tol for `root_finder` only because a user would override this entirely
@@ -173,7 +171,7 @@ class IndirectIterativeDual(AbstractDescent[Y]):
         operator = options["operator"]
         vector = options["vector"]
         direct_dual = eqx.Partial(
-            DirectIterativeDual(self.gauss_newton),
+            DirectIterativeDual(),
             args=args,
             options=options,
         )
@@ -250,6 +248,7 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
+    descent: AbstractDescent
     line_search: AbstractLineSearch
 
     def __init__(
@@ -261,9 +260,8 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.line_search = ClassicalTrustRegion(
-            DirectIterativeDual(gauss_newton=True), gauss_newton=True
-        )
+        self.descent = DirectIterativeDual()
+        self.line_search = ClassicalTrustRegion()
 
 
 LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
@@ -292,6 +290,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
+    descent: AbstractDescent
     line_search: AbstractLineSearch
 
     def __init__(
@@ -306,15 +305,12 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.line_search = ClassicalTrustRegion(
-            IndirectIterativeDual(
-                gauss_newton=True,
-                lambda_0=lambda_0,
-                linear_solver=linear_solver,
-                root_finder=root_finder,
-            ),
-            gauss_newton=True,
+        self.descent = IndirectIterativeDual(
+            lambda_0=lambda_0,
+            linear_solver=linear_solver,
+            root_finder=root_finder,
         )
+        self.line_search = ClassicalTrustRegion()
 
 
 IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**

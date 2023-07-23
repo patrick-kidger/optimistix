@@ -140,6 +140,7 @@ class DoglegMax(optx.AbstractGaussNewton):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
+    descent: optx.AbstractDescent
     line_search: optx.AbstractLineSearch
 
     def __init__(
@@ -150,27 +151,21 @@ class DoglegMax(optx.AbstractGaussNewton):
         self.rtol = rtol
         self.atol = atol
         self.norm = optx.max_norm
-        self.line_search = optx.ClassicalTrustRegion(
-            optx.DoglegDescent(
-                gauss_newton=True,
-                linear_solver=lx.AutoLinearSolver(well_posed=False),
-                root_finder=optx.Bisection(rtol=0.001, atol=0.001),
-                trust_region_norm=optx.max_norm,
-            ),
-            gauss_newton=True,
+        self.descent = optx.DoglegDescent(
+            linear_solver=lx.AutoLinearSolver(well_posed=False),
+            root_finder=optx.Bisection(rtol=0.001, atol=0.001),
+            trust_region_norm=optx.max_norm,
         )
+        self.line_search = optx.ClassicalTrustRegion()
 
 
 def bfgs_direct_dual(rtol: float, atol: float):
     """BFGS Hessian + direct Levenberg Marquardt update."""
-    line_search = optx.ClassicalTrustRegion(
-        optx.DirectIterativeDual(gauss_newton=False),
-        gauss_newton=False,
-    )
     return optx.BFGS(
         rtol=rtol,
         atol=atol,
-        line_search=line_search,
+        descent=optx.DirectIterativeDual(),
+        line_search=optx.ClassicalTrustRegion(),
         norm=optx.max_norm,
         use_inverse=False,
     )
@@ -178,14 +173,11 @@ def bfgs_direct_dual(rtol: float, atol: float):
 
 def bfgs_indirect_dual(rtol: float, atol: float):
     """BFGS Hessian + indirect Levenberg Marquardt update."""
-    line_search = optx.ClassicalTrustRegion(
-        optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1),
-        gauss_newton=False,
-    )
     return optx.BFGS(
         rtol=rtol,
         atol=atol,
-        line_search=line_search,
+        descent=optx.IndirectIterativeDual(),
+        line_search=optx.ClassicalTrustRegion(),
         norm=optx.max_norm,
         use_inverse=False,
     )
@@ -194,17 +186,11 @@ def bfgs_indirect_dual(rtol: float, atol: float):
 def bfgs_dogleg(rtol: float, atol: float):
     """BFGS Hessian + dogleg update."""
 
-    line_search = optx.ClassicalTrustRegion(
-        optx.DoglegDescent(
-            gauss_newton=False,
-            linear_solver=lx.AutoLinearSolver(well_posed=False),
-        ),
-        gauss_newton=False,
-    )
     return optx.BFGS(
         rtol=rtol,
         atol=atol,
-        line_search=line_search,
+        descent=optx.DoglegDescent(linear_solver=lx.SVD()),
+        line_search=optx.ClassicalTrustRegion(),
         norm=optx.max_norm,
         use_inverse=False,
     )
@@ -212,11 +198,11 @@ def bfgs_dogleg(rtol: float, atol: float):
 
 def bfgs_backtracking(rtol: float, atol: float, use_inverse: bool):
     """Standard BFGS + backtracking line search."""
-    line_search = optx.BacktrackingArmijo(optx.NewtonDescent(), gauss_newton=False)
     return optx.BFGS(
         rtol=rtol,
         atol=atol,
-        line_search=line_search,
+        descent=optx.NewtonDescent(),
+        line_search=optx.BacktrackingArmijo(),
         norm=optx.max_norm,
         use_inverse=False,
     )
@@ -224,11 +210,11 @@ def bfgs_backtracking(rtol: float, atol: float, use_inverse: bool):
 
 def bfgs_trust_region(rtol: float, atol: float, use_inverse: bool):
     """Standard BFGS + classical trust region upate."""
-    line_search = optx.LinearTrustRegion(optx.NewtonDescent())
     return optx.BFGS(
         rtol=rtol,
         atol=atol,
-        line_search=line_search,
+        descent=optx.NewtonDescent(),
+        line_search=optx.LinearTrustRegion(),
         norm=optx.max_norm,
         use_inverse=False,
     )

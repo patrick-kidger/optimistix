@@ -28,9 +28,9 @@ descent_linear = (
     (optx.NewtonDescent(), True),
     (optx.SteepestDescent(), True),
     (optx.NonlinearCGDescent(method=lambda v, v_p, d_p: jnp.array(0.0)), True),
-    (optx.DoglegDescent(gauss_newton=False), False),
-    (optx.DirectIterativeDual(gauss_newton=False), False),
-    (optx.IndirectIterativeDual(gauss_newton=False, lambda_0=1.0), False),
+    (optx.DoglegDescent(), False),
+    (optx.DirectIterativeDual(), False),
+    (optx.IndirectIterativeDual(lambda_0=1.0), False),
 )
 
 

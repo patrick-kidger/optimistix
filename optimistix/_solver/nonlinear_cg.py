@@ -138,6 +138,7 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
+    descent: AbstractDescent
     line_search: AbstractLineSearch
 
     def __init__(
@@ -164,9 +165,5 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.line_search = BacktrackingArmijo(
-            NonlinearCGDescent(method=method),
-            gauss_newton=False,
-            decrease_factor=0.5,
-            backtrack_slope=0.1,
-        )
+        self.descent = NonlinearCGDescent(method=method)
+        self.line_search = BacktrackingArmijo(decrease_factor=0.5, backtrack_slope=0.1)

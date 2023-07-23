@@ -27,7 +27,7 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 from .._base_solver import AbstractHasTol
 from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
 from .._iterate import AbstractIterativeSolver
-from .._line_search import AbstractLineSearch, line_search
+from .._line_search import AbstractDescent, AbstractLineSearch, line_search
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
@@ -114,12 +114,11 @@ class BFGS(
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm
     use_inverse: bool = True
+    descent: AbstractDescent[Y] = NewtonDescent(linear_solver=lx.Cholesky())
     # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
     line_search: AbstractLineSearch[
         Y, Aux, AbstractLineSearchState
     ] = BacktrackingArmijo(
-        NewtonDescent(linear_solver=lx.Cholesky()),
-        gauss_newton=False,
         backtrack_slope=0.1,
         decrease_factor=0.5,
     )
@@ -241,6 +240,8 @@ class BFGS(
             "operator_inv": operator_inv,
             "f0": f_val,
             "aux": aux,
+            "gauss_newton": False,
+            "descent": self.descent,
         }
         line_sol = line_search(
             fn,

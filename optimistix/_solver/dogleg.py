@@ -50,7 +50,6 @@ class DoglegDescent(AbstractDescent[Y]):
         `gauss_newton=True`, the approximate Hessian of the objective function if not.
     """
 
-    gauss_newton: bool
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
     root_finder: AbstractRootFinder = Bisection(rtol=1e-3, atol=1e-3)
     trust_region_norm: Callable[[PyTree], Scalar] = two_norm
@@ -63,7 +62,8 @@ class DoglegDescent(AbstractDescent[Y]):
     ) -> tuple[Y, RESULTS]:
         vector = options["vector"]
         operator = options["operator"]
-        if self.gauss_newton:
+        gauss_newton = options["gauss_newton"]
+        if gauss_newton:
             # Compute the normalization in the gradient direction:
             # `g^T g (g^T B g)^(-1)` where `g` is `J^T r` (Jac and residual) and
             # `B` is `J^T J.`
@@ -196,6 +196,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
+    descent: AbstractDescent
     line_search: AbstractLineSearch
 
     def __init__(
@@ -211,10 +212,8 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.line_search = ClassicalTrustRegion(
-            DoglegDescent(gauss_newton=True, linear_solver=linear_solver),
-            gauss_newton=True,
-        )
+        self.descent = DoglegDescent(linear_solver=linear_solver)
+        self.line_search = ClassicalTrustRegion()
 
 
 Dogleg.__init__.__doc__ = """**Arguments:**

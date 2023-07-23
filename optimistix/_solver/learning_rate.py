@@ -21,7 +21,7 @@ from jaxtyping import Array, PyTree, Scalar, ScalarLike
 
 from .._adjoint import AbstractAdjoint, RecursiveCheckpointAdjoint
 from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
-from .._line_search import AbstractDescent, AbstractLineSearch
+from .._line_search import AbstractLineSearch
 from .._solution import RESULTS, Solution
 
 
@@ -37,7 +37,6 @@ class LearningRate(AbstractLineSearch[Y, Aux, _LearningRateState]):
     - `aux`: The auxiliary output of the function at the point `y`.
     """
 
-    descent: AbstractDescent[Y]
     learning_rate: ScalarLike = eqx.field(converter=jnp.asarray)
 
     def solve(
@@ -55,8 +54,9 @@ class LearningRate(AbstractLineSearch[Y, Aux, _LearningRateState]):
         aux_struct: PyTree[jax.ShapeDtypeStruct],
     ) -> Solution[Y, Aux, _LearningRateState]:
         assert isinstance(adjoint, RecursiveCheckpointAdjoint)
+        descent = options["descent"]
         del max_steps, adjoint, throw, tags, f_struct, aux_struct
-        diff, _ = self.descent(cast(Array, self.learning_rate), args, options)
+        diff, _ = descent(cast(Array, self.learning_rate), args, options)
         value = (y0**ω + diff**ω).ω
         return Solution(
             value=value,

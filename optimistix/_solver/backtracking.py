@@ -28,7 +28,7 @@ from .._custom_types import (
     Y,
 )
 from .._iterate import AbstractIterativeSolver
-from .._line_search import AbstractDescent, AbstractLineSearch
+from .._line_search import AbstractLineSearch
 from .._misc import (
     is_linear,
     tree_dot,
@@ -75,10 +75,10 @@ class BacktrackingArmijo(
         otherwise.
     - `operator`: Only necessary when `gauss_newton=True`. The Jacobian operator of the
         function in a least-squares problem.
+    - `gauss_newton`
+    - `descent`
     """
 
-    descent: AbstractDescent[Y]
-    gauss_newton: bool
     decrease_factor: float = 0.5
     backtrack_slope: float = 0.1
     backtracking_init: Float[Array, ""] = eqx.field(converter=jnp.asarray, default=1.0)
@@ -117,9 +117,11 @@ class BacktrackingArmijo(
         del aux_struct, tags
         f0 = options["f0"]
         vector = options["vector"]
+        gauss_newton = options["gauss_newton"]
+        descent = options["descent"]
         diff = tree_full_like(y, jnp.inf)
         step_size = options["init_step_size"]
-        if self.gauss_newton:
+        if gauss_newton:
             # Backtracking line search uses the gradient of `f` in the termination
             # condition. When we are solving a Gauss-Newton problem, we expect
             # `vector` to be a vector of residuals `r`, and operator to be the
@@ -135,11 +137,11 @@ class BacktrackingArmijo(
         # that isn't dependent upon `step_size`, then we can cache `diff`
         # and avoid recomputing it. In other words, we do a classical line search.
         if is_linear(
-            eqx.Partial(_descent_no_results, self.descent, args, options),
+            eqx.Partial(_descent_no_results, descent, args, options),
             jnp.array(1.0),
             output=y,
         ):
-            cached_diff, result = self.descent(jnp.array(1.0), args, options)
+            cached_diff, result = descent(jnp.array(1.0), args, options)
         else:
             cached_diff = sentinel
             result = RESULTS.successful
@@ -166,8 +168,9 @@ class BacktrackingArmijo(
         tags: frozenset[object],
     ) -> tuple[Y, _BacktrackingState[Y], Aux]:
         del tags
+        descent = options["descent"]
         if state.cached_diff is sentinel:
-            diff, result = self.descent(state.step_size, args, options)
+            diff, result = descent(state.step_size, args, options)
         else:
             diff = (state.step_size * state.cached_diff**ω).ω
             result = state.result
