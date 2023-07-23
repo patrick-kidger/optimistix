@@ -49,10 +49,7 @@ def _descent_no_results(descent, args, options, step_size):
 # and quasi-Newton methods as well, but this is likely to be more confusing
 # than it's worth, so instead we use it only when `ClassicalTrustRegion` is
 # called by a gradient-based method.
-def _predict_linear_reduction(
-    vector: PyTree[Array],
-    diff: PyTree[Array],
-):
+def _predict_linear_reduction(vector: PyTree[Array], diff: PyTree[Array]):
     """Compute the expected decrease in loss from taking the step `diff` in a
     gradient-based method.
 
@@ -118,13 +115,10 @@ def _predict_quadratic_reduction(
     # when `B = J^T J` and `g = J^T r`.
     if gauss_newton:
         rtr = sum_squares(vector)
-        jacobian_term = sum_squares((ω(operator.mv(diff)) + ω(vector)).ω)
-        reduction = 0.5 * (jacobian_term - rtr)
+        jacobian_term = sum_squares((operator.mv(diff) ** ω + vector**ω).ω)
+        return 0.5 * (jacobian_term - rtr)
     else:
-        operator_quadratic = 0.5 * tree_dot(diff, operator.mv(diff))
-        steepest_descent = tree_dot(vector, diff)
-        reduction = (operator_quadratic**ω + steepest_descent**ω).ω
-    return reduction
+        return tree_dot(diff, (vector**ω + 0.5 * operator.mv(diff) ** ω).ω)
 
 
 class _TrustRegionState(AbstractLineSearchState, Generic[Y]):

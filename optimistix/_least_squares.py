@@ -47,7 +47,7 @@ class _ToMinimiseFn(eqx.Module, Generic[Y, Out, Aux]):
 
     def __call__(self, y: Y, args: Args) -> tuple[Scalar, Aux]:
         residual, aux = self.residual_fn(y, args)
-        return sum_squares(residual), aux
+        return 0.5 * sum_squares(residual), aux
 
 
 @eqx.filter_jit

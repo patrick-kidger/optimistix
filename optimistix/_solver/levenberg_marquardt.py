@@ -105,18 +105,15 @@ class DirectIterativeDual(AbstractDescent[Y]):
         vector = options["vector"]
         operator = options["operator"]
         gauss_newton = options["gauss_newton"]
-        lm_param = jnp.where(
-            step_size > jnp.finfo(step_size.dtype).eps,
-            1 / step_size,
-            jnp.finfo(step_size).max,
-        )
+        pred = step_size > jnp.finfo(step_size.dtype).eps
+        safe_step_size = jnp.where(pred, step_size, 1)
+        lm_param = jnp.where(pred, 1 / safe_step_size, jnp.finfo(step_size).max)
         if gauss_newton:
             vector = (vector, tree_full_like(operator.in_structure(), 0))
             operator = lx.FunctionLinearOperator(
                 _Damped(operator, lm_param), operator.in_structure()
             )
         else:
-            vector = vector
             operator = operator + lm_param * lx.IdentityLinearOperator(
                 operator.in_structure()
             )
