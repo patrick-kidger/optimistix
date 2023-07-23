@@ -224,7 +224,7 @@ def bfgs_backtracking(rtol: float, atol: float, use_inverse: bool):
 
 def bfgs_trust_region(rtol: float, atol: float, use_inverse: bool):
     """Standard BFGS + classical trust region upate."""
-    line_search = optx.LinearTrustRegion(optx.NewtonDescent(), gauss_newton=False)
+    line_search = optx.LinearTrustRegion(optx.NewtonDescent())
     return optx.BFGS(
         rtol=rtol,
         atol=atol,

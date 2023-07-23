@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Generic
+from typing import Any, Generic, TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -21,6 +21,12 @@ import jax.numpy as jnp
 import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
+
+
+if TYPE_CHECKING:
+    from typing import ClassVar as AbstractVar
+else:
+    from equinox import AbstractVar
 
 from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
 from .._iterate import AbstractIterativeSolver
@@ -46,7 +52,6 @@ def _descent_no_results(descent, args, options, step_size):
 def _predict_linear_reduction(
     vector: PyTree[Array],
     diff: PyTree[Array],
-    args: PyTree,
 ):
     """Compute the expected decrease in loss from taking the step `diff` in a
     gradient-based method.
@@ -64,13 +69,11 @@ def _predict_linear_reduction(
         `descent`.
     - `vector`: the residual vector if `gauss_newton=True`, the gradient vector
         otherwise.
-    - `args`: a pytree of array arguments passed to `fn`.
 
     **Returns**:
 
     The expected decrease in loss from moving from `y` to `y + diff`.
     """
-    del args
     return tree_dot(vector, diff)
 
 
@@ -79,7 +82,6 @@ def _predict_quadratic_reduction(
     operator: lx.AbstractLinearOperator,
     vector: PyTree[Array],
     diff: PyTree[Array],
-    args: PyTree,
 ) -> Scalar:
     """Compute the expected decrease in loss from taking the step `diff` in
     quasi-Newton and Gauss-Newton models.
@@ -105,7 +107,6 @@ def _predict_quadratic_reduction(
         otherwise.
     - `operator`: the Jacobian if `gauss_newton=True`, the approximate hessian
         otherwise.
-    - `args`: a pytree of array arguments passed to `fn`.
 
     **Returns**:
 
@@ -165,7 +166,7 @@ class _AbstractTrustRegion(
     Trust region line searches compute the ratio
     `true_reduction/predicted_reduction`, where `true_reduction` is the decrease in `fn`
     between `y` and `new_y`, and `predicted_reduction` is how much we expected the
-    function to decrease using a linear approximation to `fn`.
+    function to decrease using an approximation to `fn`.
 
     The trust-region ratio determines whether to accept or reject a step and the
     next choice of step-size. Specifically:
@@ -177,12 +178,11 @@ class _AbstractTrustRegion(
     - else, accept the step and make no change to the step-size.
     """
 
-    descent: AbstractDescent
-    gauss_newton: bool
-    high_cutoff: float
-    low_cutoff: float
-    high_constant: float
-    low_constant: float
+    descent: AbstractVar[AbstractDescent]
+    high_cutoff: AbstractVar[float]
+    low_cutoff: AbstractVar[float]
+    high_constant: AbstractVar[float]
+    low_constant: AbstractVar[float]
     #
     # Note: we never actually compute the ratio
     # `true_reduction/predicted_reduction`. Instead, we rewrite the conditions as
@@ -235,9 +235,10 @@ class _AbstractTrustRegion(
         proposed_y = (state.current_y**ω + diff**ω).ω
         f_val, _ = fn(proposed_y, args)
 
-        predicted_reduction = state.predict_reduction(diff, args)
-        finished = f_val <= state.current_f + self.low_cutoff * predicted_reduction
-        good = f_val < state.current_f + self.high_cutoff * predicted_reduction
+        predicted_reduction = state.predict_reduction(diff)
+        f_diff = f_val - state.current_f
+        finished = f_diff <= self.low_cutoff * predicted_reduction
+        good = f_diff < self.high_cutoff * predicted_reduction
         # If `predicted_reduction` is greater than 0, then it doesn't matter if we
         # beat it, we may still have gotten worse and need to reject the step.
         finished = finished & (predicted_reduction <= 0)
@@ -250,7 +251,7 @@ class _AbstractTrustRegion(
             good, state.next_init * self.high_constant, state.next_init
         )
         new_step_size = jnp.where(
-            jnp.invert(finished), state.next_init * self.low_constant, new_step_size
+            finished, new_step_size, state.next_init * self.low_constant
         )
         new_step_size = jnp.where(
             new_step_size < jnp.finfo(new_step_size.dtype).eps,
@@ -369,7 +370,6 @@ class LinearTrustRegion(_AbstractTrustRegion[Y, Aux]):
     """
 
     descent: AbstractDescent
-    gauss_newton: bool
     high_cutoff: float = 0.99
     low_cutoff: float = 0.01
     high_constant: float = 3.5
