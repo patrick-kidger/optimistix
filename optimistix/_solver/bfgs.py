@@ -25,17 +25,17 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._base_solver import AbstractHasTol
-from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
+from .._custom_types import Aux, Fn, SearchState, Y
 from .._iterate import AbstractIterativeSolver
-from .._line_search import AbstractDescent, AbstractLineSearch, line_search
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
-    jacobian,
     max_norm,
+    NoAux,
     tree_dot,
     tree_full_like,
 )
+from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .gauss_newton import NewtonDescent
@@ -64,10 +64,10 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
                     jnp.eye(jnp.size(l1)).reshape(jnp.shape(l1) + jnp.shape(l2))
                 )
             else:
-                eye_leaves.append(jnp.zeros(l1.shape + l2.shape))
+                eye_leaves.append(jnp.zeros(jnp.shape(l1) + jnp.shape(l2)))
 
-    # NOTE: this has a Lineax positive_semidefinite tag.
-    # This is okay because the BFGS update preserves positive-definiteness.
+    # This has a Lineax positive_semidefinite tag. This is okay because the BFGS update
+    # preserves positive-definiteness.
     return lx.PyTreeLinearOperator(
         jtu.tree_unflatten(eye_structure, eye_leaves),
         jax.eval_shape(lambda: pytree),
@@ -82,45 +82,40 @@ def _outer(tree1, tree2):
     return jtu.tree_map(leaf_fn, tree1)
 
 
-def _auxmented(fn, x, args):
-    f_val, aux = fn(x, args)
-    return f_val, (f_val, aux)
-
-
-class _BFGSState(eqx.Module, Generic[Y, Aux]):
-    step_size: Scalar
-    vector: Y
-    operator: Optional[lx.PyTreeLinearOperator]
-    operator_inv: Optional[lx.PyTreeLinearOperator]
-    diff: Y
+class _BFGSState(eqx.Module, Generic[Y, SearchState]):
+    search_state: SearchState
+    grad: Y
+    hessian: Optional[lx.PyTreeLinearOperator]
+    hessian_inv: Optional[lx.PyTreeLinearOperator]
+    y_diff: Y
     f_val: Scalar
     f_prev: Scalar
+    accept: Bool[Array, ""]
     result: RESULTS
 
 
 class BFGS(
-    AbstractMinimiser[Y, Aux, _BFGSState[Y, Aux]],
-    AbstractIterativeSolver[Y, Scalar, Aux, _BFGSState[Y, Aux]],
+    AbstractMinimiser[Y, Aux, _BFGSState],
+    AbstractIterativeSolver[Y, Scalar, Aux, _BFGSState],
     AbstractHasTol,
 ):
     """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
-    This is a "second-order" optimisation algorithm, whose defining feature is that the
-    second-order quantites are actually approximated using only first-order gradient
-    information; this approximation is updated and improved at every step.
+    This is a quasi-Newton optimisation algorithm, whose defining feature is the way
+    it progressively builds up a Hessian approximation using multiple steps of gradient
+    information.
     """
 
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm
     use_inverse: bool = True
-    descent: AbstractDescent[Y] = NewtonDescent(linear_solver=lx.Cholesky())
+    descent: AbstractDescent[Y, Scalar, Any] = NewtonDescent(
+        linear_solver=lx.Cholesky()
+    )
     # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
-    line_search: AbstractLineSearch[
-        Y, Aux, AbstractLineSearchState
-    ] = BacktrackingArmijo(
-        backtrack_slope=0.1,
-        decrease_factor=0.5,
+    search: AbstractSearch[Y, Scalar, Any] = BacktrackingArmijo(
+        slope=0.1, decrease_factor=0.5
     )
 
     def init(
@@ -132,24 +127,26 @@ class BFGS(
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _BFGSState[Y, Aux]:
-        del fn, aux_struct
+    ) -> _BFGSState:
+        del aux_struct
+        init_search_state = self.search.init(self.descent, NoAux(fn), y, args, f_struct)
         if self.use_inverse:
-            operator = None
-            operator_inv = _identity_pytree(y)
+            hessian = None
+            hessian_inv = _identity_pytree(y)
         else:
-            operator = _identity_pytree(y)
-            operator_inv = None
+            hessian = _identity_pytree(y)
+            hessian_inv = None
         maxval = jnp.finfo(f_struct.dtype).max
         return _BFGSState(
-            step_size=jnp.array(1.0),
-            vector=tree_full_like(y, 1.0),
-            operator=operator,
-            operator_inv=operator_inv,
-            diff=tree_full_like(y, jnp.inf),
-            result=RESULTS.successful,
+            search_state=init_search_state,
+            grad=tree_full_like(y, 0),
+            hessian=hessian,
+            hessian_inv=hessian_inv,
             f_val=jnp.array(maxval, f_struct.dtype),
             f_prev=jnp.array(0.5 * maxval, f_struct.dtype),
+            y_diff=tree_full_like(y, 0),
+            accept=jnp.array(True),
+            result=RESULTS.successful,
         )
 
     def step(
@@ -158,114 +155,86 @@ class BFGS(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _BFGSState[Y, Aux],
+        state: _BFGSState,
         tags: frozenset[object],
-    ) -> tuple[Y, _BFGSState[Y, Aux], Aux]:
-        in_size = jtu.tree_reduce(lambda a, b: a + b, jtu.tree_map(lambda c: c.size, y))
-        new_grad, (f_val, aux) = jacobian(
-            eqx.Partial(_auxmented, fn), in_size, out_size=1, has_aux=True
-        )(y, args)
-        grad_diff = (ω(new_grad) - ω(state.vector)).ω
-        # On the first iteration, `state.diff = jnp.inf` and
-        # so anything divided by `inner` is just 0.
-        _finite = lambda x: jnp.all(jnp.isfinite(x))
-        diff_finite = jtu.tree_reduce(
-            lambda x, y: x | y, jtu.tree_map(_finite, state.diff)
-        )
-        inner = tree_dot(grad_diff, state.diff)
-        inner_nonzero = inner > jnp.finfo(inner.dtype).eps
+    ) -> tuple[Y, _BFGSState, Aux]:
+        (f_val, aux), grad = jax.value_and_grad(fn, has_aux=True)(y, args)
+        grad_diff = (grad**ω - state.grad**ω).ω
+        inner = tree_dot(grad_diff, state.y_diff)
 
-        operator_dynamic, operator_static = eqx.partition(state.operator, eqx.is_array)
-        operator_inv_dynamic, operator_inv_static = eqx.partition(
-            state.operator_inv, eqx.is_array
+        dynamic, static = eqx.partition(
+            (state.hessian, state.hessian_inv), eqx.is_array
         )
 
-        def bfgs_update(operator_and_inv_dynamic):
-            operator_dynamic, operator_inv_dynamic = operator_and_inv_dynamic
-            operator = eqx.combine(operator_dynamic, operator_static)
-            operator_inv = eqx.combine(operator_inv_dynamic, operator_inv_static)
+        def bfgs_update(dynamic):
+            hessian, hessian_inv = eqx.combine(dynamic, static)
             if self.use_inverse:
                 # Use Woodbury identity for rank-1 update of approximate Hessian.
-                inv_mvp = operator_inv.mv(grad_diff)
-                operator_inner = tree_dot(grad_diff, inv_mvp)
-                diff_outer = _outer(state.diff, state.diff)
-                mvp_outer = _outer(state.diff, operator_inv.transpose().mv(grad_diff))
-                term1 = (
-                    ((inner + operator_inner) * (diff_outer**ω)) / (inner**2)
+                inv_mvp = hessian_inv.mv(grad_diff)
+                mvp_inner = tree_dot(grad_diff, inv_mvp)
+                diff_outer = _outer(state.y_diff, state.y_diff)
+                mvp_outer = _outer(state.y_diff, inv_mvp)
+                term1 = (((inner + mvp_inner) * (diff_outer**ω)) / (inner**2)).ω
+                term2 = (
+                    (_outer(inv_mvp, state.y_diff) ** ω + mvp_outer**ω) / inner
                 ).ω
-                term2 = ((_outer(inv_mvp, state.diff) ** ω + mvp_outer**ω) / inner).ω
 
-                operator = None
-                operator_inv = lx.PyTreeLinearOperator(
-                    (operator_inv.pytree**ω + term1**ω - term2**ω).ω,
+                hessian = None
+                hessian_inv = lx.PyTreeLinearOperator(
+                    (hessian_inv.pytree**ω + term1**ω - term2**ω).ω,
                     output_structure=jax.eval_shape(lambda: y),
+                    tags=lx.positive_semidefinite_tag,
                 )
             else:
                 # BFGS update to the operator directly, not inverse
-                mvp = operator.mv(state.diff)
+                mvp = hessian.mv(state.y_diff)
                 term1 = (_outer(grad_diff, grad_diff) ** ω / inner).ω
-                term2 = (_outer(mvp, mvp) ** ω / tree_dot(state.diff, mvp)).ω
-                operator = lx.PyTreeLinearOperator(
-                    (operator.pytree**ω + term1**ω - term2**ω).ω,
+                term2 = (_outer(mvp, mvp) ** ω / tree_dot(state.y_diff, mvp)).ω
+                hessian = lx.PyTreeLinearOperator(
+                    (hessian.pytree**ω + term1**ω - term2**ω).ω,
                     output_structure=jax.eval_shape(lambda: y),
+                    tags=lx.positive_semidefinite_tag,
                 )
-                operator_inv = None
+                hessian_inv = None
 
-            return eqx.filter(operator, eqx.is_array), eqx.filter(
-                operator_inv, eqx.is_array
+            return eqx.filter(hessian, eqx.is_array), eqx.filter(
+                hessian_inv, eqx.is_array
             )
 
-        def no_update(operator_and_inv_dynamic):
-            operator_dynamic, operator_inv_dynamic = operator_and_inv_dynamic
-            return operator_dynamic, operator_inv_dynamic
+        def no_update(dynamic):
+            return dynamic
 
-        # Typically `inner = 0` implies that we have converged, so we do an identity
-        # update and terminate.
-        #
-        # Pass and unpack the tuple `(operator_dynamic, operator_inv_dynamic)` rather
-        # than directly pass `operator_dynamic` and `operator_inv_dynamic` to work
-        # around JAX issue #16413
-        new_operator_dynamic, new_operator_inv_dynamic = lax.cond(
-            diff_finite & inner_nonzero,
-            bfgs_update,
-            no_update,
-            (operator_dynamic, operator_inv_dynamic),
-        )
-        operator = eqx.combine(new_operator_dynamic, operator_static)
-        operator_inv = eqx.combine(new_operator_inv_dynamic, operator_inv_static)
-        line_search_options = {
-            "init_step_size": state.step_size,
-            "vector": new_grad,
-            "operator": operator,
-            "operator_inv": operator_inv,
-            "f0": f_val,
-            "aux": aux,
-            "gauss_newton": False,
-            "descent": self.descent,
-        }
-        line_sol = line_search(
-            fn,
-            self.line_search,
+        # In particular inner = 0 on the first step (as then state.grad=0), and so for
+        # this we jump straight to the line search.
+        # Likewise we get inner <= eps on convergence, and so again we make no update
+        # to avoid a division by zero.
+        inner_nonzero = inner > jnp.finfo(inner.dtype).eps
+        new_dynamic = lax.cond(inner_nonzero, bfgs_update, no_update, dynamic)
+        hessian, hessian_inv = eqx.combine(new_dynamic, static)
+        if self.use_inverse:
+            deriv_info = DerivativeInfo.GradHessianInv(grad, hessian_inv)
+        else:
+            deriv_info = DerivativeInfo.GradHessian(grad, hessian)
+        y_diff, accept, result, new_search_state = self.search.search(
+            self.descent,
+            NoAux(fn),
             y,
             args,
-            line_search_options,
-            has_aux=True,
-            throw=False,
+            f_val,
+            state.search_state,
+            deriv_info,
+            max_steps=256,  # TODO(kidger): offer an API for this?
         )
-        new_y = line_sol.value
-        result = RESULTS.where(
-            line_sol.result == RESULTS.nonlinear_max_steps_reached,
-            RESULTS.successful,
-            line_sol.result,
-        )
+        new_y = (y**ω + y_diff**ω).ω
         new_state = _BFGSState(
-            step_size=line_sol.state.next_init,
-            vector=new_grad,
-            operator=operator,
-            operator_inv=operator_inv,
-            diff=(new_y**ω - y**ω).ω,
+            search_state=new_search_state,
+            grad=grad,
+            hessian=hessian,
+            hessian_inv=hessian_inv,
+            y_diff=y_diff,
             f_val=f_val,
             f_prev=state.f_val,
+            accept=accept,
             result=result,
         )
         return new_y, new_state, aux
@@ -276,7 +245,7 @@ class BFGS(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _BFGSState[Y, Aux],
+        state: _BFGSState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         return cauchy_termination(
@@ -284,9 +253,10 @@ class BFGS(
             self.atol,
             self.norm,
             y,
-            state.diff,
+            state.y_diff,
             state.f_val,
             state.f_prev,
+            state.accept,
             state.result,
         )
 

@@ -119,8 +119,8 @@ def finite_difference_jvp(fn, primals, tangents, eps=None, **kwargs):
 # - LearningRate
 #
 # DESCENTS:
-# - DirectIterativeDual(GN=...)
-# - IndirectIterativeDual(GN=...)
+# - DampedNewtonDescent(GN=...)
+# - IndirectDampedNewtonDescent(GN=...)
 # - DoglegDescent(GN=...)
 # - NewtonDescent(GN=...)
 # - Gradient (Not appropriate for GN!)
@@ -141,7 +141,7 @@ class DoglegMax(optx.AbstractGaussNewton):
     atol: float
     norm: Callable[[PyTree], Scalar]
     descent: optx.AbstractDescent
-    line_search: optx.AbstractLineSearch
+    search: optx.AbstractSearch
 
     def __init__(
         self,
@@ -156,28 +156,28 @@ class DoglegMax(optx.AbstractGaussNewton):
             root_finder=optx.Bisection(rtol=0.001, atol=0.001),
             trust_region_norm=optx.max_norm,
         )
-        self.line_search = optx.ClassicalTrustRegion()
+        self.search = optx.ClassicalTrustRegion()
 
 
-def bfgs_direct_dual(rtol: float, atol: float):
+def bfgs_damped_newton(rtol: float, atol: float):
     """BFGS Hessian + direct Levenberg Marquardt update."""
     return optx.BFGS(
         rtol=rtol,
         atol=atol,
-        descent=optx.DirectIterativeDual(),
-        line_search=optx.ClassicalTrustRegion(),
+        descent=optx.DampedNewtonDescent(),
+        search=optx.ClassicalTrustRegion(),
         norm=optx.max_norm,
         use_inverse=False,
     )
 
 
-def bfgs_indirect_dual(rtol: float, atol: float):
+def bfgs_indirect_damped_newton(rtol: float, atol: float):
     """BFGS Hessian + indirect Levenberg Marquardt update."""
     return optx.BFGS(
         rtol=rtol,
         atol=atol,
-        descent=optx.IndirectIterativeDual(),
-        line_search=optx.ClassicalTrustRegion(),
+        descent=optx.IndirectDampedNewtonDescent(),
+        search=optx.ClassicalTrustRegion(),
         norm=optx.max_norm,
         use_inverse=False,
     )
@@ -190,7 +190,7 @@ def bfgs_dogleg(rtol: float, atol: float):
         rtol=rtol,
         atol=atol,
         descent=optx.DoglegDescent(linear_solver=lx.SVD()),
-        line_search=optx.ClassicalTrustRegion(),
+        search=optx.ClassicalTrustRegion(),
         norm=optx.max_norm,
         use_inverse=False,
     )
@@ -202,7 +202,7 @@ def bfgs_backtracking(rtol: float, atol: float, use_inverse: bool):
         rtol=rtol,
         atol=atol,
         descent=optx.NewtonDescent(),
-        line_search=optx.BacktrackingArmijo(),
+        search=optx.BacktrackingArmijo(),
         norm=optx.max_norm,
         use_inverse=False,
     )
@@ -214,7 +214,7 @@ def bfgs_trust_region(rtol: float, atol: float, use_inverse: bool):
         rtol=rtol,
         atol=atol,
         descent=optx.NewtonDescent(),
-        line_search=optx.LinearTrustRegion(),
+        search=optx.LinearTrustRegion(),
         norm=optx.max_norm,
         use_inverse=False,
     )
@@ -235,8 +235,8 @@ minimisers = (
     optx.NelderMead(rtol, atol),
     optx.BFGS(rtol, atol, use_inverse=False),
     optx.BFGS(rtol, atol, use_inverse=True),
-    bfgs_direct_dual(rtol, atol),
-    bfgs_indirect_dual(rtol, atol),
+    bfgs_damped_newton(rtol, atol),
+    bfgs_indirect_damped_newton(rtol, atol),
     # Tighter tolerance needed to have bfgs_dogleg pass the JVP test.
     bfgs_dogleg(1e-10, 1e-10),
     bfgs_backtracking(rtol, atol, use_inverse=False),

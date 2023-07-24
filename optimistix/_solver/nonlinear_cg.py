@@ -13,106 +13,147 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, cast, Generic
 
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
-from .._custom_types import Aux, Y
-from .._line_search import AbstractDescent, AbstractLineSearch
+from .._custom_types import Aux, NoAuxFn, Out, Y
 from .._misc import (
     max_norm,
     sum_squares,
     tree_dot,
+    tree_full_like,
     tree_where,
 )
+from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .gradient_methods import AbstractGradientDescent
 
 
-def _gradient_step(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
-    return jnp.array(0.0)
-
-
-def polak_ribiere(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
-    """The Polak--Ribière formula for β."""
-    del diff_prev
-    numerator = tree_dot(vector, (vector**ω - vector_prev**ω).ω)
-    denominator = sum_squares(vector_prev)
+def polak_ribiere(grad_vector: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
+    """The Polak--Ribière formula for β. Used with [`optimistix.NonlinearCG`][] and
+    [`optimistix.NonlinearCGDescent`][]."""
+    del y_diff_prev
+    numerator = tree_dot(grad_vector, (grad_vector**ω - grad_prev**ω).ω)
+    denominator = sum_squares(grad_prev)
+    # This triggers under two scenarios: (a) at the very start, for which our
+    # `grad_prev` is initialised at zero, and (b) at convergence, for which we no longer
+    # have a gradient. In either case we set β=0 to revert to just gradient descent.
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    out = jnp.where(pred, jnp.clip(numerator / safe_denom, a_min=0), jnp.inf)
+    out = jnp.where(pred, jnp.clip(numerator / safe_denom, a_min=0), 0)
     return cast(Scalar, out)
 
 
-def fletcher_reeves(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
-    """The Fletcher--Reeves formula for β."""
-    del diff_prev
-    numerator = sum_squares(vector)
-    denominator = sum_squares(vector_prev)
+def fletcher_reeves(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
+    """The Fletcher--Reeves formula for β. Used with [`optimistix.NonlinearCG`][] and
+    [`optimistix.NonlinearCGDescent`][]."""
+    del y_diff_prev
+    numerator = sum_squares(grad)
+    denominator = sum_squares(grad_prev)
+    # Triggers at initialisation and convergence, as above.
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    return jnp.where(pred, numerator / safe_denom, jnp.inf)
+    return jnp.where(pred, numerator / safe_denom, 0)
 
 
-def hestenes_stiefel(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
-    """The Hestenes--Stiefel formula for β."""
-    grad_diff = (vector**ω - vector_prev**ω).ω
-    numerator = tree_dot(vector, grad_diff)
-    denominator = -tree_dot(diff_prev, grad_diff)
+def hestenes_stiefel(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
+    """The Hestenes--Stiefel formula for β. Used with [`optimistix.NonlinearCG`][] and
+    [`optimistix.NonlinearCGDescent`][]."""
+    grad_diff = (grad**ω - grad_prev**ω).ω
+    numerator = tree_dot(grad, grad_diff)
+    denominator = -tree_dot(y_diff_prev, grad_diff)
+    # Triggers at initialisation and convergence, as above.
     pred = jnp.abs(denominator) > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    return jnp.where(pred, numerator / safe_denom, jnp.inf)
+    return jnp.where(pred, numerator / safe_denom, 0)
 
 
-def dai_yuan(vector: Y, vector_prev: Y, diff_prev: Y) -> Scalar:
-    """The Dai--Yuan formula for β."""
-    numerator = sum_squares(vector)
-    denominator = -tree_dot(diff_prev, (vector**ω - vector_prev**ω).ω)
+def dai_yuan(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
+    """The Dai--Yuan formula for β. Used with [`optimistix.NonlinearCG`][] and
+    [`optimistix.NonlinearCGDescent`][]."""
+    numerator = sum_squares(grad)
+    denominator = -tree_dot(y_diff_prev, (grad**ω - grad_prev**ω).ω)
+    # Triggers at initialisation and convergence, as above.
     pred = jnp.abs(denominator) > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    return jnp.where(pred, numerator / safe_denom, jnp.inf)
+    return jnp.where(pred, numerator / safe_denom, 0)
 
 
-class NonlinearCGDescent(AbstractDescent[Y]):
-    """The nonlinear conjugate gradient step.
+class _NonlinearCGDescentState(eqx.Module, Generic[Y]):
+    y_diff: Y
+    grad: Y
 
-    This requires the following `options`:
 
-    - `vector`: The gradient of the objective function to minimise.
-    - `vector_prev`: The gradient of the objective function to minimise at the
-        previous step.
-    - `diff_prev`: The `diff` of the previous step. (That is to say, the output of the
-        previous call to `NonlinearCGDescent`.)
-    """
+class NonlinearCGDescent(AbstractDescent[Y, Out, _NonlinearCGDescentState]):
+    """The nonlinear conjugate gradient step."""
 
     method: Callable[[Y, Y, Y], Scalar]
 
-    def __call__(
+    def optim_init(
+        self,
+        fn: NoAuxFn[Y, Out],
+        y: Y,
+        args: PyTree,
+        f_struct: PyTree[jax.ShapeDtypeStruct],
+    ) -> _NonlinearCGDescentState:
+        return _NonlinearCGDescentState(
+            y_diff=tree_full_like(y, 0),
+            grad=tree_full_like(y, 0),
+        )
+
+    def search_init(
+        self,
+        fn: NoAuxFn[Y, Out],
+        y: Y,
+        args: PyTree[Any],
+        f: Out,
+        state: _NonlinearCGDescentState,
+        deriv_info: DerivativeInfo,
+    ) -> _NonlinearCGDescentState:
+        assert isinstance(
+            deriv_info,
+            (
+                DerivativeInfo.Grad,
+                DerivativeInfo.GradHessian,
+                DerivativeInfo.GradHessianInv,
+                DerivativeInfo.ResidualJac,
+            ),
+        )
+        # On the very first step, we have (from `optim_init`) that `state.y_diff = 0`
+        # and `state.grad = 0`. For all methods, this implies that `beta = 0`, so
+        # `nonlinear_cg_diretion = neg_grad`, and (as desired) we take just a gradient
+        # step on the first step.
+        # Furthermore, the same mechanism handles convergence: once
+        # `state.{grad, y_diff} = 0`, i.e. our previous step hit a local minima, then
+        # on this next step we'll again just use gradient descent, and stop.
+        beta = self.method(deriv_info.grad, state.grad, state.y_diff)
+        neg_grad = (-(deriv_info.grad**ω)).ω
+        nonlinear_cg_direction = (neg_grad**ω + beta * state.y_diff**ω).ω
+        # Check if this is a descent direction. Use gradient descent if it isn't.
+        y_diff = tree_where(
+            tree_dot(deriv_info.grad, nonlinear_cg_direction) < 0,
+            nonlinear_cg_direction,
+            neg_grad,
+        )
+        return _NonlinearCGDescentState(y_diff=y_diff, grad=deriv_info.grad)
+
+    def descend(
         self,
         step_size: Scalar,
-        args: PyTree,
-        options: dict[str, Any],
-    ) -> tuple[Y, RESULTS]:
-        vector = options["vector"]
-        vector_prev = options["vector_prev"]
-        diff_prev = options["diff_prev"]
-        # TODO(kidger): this check seems like overkill? Can we just check if we're on
-        # the first step or not?
-        isfinite = jnp.isfinite(max_norm(vector_prev)) & jnp.isfinite(
-            max_norm(diff_prev)
-        )
-        beta = jnp.where(isfinite, self.method(vector, vector_prev, diff_prev), 0)
-        negative_gradient = (-(vector**ω)).ω
-        nonlinear_cg_direction = (negative_gradient**ω + beta * diff_prev**ω).ω
-        diff = tree_where(
-            tree_dot(vector, nonlinear_cg_direction) < 0,
-            nonlinear_cg_direction,
-            negative_gradient,
-        )
-        return (step_size * diff**ω).ω, RESULTS.successful
+        fn: NoAuxFn[Y, Out],
+        y: Y,
+        args: PyTree[Any],
+        f: Out,
+        state: _NonlinearCGDescentState,
+        deriv_info: DerivativeInfo,
+    ) -> tuple[Y, RESULTS, _NonlinearCGDescentState]:
+        return (step_size * state.y_diff**ω).ω, RESULTS.successful, state
 
 
 NonlinearCGDescent.__init__.__doc__ = """**Arguments:**
@@ -128,10 +169,6 @@ NonlinearCGDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-# TODO(raderj): replace the default line search in all of these with a better
-# line search algorithm.
-
-
 class NonlinearCG(AbstractGradientDescent[Y, Aux]):
     """The nonlinear conjugate gradient method."""
 
@@ -139,7 +176,7 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
     atol: float
     norm: Callable[[PyTree], Scalar]
     descent: AbstractDescent
-    line_search: AbstractLineSearch
+    search: AbstractSearch
 
     def __init__(
         self,
@@ -147,6 +184,10 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
         atol: float,
         norm: Callable[[PyTree[Array]], Scalar] = max_norm,
         method: Callable[[Y, Y, Y], Scalar] = polak_ribiere,
+        # TODO(raderj): replace the default line search with something better.
+        search: AbstractSearch[Y, Scalar, Any] = BacktrackingArmijo(
+            decrease_factor=0.5, slope=0.1
+        ),
     ):
         """**Arguments:**
 
@@ -161,9 +202,10 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
             [`optimistix.polak_ribiere`][], [`optimistix.fletcher_reeves`][],
             [`optimistix.hestenes_stiefel`][], and [`optimistix.dai_yuan`][], but any
             function `(Y, Y, Y) -> Scalar` will work.
+        - `search`: The (line) search to use at each step.
         """
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.descent = NonlinearCGDescent(method=method)
-        self.line_search = BacktrackingArmijo(decrease_factor=0.5, backtrack_slope=0.1)
+        self.search = BacktrackingArmijo(decrease_factor=0.5, slope=0.1)

@@ -168,6 +168,17 @@ class NoneAux(eqx.Module):
         return self.fn(*args, **kwargs), None
 
 
+class NoAux(eqx.Module):
+    """Wrap an aux-producing function `fn`, to drop its aux."""
+
+    fn: Callable
+
+    def __call__(self, *args, **kwargs):
+        out, aux = self.fn(*args, **kwargs)
+        del aux
+        return out
+
+
 def jacobian(fn, in_size, out_size, has_aux=False):
     """Compute the Jacobian of a function using forward or backward mode AD.
 
@@ -205,17 +216,6 @@ def inexact_asarray(x):
     return _asarray(dtype, x)
 
 
-def is_linear(fn, *args, output):
-    try:
-        eqx.filter_eval_shape(
-            lambda x, y: jax.linear_transpose(fn, *x)(y), args, output
-        )
-    except Exception:
-        return False
-    else:
-        return True
-
-
 _F = TypeVar("_F")
 
 
@@ -227,6 +227,7 @@ def cauchy_termination(
     y_diff: Y,  # *Not* y_val
     f_val: _F,
     f_prev: _F,
+    accept: Bool[Array, ""],
     result: RESULTS,
 ) -> tuple[Bool[Array, ""], RESULTS]:
     """Terminate if there is a small difference in both `y` space and `f` space, as
@@ -240,6 +241,6 @@ def cauchy_termination(
     f_scale = (atol + rtol * ω(f_prev).call(jnp.abs)).ω
     y_converged = norm((ω(y_diff).call(jnp.abs) / y_scale**ω).ω) < 1
     f_converged = norm((ω(f_diff).call(jnp.abs) / f_scale**ω).ω) < 1
-    terminate = (result != RESULTS.successful) | (y_converged & f_converged)
+    terminate = (result != RESULTS.successful) | (y_converged & f_converged & accept)
     terminate = cast(Array, terminate)
     return terminate, result

@@ -186,6 +186,7 @@ class _NewtonChord(
                 state.diff,
                 state.f_val,
                 jtu.tree_map(jnp.zeros_like, state.f_val),
+                jnp.array(True),
                 state.result,
             )
         else:

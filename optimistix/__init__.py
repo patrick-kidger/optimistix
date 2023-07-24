@@ -33,10 +33,10 @@ from ._least_squares import (
     AbstractLeastSquaresSolver as AbstractLeastSquaresSolver,
     least_squares as least_squares,
 )
-from ._line_search import (
+from ._search import (
     AbstractDescent as AbstractDescent,
-    AbstractLineSearch as AbstractLineSearch,
-    line_search as line_search,
+    AbstractSearch as AbstractSearch,
+    DerivativeInfo as DerivativeInfo,
 )
 from ._minimise import (
     AbstractMinimiser as AbstractMinimiser,
@@ -61,7 +61,7 @@ from ._solver import (
     Chord as Chord,
     ClassicalTrustRegion as ClassicalTrustRegion,
     dai_yuan as dai_yuan,
-    DirectIterativeDual as DirectIterativeDual,
+    DampedNewtonDescent as DampedNewtonDescent,
     Dogleg as Dogleg,
     DoglegDescent as DoglegDescent,
     FixedPointIteration as FixedPointIteration,
@@ -69,7 +69,7 @@ from ._solver import (
     GaussNewton as GaussNewton,
     GradientDescent as GradientDescent,
     hestenes_stiefel as hestenes_stiefel,
-    IndirectIterativeDual as IndirectIterativeDual,
+    IndirectDampedNewtonDescent as IndirectDampedNewtonDescent,
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
     LearningRate as LearningRate,
     LevenbergMarquardt as LevenbergMarquardt,

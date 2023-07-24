@@ -12,15 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Callable
-from typing import Any, Generic, TYPE_CHECKING
+import abc
+from typing import Any, Generic, Optional, TYPE_CHECKING
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
+import jax.lax as lax
 import jax.numpy as jnp
-import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
 
 
 if TYPE_CHECKING:
@@ -28,133 +29,24 @@ if TYPE_CHECKING:
 else:
     from equinox import AbstractVar
 
-from .._custom_types import AbstractLineSearchState, Aux, Fn, sentinel, Y
-from .._iterate import AbstractIterativeSolver
-from .._line_search import AbstractLineSearch
+from .._custom_types import DescentState, NoAuxFn, Out, Y
 from .._misc import (
-    is_linear,
     sum_squares,
     tree_dot,
+    tree_full_like,
     tree_where,
 )
+from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
 from .._solution import RESULTS
 
 
-def _descent_no_results(descent, args, options, step_size):
-    diff, results = descent(step_size, args, options)
-    return diff
+class _TrustRegionState(eqx.Module, Generic[DescentState]):
+    step_size: Scalar
+    acceptable: Bool[Array, ""]
+    descent_state: DescentState
 
 
-# We could technically support linear predicted reduction for Gauss-Newton
-# and quasi-Newton methods as well, but this is likely to be more confusing
-# than it's worth, so instead we use it only when `ClassicalTrustRegion` is
-# called by a gradient-based method.
-def _predict_linear_reduction(vector: PyTree[Array], diff: PyTree[Array]):
-    """Compute the expected decrease in loss from taking the step `diff` in a
-    gradient-based method.
-
-    `predict_linear_reduction` approximates how much `fn` should decrease if we
-    take the step `diff` by locally approximating `fn` with a linear function.
-    ie. if `g` is the gradient of `fn` at `y`, then
-    ```
-    predicted_linear_reduction(diff) = g^T diff
-    ```
-
-    **Arguments**:
-
-    - `diff`: the difference between `y_current` and `y_new`, also the output of a
-        `descent`.
-    - `vector`: the residual vector if `gauss_newton=True`, the gradient vector
-        otherwise.
-
-    **Returns**:
-
-    The expected decrease in loss from moving from `y` to `y + diff`.
-    """
-    return tree_dot(vector, diff)
-
-
-def _predict_quadratic_reduction(
-    gauss_newton: bool,
-    operator: lx.AbstractLinearOperator,
-    vector: PyTree[Array],
-    diff: PyTree[Array],
-) -> Scalar:
-    """Compute the expected decrease in loss from taking the step `diff` in
-    quasi-Newton and Gauss-Newton models.
-
-    `predict_quadratic_reduction` approximates how much `fn` should decrease if we
-    take the step `diff` by locally approximating `f` with a quadratic function.
-    ie. if `B` is the approximation to the Hessian coming from the
-    quasi-Newton method at `y` and `g` the gradient of `fn` at `y`, then
-    ```
-    predicted_quadratic_reduction(diff) = g^T diff + 1/2 diff^T B diff
-    ```
-
-    **Arguments**:
-
-    - `gauss_newton`: a bool indicating if the quasi-Newton method is a Gauss-Newton
-        method. If it is, `vector` is the residual vector and `operator`
-        is the Jacobian, and the computation differs slightly from the standard
-        quasi-Newton case where `vector` is the gradient and `operator` is the
-        approximate Hessian.
-    - `diff`: the difference between `y_current` and `y_new`, also the output of a
-        `descent`.
-    - `vector`: the residual vector if `gauss_newton=True`, the gradient vector
-        otherwise.
-    - `operator`: the Jacobian if `gauss_newton=True`, the approximate hessian
-        otherwise.
-
-    **Returns**:
-
-    The expected decrease in loss from moving from `y` to `y + diff`.
-    """
-    # In the Gauss-Newton setting we compute
-    # `0.5 * [(Jp + r)^T (Jp + r) - r^T r]`
-    # to the equation in the docstring
-    # when `B = J^T J` and `g = J^T r`.
-    if gauss_newton:
-        rtr = sum_squares(vector)
-        jacobian_term = sum_squares((operator.mv(diff) ** ω + vector**ω).ω)
-        return 0.5 * (jacobian_term - rtr)
-    else:
-        return tree_dot(diff, (vector**ω + 0.5 * operator.mv(diff) ** ω).ω)
-
-
-class _TrustRegionState(AbstractLineSearchState, Generic[Y]):
-    next_init: Scalar
-    current_y: Y
-    current_f: Scalar
-    best_f_val: Scalar
-    cached_diff: Y
-    predict_reduction: Callable
-    finished: Bool[Array, ""]
-    result: RESULTS
-
-
-#
-# NOTE: we handle both the Gauss-Newton and quasi-Newton case identically
-# in `__call__`.
-# In the quasi-Newton setting, the step is `-B^† g` where`B^†` is the Moore-Penrose
-# pseudoinverse of the quasi-Newton matrix `B`, and `g` is the gradient of the function
-# to minimise.
-# In the Gauss-Newton setting, the step is `-J^† r` where
-# `J^†` is the pseudoinverse of the Jacobian, and `r` is the residual vector.
-# Throughout, we have abstracted `J` and `B` into `operator` and
-# `g` and `r` into `vector`, so the solves are identical.
-#
-# The gauss_newton flag is still necessary for the predicted reduction, whose
-# computation does change depending on whether `operator` and `vector` contains the
-# quasi-Newton matrix and vector or the Jacobian and residual. In line-searches which
-# do not use this, there is no difference between `gauss_newton=True` and
-# `gauss_newton=False`.
-#
-
-
-class _AbstractTrustRegion(
-    AbstractLineSearch[Y, Aux, _TrustRegionState[Y]],
-    AbstractIterativeSolver[Y, Scalar, Aux, _TrustRegionState[Y]],
-):
+class _AbstractTrustRegion(AbstractSearch[Y, Out, _TrustRegionState]):
     """The abstract base class of the trust-region update algorithm.
 
     Trust region line searches compute the ratio
@@ -172,240 +64,266 @@ class _AbstractTrustRegion(
     - else, accept the step and make no change to the step-size.
     """
 
-    high_cutoff: AbstractVar[float]
-    low_cutoff: AbstractVar[float]
-    high_constant: AbstractVar[float]
-    low_constant: AbstractVar[float]
-    #
-    # Note: we never actually compute the ratio
-    # `true_reduction/predicted_reduction`. Instead, we rewrite the conditions as
-    # `true_reduction < const * predicted_reduction` instead, where the inequality
-    # flips because we assume `predicted_reduction` is negative.
-    # This is for numerical reasons, it avoids an uneccessary subtraction and division.
-    #
-    # This choice of default parameters comes from Gould et al.
-    # "Sensitivity of trust region algorithms to their parameters."
-    #
-    #
-    # Technical note: when using a gradient-based method, `ClassicalTrustRegion` is a
-    # variant of `BacktrackingLineSearch` with the Armijo condition, since the linear
-    # predicted reduction is the same as the Armijo condition. However, unlike standard
-    # backtracking, `ClassicalTrustRegion` chooses an initial backtracking length
-    # depending on how well it did in the previous iteration.
-    #
+    high_cutoff: AbstractVar[ScalarLike]
+    low_cutoff: AbstractVar[ScalarLike]
+    high_constant: AbstractVar[ScalarLike]
+    low_constant: AbstractVar[ScalarLike]
 
     def __post_init__(self):
         # You would not expect `self.low_cutoff` or `self.high_cutoff` to
         # be below zero, but this is technically not incorrect so we don't
         # require it.
-        if self.low_cutoff > self.high_cutoff:
-            raise ValueError(
-                "`low_cutoff` must be below `high_cutoff` in `ClassicalTrustRegion`"
-            )
-        if self.low_constant < 0:
-            raise ValueError(
-                "`low_constant` must be greater than `0` in `ClassicalTrustRegion`"
-            )
-        if self.high_constant < 0:
-            raise ValueError(
-                "`high_constant` must be greater than `0` in `ClassicalTrustRegion`"
-            )
+        self.low_cutoff, self.high_cutoff = eqx.error_if(  # pyright: ignore
+            (self.low_cutoff, self.high_cutoff),
+            self.low_cutoff > self.high_cutoff,  # pyright: ignore
+            "`low_cutoff` must be below `high_cutoff` in `ClassicalTrustRegion`",
+        )
+        self.low_constant = eqx.error_if(  # pyright: ignore
+            self.low_constant,
+            self.low_constant < 0,  # pyright: ignore
+            "`low_constant` must be greater than `0` in `ClassicalTrustRegion`",
+        )
+        self.high_constant = eqx.error_if(  # pyright: ignore
+            self.high_constant,
+            self.high_constant < 0,  # pyright: ignore
+            "`high_constant` must be greater than `0` in `ClassicalTrustRegion`",
+        )
 
-    def step(
+    @abc.abstractmethod
+    def predict_reduction(self, deriv_info: DerivativeInfo, y_diff: Y) -> Scalar:
+        ...
+
+    def init(
         self,
-        fn: Fn[Y, Scalar, Aux],
+        descent: AbstractDescent,
+        fn: NoAuxFn[Y, Scalar],
         y: Y,
         args: PyTree,
-        options: dict[str, Any],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
+    ) -> _TrustRegionState:
+        return _TrustRegionState(
+            step_size=jnp.array(1.0),
+            acceptable=jnp.array(True),
+            descent_state=descent.optim_init(fn, y, args, f_struct),
+        )
+
+    def search(
+        self,
+        descent: AbstractDescent,
+        fn: NoAuxFn[Y, Out],
+        y: Y,
+        args: PyTree[Any],
+        f: Out,
         state: _TrustRegionState,
-        tags: frozenset[object],
-    ) -> tuple[Y, _TrustRegionState[Y], Aux]:
-        descent = options["descent"]
-        if state.cached_diff is sentinel:
-            diff, result = descent(state.next_init, args, options)
+        deriv_info: DerivativeInfo,
+        max_steps: Optional[int],
+    ) -> tuple[Y, Bool[Array, ""], RESULTS, _TrustRegionState]:
+        def _cache_descent_state():
+            return state.descent_state
+
+        def _compute_descent_state():
+            return descent.search_init(fn, y, args, f, state.descent_state, deriv_info)
+
+        descent_state = lax.cond(
+            eqxi.unvmap_any(state.acceptable),
+            _compute_descent_state,
+            _cache_descent_state,
+        )
+        y_diff, result, descent_state = descent.descend(
+            state.step_size, fn, y, args, f, descent_state, deriv_info
+        )
+
+        if isinstance(
+            deriv_info,
+            (
+                DerivativeInfo.Grad,
+                DerivativeInfo.GradHessian,
+                DerivativeInfo.GradHessianInv,
+            ),
+        ):
+            min_fn = fn
+            min_f0 = f
+        elif isinstance(deriv_info, DerivativeInfo.ResidualJac):
+            min_fn = lambda y, args: 0.5 * sum_squares(fn(y, args))
+            min_f0 = 0.5 * sum_squares(f)
         else:
-            diff = (state.next_init * state.cached_diff**ω).ω
-            result = state.result
-        proposed_y = (state.current_y**ω + diff**ω).ω
-        f_val, _ = fn(proposed_y, args)
+            assert False
+        assert isinstance(min_f0, Scalar)
 
-        predicted_reduction = state.predict_reduction(diff)
-        f_diff = f_val - state.current_f
-        finished = f_diff <= self.low_cutoff * predicted_reduction
+        y_candidate = (y**ω + y_diff**ω).ω
+        min_f = min_fn(y_candidate, args)
+        predicted_reduction = self.predict_reduction(deriv_info, y_diff)
+        f_diff = min_f - min_f0
+        # We never actually compute the ratio
+        # `true_reduction/predicted_reduction`. Instead, we rewrite the conditions as
+        # `true_reduction < const * predicted_reduction` instead, where the inequality
+        # flips because we assume `predicted_reduction` is negative.
+        # This avoids an expensive division.
+        acceptable = f_diff <= self.low_cutoff * predicted_reduction
         good = f_diff < self.high_cutoff * predicted_reduction
-        # If `predicted_reduction` is greater than 0, then it doesn't matter if we
-        # beat it, we may still have gotten worse and need to reject the step.
-        finished = finished & (predicted_reduction <= 0)
+        acceptable = acceptable & (predicted_reduction <= 0)
         good = good & (predicted_reduction < 0)
-
-        new_min = f_val < state.best_f_val
-        new_y = tree_where(new_min, proposed_y, y)
-        best_f_val = jnp.where(new_min, f_val, state.best_f_val)
-        new_step_size = jnp.where(
-            good, state.next_init * self.high_constant, state.next_init
-        )
-        new_step_size = jnp.where(
-            finished, new_step_size, state.next_init * self.low_constant
-        )
+        mul = jnp.where(good, self.high_constant, 1)
+        mul = jnp.where(acceptable, mul, self.low_constant)
+        new_step_size = mul * state.step_size
         new_step_size = jnp.where(
             new_step_size < jnp.finfo(new_step_size.dtype).eps,
             jnp.array(1.0),
             new_step_size,
         )
+        y_diff = tree_where(acceptable, y_diff, tree_full_like(y, 0))
         new_state = _TrustRegionState(
-            next_init=new_step_size,
-            current_y=state.current_y,
-            current_f=state.current_f,
-            best_f_val=best_f_val,
-            cached_diff=state.cached_diff,
-            predict_reduction=state.predict_reduction,
-            finished=finished,
-            result=result,
+            step_size=new_step_size,
+            acceptable=acceptable,
+            descent_state=descent_state,
         )
-        return new_y, new_state, options["aux"]
-
-    def terminate(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        state: _TrustRegionState[Y],
-        tags: frozenset[object],
-    ) -> tuple[Bool[Array, ""], RESULTS]:
-        return state.finished, state.result
-
-    def buffers(self, state: _TrustRegionState[Y]) -> tuple[()]:
-        return ()
+        # TODO(kidger): there are two more optimisations we can make here.
+        # (1) if we reject the step, then we can avoid recomputing f0 and grad on the
+        #     next iteration of the outer solver. This has other downstream impacts:
+        #     it means deriv_info is unchanged, which in turn means we can avoid
+        #     recomputing the init part of newton_step.
+        # (2) if we accept the step, then we can avoid recomputing f0 on the next
+        #     iteration of the outer solver.
+        return y_diff, acceptable, result, new_state
 
 
-class ClassicalTrustRegion(_AbstractTrustRegion[Y, Aux]):
+class ClassicalTrustRegion(_AbstractTrustRegion[Y, Out]):
     """The classic trust-region update algorithm which uses a quadratic approximation of
     the objective function to predict reduction.
 
-    This requires the following `options`:
-
-    - `f0`: The value of the function to perform at line search at the point `y`.
-    - `aux`: The auxiliary output of the function at the point `y`.
-    - `init_step_size`: The initial `step_size` that the line search will try.
-    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
-        otherwise.
-    - `operator`: The Jacobian operator if `gauss_newton=True`, the approximate
-        Hessian otherwise.
+    Building a quadratic approximation requires an approximation to the Hessian of the
+    overall minimisation function. This means that trust region is suitable for use with
+    least-squares algorithms (which make the Gauss--Newton approximation
+    Hessian~Jac^T J) and for quasi-Newton minimisation algorithms like
+    [`optimistix.BFGS`][]. (An error will be raised if you use this with an incompatible
+    solver.)
     """
 
-    high_cutoff: float = 0.99
-    low_cutoff: float = 0.01
-    high_constant: float = 3.5
-    low_constant: float = 0.25
+    # This choice of default parameters comes from Gould et al.
+    # "Sensitivity of trust region algorithms to their parameters."
+    high_cutoff: ScalarLike = 0.99
+    low_cutoff: ScalarLike = 0.01
+    high_constant: ScalarLike = 3.5
+    low_constant: ScalarLike = 0.25
 
-    def init(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
-        tags: frozenset[object],
-    ) -> _TrustRegionState[Y]:
-        f0 = options["f0"]
-        vector = options["vector"]
-        step_size = options["init_step_size"]
-        gauss_newton = options["gauss_newton"]
-        descent = options["descent"]
+    def predict_reduction(self, deriv_info: DerivativeInfo, y_diff: Y) -> Scalar:
+        """Compute the expected decrease in loss from taking the step `y_diff`.
 
-        try:
-            operator = options["operator"]
-        except KeyError:
+        The true reduction is
+        ```
+        fn(y0 + y_diff) - fn(y0)
+        ```
+        so if `B` is the approximation to the Hessian coming from the quasi-Newton
+        method at `y`, and `g` is the gradient of `fn` at `y`, then the predicted
+        reduction is
+        ```
+        g^T y_diff + 1/2 y_diff^T B y_diff
+        ```
+
+        **Arguments**:
+
+        - `deriv_info`: the derivative information (on the gradient and Hessian)
+            provided by the outer loop.
+        - `y_diff`: the proposed step by the descent method.
+
+        **Returns**:
+
+        The expected decrease in loss from moving from `y0` to `y0 + y_diff`.
+        """
+
+        if isinstance(deriv_info, (DerivativeInfo.Grad, DerivativeInfo.GradHessianInv)):
             raise ValueError(
-                "`ClassicalTrustRegion` requires `operator` to be "
-                "passed via `options`."
+                "Cannot use `ClassicalTrustRegion` with this solver. This is because "
+                "`ClassicalTrustRegion` requires (an approximation to) the Hessian of "
+                "the target function, but this solver does not make any estimate of "
+                "that information."
             )
-
-        predicted_reduction = eqx.Partial(
-            _predict_quadratic_reduction, gauss_newton, operator, vector
-        )
-        # If the descent computes `step_size * diff` for a fixed vector `diff`
-        # that isn't dependent upon `step_size`, then we can cache `diff`
-        # and avoid recomputing it. In other words, we do a classical line search.
-        if is_linear(
-            eqx.Partial(_descent_no_results, descent, args, options),
-            jnp.array(1.0),
-            output=y,
-        ):
-            cached_diff, result = descent(jnp.array(1.0), args, options)
+        elif isinstance(deriv_info, DerivativeInfo.GradHessian):
+            # Minimisation algorithm. Directly compute the quadratic approximation.
+            return tree_dot(
+                y_diff,
+                (deriv_info.grad**ω + 0.5 * deriv_info.hessian.mv(y_diff) ** ω).ω,
+            )
+        elif isinstance(deriv_info, DerivativeInfo.ResidualJac):
+            # Least-squares algorithm. So instead of considering fn (which returns the
+            # residuals), instead consider `0.5*fn(y)^2`, and then apply the logic as
+            # for minimisation.
+            # We get that `g = J^T f0` and `B = J^T J + dJ/dx^T J`.
+            # (Here, `f0 = fn(y0)` are the residuals, and `J = dfn/dy(y0)` is the
+            # Jacobian of the residuals wrt y.)
+            # Then neglect the second term in B (the usual Gauss--Newton approximation)
+            # and complete the square.
+            # We find that the predicted reduction is
+            # `0.5 * ((J y_diff + f0)^T (J y_diff + f0) - f0^T f0)`
+            # and this is what is written below.
+            #
+            # The reason we go through this hassle is because this now involves only
+            # a single Jacobian-vector product, rather than the three we would have to
+            # make by naively substituting `B = J^T J `and `g = J^T f0` into the general
+            # algorithm used for minimisation.
+            rtr = sum_squares(deriv_info.residual)
+            jacobian_term = sum_squares(
+                (deriv_info.jac.mv(y_diff) ** ω + deriv_info.residual**ω).ω
+            )
+            return 0.5 * (jacobian_term - rtr)
         else:
-            cached_diff = sentinel
-            result = RESULTS.successful
-        return _TrustRegionState(
-            next_init=step_size,
-            current_y=y,
-            current_f=f0,
-            best_f_val=f0,
-            cached_diff=cached_diff,
-            predict_reduction=predicted_reduction,
-            finished=jnp.array(False),
-            result=result,
-        )
+            assert False
 
 
-class LinearTrustRegion(_AbstractTrustRegion[Y, Aux]):
-    """The trust-region update algorithm which uses a linear approximation of the
-    objective function to predict reduction.
+# When using a gradient-based method, `LinearTrustRegion` is actually a variant of
+# `BacktrackingArmijo`. The linear predicted reduction is the same as the Armijo
+# condition. The difference is that unlike standard backtracking,
+# `LinearTrustRegion` chooses its next step size based on how well it did in the
+# previous iteration.
+class LinearTrustRegion(_AbstractTrustRegion[Y, Out]):
+    """The trust-region update algorithm which uses a linear approximation of
+    the objective function to predict reduction.
 
-    This requires the following `options`:
-
-    - `f0`: The value of the function to perform at line search at the point `y`.
-    - `aux`: The auxiliary output of the function at the point `y`.
-    - `init_step_size`: The initial `step_size` that the line search will try.
-    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
-        otherwise.
+    Generally speaking you should prefer [`optimistix.ClassicalTrustRegion`][], unless
+    you happen to be using a solver (e.g. a non-quasi-Newton minimiser) with which that
+    is incompatible.
     """
 
-    high_cutoff: float = 0.99
-    low_cutoff: float = 0.01
-    high_constant: float = 3.5
-    low_constant: float = 0.25
+    # This choice of default parameters comes from Gould et al.
+    # "Sensitivity of trust region algorithms to their parameters."
+    high_cutoff: ScalarLike = 0.99
+    low_cutoff: ScalarLike = 0.01
+    high_constant: ScalarLike = 3.5
+    low_constant: ScalarLike = 0.25
 
-    def init(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
-        tags: frozenset[object],
-    ) -> _TrustRegionState[Y]:
-        f0 = options["f0"]
-        vector = options["vector"]
-        step_size = options["init_step_size"]
-        descent = options["descent"]
-        predict_reduction = eqx.Partial(_predict_linear_reduction, vector)
+    def predict_reduction(self, deriv_info: DerivativeInfo, y_diff: Y) -> Scalar:
+        """Compute the expected decrease in loss from taking the step `y_diff`.
 
-        # If the descent computes `step_size * diff` for a fixed vector `diff`
-        # that isn't dependent upon `step_size`, then we can cache `diff`
-        # and avoid recomputing it. In other words, we do a classical line search.
-        if is_linear(
-            eqx.Partial(_descent_no_results, descent, args, options),
-            jnp.array(1.0),
-            output=y,
-        ):
-            cached_diff, result = descent(jnp.array(1.0), args, options)
-        else:
-            cached_diff = sentinel
-            result = RESULTS.successful
-        return _TrustRegionState(
-            next_init=step_size,
-            current_y=y,
-            current_f=f0,
-            best_f_val=f0,
-            cached_diff=cached_diff,
-            predict_reduction=predict_reduction,
-            finished=jnp.array(False),
-            result=result,
+        The true reduction is
+        ```
+        fn(y0 + y_diff) - fn(y0)
+        ```
+        so if `g` is the gradient of `fn` at `y`, then the predicted reduction is
+        ```
+        g^T y_diff
+        ```
+
+        **Arguments**:
+
+        - `deriv_info`: the derivative information (on the gradient and Hessian)
+            provided by the outer loop.
+        - `y_diff`: the proposed step by the descent method.
+
+        **Returns**:
+
+        The expected decrease in loss from moving from `y0` to `y0 + y_diff`.
+        """
+
+        assert isinstance(
+            deriv_info,
+            (
+                DerivativeInfo.Grad,
+                DerivativeInfo.GradHessian,
+                DerivativeInfo.GradHessian,
+                DerivativeInfo.ResidualJac,
+            ),
         )
+        return tree_dot(deriv_info.grad, y_diff)
 
 
 _init_doc = """In the following, `ratio` refers to the ratio
@@ -413,14 +331,10 @@ _init_doc = """In the following, `ratio` refers to the ratio
 
 **Arguments**:
 
-- `descent`: a `descent` object to compute what update to take given a step-size.
-- `gauss_newton`: is backtracking a subroutine in least squares problem (True) or a
-minimisation problem (False)?
 - `high_cutoff`: the cutoff such that `ratio > high_cutoff` will accept the step
 and increase the step-size on the next iteration.
 - `low_cutoff`: the cutoff such that `ratio < low_cutoff` will reject the step
-and decrease the step-size on the next iteration, and `ratio > low_cutoff`
-will accept the step with no change to the step-size.
+and decrease the step-size on the next iteration.
 - `high_constant`: when `ratio > high_cutoff`, multiply the previous step-size by
 high_constant`.
 - `low_constant`: when `ratio < low_cutoff`, multiply the previous step-size by

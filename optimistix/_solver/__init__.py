@@ -29,8 +29,8 @@ from .gradient_methods import (
 )
 from .learning_rate import LearningRate as LearningRate
 from .levenberg_marquardt import (
-    DirectIterativeDual as DirectIterativeDual,
-    IndirectIterativeDual as IndirectIterativeDual,
+    DampedNewtonDescent as DampedNewtonDescent,
+    IndirectDampedNewtonDescent as IndirectDampedNewtonDescent,
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
     LevenbergMarquardt as LevenbergMarquardt,
 )

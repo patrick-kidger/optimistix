@@ -134,6 +134,7 @@ class OptaxMinimiser(
             (y**ω - y_prev**ω).ω,
             f_val,
             f_prev,
+            jnp.array(True),
             RESULTS.successful,
         )
 

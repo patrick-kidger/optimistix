@@ -14,13 +14,14 @@
 
 from collections.abc import Callable
 from typing import Any, Generic, Optional, TYPE_CHECKING
+from typing_extensions import TypeAlias
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import PyTree, Scalar
+from jaxtyping import Array, Bool, PyTree, Scalar
 
 
 if TYPE_CHECKING:
@@ -29,81 +30,74 @@ else:
     from equinox import AbstractVar
 
 from .._base_solver import AbstractHasTol
-from .._custom_types import Args, Aux, Fn, Out, Y
+from .._custom_types import Aux, Fn, NoAuxFn, Out, SearchState, Y
 from .._iterate import AbstractIterativeSolver
 from .._least_squares import AbstractLeastSquaresSolver
-from .._line_search import AbstractDescent, AbstractLineSearch, line_search
 from .._misc import (
     cauchy_termination,
     max_norm,
+    NoAux,
     sum_squares,
     tree_full_like,
 )
+from .._search import AbstractDescent, AbstractSearch, DerivativeInfo, newton_step
 from .._solution import RESULTS
 from .learning_rate import LearningRate
 
 
-def _is_array_or_struct(x):
-    return eqx.is_array(x) or isinstance(x, jax.ShapeDtypeStruct)
+_NewtonDescentState: TypeAlias = tuple[Y, RESULTS]
 
 
-class NewtonDescent(AbstractDescent[Y]):
+class NewtonDescent(AbstractDescent[Y, Out, _NewtonDescentState]):
     """Newton descent direction.
 
-    Given a quadratic bowl `x -> x^T A x` -- typically a local quadratic approximation
+    Given a quadratic bowl `x -> x^T Hess x` -- a local quadratic approximation
     to the target function -- this corresponds to moving in the direction of the bottom
     of the bowl. (Which is *not* the same as steepest descent.)
 
-    This is done by solving a linear system of the form `A^{-1} b`.
-
-    This requires the following `options`:
-
-    - `vector`: The residual vector if `gauss_newton=True`, the gradient vector
-        otherwise.
-    - `operator`: The Jacobian operator of a least-squares problem if
-        `gauss_newton=True`, the approximate Hessian of the objective function if not.
+    This is done by solving a linear system of the form `Hess^{-1} grad`.
     """
 
     norm: Optional[Callable[[PyTree], Scalar]] = None
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
-    def __call__(
+    def optim_init(
+        self,
+        fn: NoAuxFn[Y, Out],
+        y: Y,
+        args: PyTree,
+        f_struct: PyTree[jax.ShapeDtypeStruct],
+    ) -> tuple[Y, RESULTS]:
+        # Dummy values of the right shape; unused.
+        return y, RESULTS.successful
+
+    def search_init(
+        self,
+        fn: NoAuxFn[Y, Out],
+        y: Y,
+        args: PyTree[Any],
+        f: Out,
+        state: _NewtonDescentState,
+        deriv_info: DerivativeInfo,
+    ) -> _NewtonDescentState:
+        del fn, y, args, f, state  # only used within a search, not between searches.
+        newton, result = newton_step(deriv_info, self.linear_solver)
+        if self.norm is not None:
+            newton = (newton**ω / self.norm(newton)).ω
+        return newton, result
+
+    def descend(
         self,
         step_size: Scalar,
-        args: PyTree,
-        options: dict[str, Any],
-    ) -> tuple[Y, RESULTS]:
-        vector = options["vector"]
-        try:
-            operator_inv = options["operator_inv"]
-        except KeyError:
-            operator_inv = None
-        try:
-            operator = options["operator"]
-        except KeyError:
-            operator = None
-
-        if operator_inv is not None:
-            newton = operator_inv.mv(vector)
-            result = RESULTS.successful
-        elif operator is not None:
-            out = lx.linear_solve(
-                operator,
-                vector,
-                self.linear_solver,
-            )
-            newton = out.value
-            result = RESULTS.promote(out.result)
-        else:
-            raise ValueError(
-                "At least one of `operator` or `operator_inv` must be "
-                "passed to `NewtonDescent` via `options`."
-            )
-        if self.norm is None:
-            diff = newton
-        else:
-            diff = (newton**ω / self.norm(newton)).ω
-        return (-step_size * diff**ω).ω, result
+        fn: NoAuxFn[Y, Out],
+        y: Y,
+        args: PyTree[Any],
+        f: Out,
+        state: _NewtonDescentState,
+        deriv_info: DerivativeInfo,
+    ) -> tuple[Y, RESULTS, _NewtonDescentState]:
+        newton, result = state
+        return (-step_size * newton**ω).ω, result, state
 
 
 NewtonDescent.__init__.__doc__ = """**Arguments:**
@@ -116,43 +110,31 @@ NewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class _GaussNewtonState(eqx.Module, Generic[Y, Aux]):
-    step_size: Scalar
-    diff: Y
+class _GaussNewtonState(eqx.Module, Generic[Y, SearchState]):
+    search_state: SearchState
+    y_diff: Y
     f_val: Scalar
     f_prev: Scalar
+    accept: Bool[Array, ""]
     result: RESULTS
 
 
-def _line_search_fn(fn: Fn[Y, Out, Aux], y: Y, args: Args) -> tuple[Scalar, Aux]:
-    residual, aux = fn(y, args)
-    return sum_squares(residual), aux
-
-
 class AbstractGaussNewton(
-    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState[Y, Aux]],
-    AbstractIterativeSolver[Y, Out, Aux, _GaussNewtonState[Y, Aux]],
+    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState],
+    AbstractIterativeSolver[Y, Out, Aux, _GaussNewtonState],
     AbstractHasTol,
 ):
     """Abstract base class for all Gauss-Newton type methods.
 
     This includes methods such as [`optimistix.GaussNewton`][],
     [`optimistix.LevenbergMarquardt`][], and [`optimistix.Dogleg`][].
-
-    The line search can only require `options` from the list of:
-
-        - "init_step_size"
-        - "vector"
-        - "operator"
-        - "f0"
-        - "aux"
     """
 
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
     descent: AbstractVar[AbstractDescent]
-    line_search: AbstractVar[AbstractLineSearch]
+    search: AbstractVar[AbstractSearch]
 
     def init(
         self,
@@ -166,11 +148,13 @@ class AbstractGaussNewton(
     ) -> _GaussNewtonState[Y, Aux]:
         del aux_struct, options
         sum_squares_struct = jax.eval_shape(sum_squares, f_struct)
+        init_search_state = self.search.init(self.descent, NoAux(fn), y, args, f_struct)
         return _GaussNewtonState(
-            step_size=jnp.array(1.0),
-            diff=tree_full_like(y, jnp.inf),
+            search_state=init_search_state,
+            y_diff=tree_full_like(y, jnp.inf),
             f_val=jnp.array(jnp.inf, sum_squares_struct.dtype),
             f_prev=jnp.array(jnp.inf, sum_squares_struct.dtype),
+            accept=jnp.array(True),
             result=RESULTS.successful,
         )
 
@@ -186,40 +170,26 @@ class AbstractGaussNewton(
         residual, lin_fn, aux = jax.linearize(
             lambda _y: fn(_y, args), y, has_aux=True  # pyright: ignore
         )
-        in_structure = jax.eval_shape(lambda: y)
-        new_operator = lx.FunctionLinearOperator(lin_fn, in_structure)
-        f_val = sum_squares(residual)
-
-        line_search_options = {
-            "init_step_size": state.step_size,
-            "vector": residual,
-            "operator": new_operator,
-            "operator_inv": None,
-            "f0": f_val,
-            "aux": aux,
-            "gauss_newton": True,
-            "descent": self.descent,
-        }
-        line_sol = line_search(
-            eqx.Partial(_line_search_fn, fn),
-            self.line_search,
+        jac = lx.FunctionLinearOperator(lin_fn, jax.eval_shape(lambda: y), tags)
+        f_val = 0.5 * sum_squares(residual)
+        deriv_info = DerivativeInfo.ResidualJac(residual, jac)
+        y_diff, accept, result, new_search_state = self.search.search(
+            self.descent,
+            NoAux(fn),
             y,
             args,
-            line_search_options,
-            has_aux=True,
-            throw=False,
+            residual,
+            state.search_state,
+            deriv_info,
+            max_steps=256,  # TODO(kidger): expose as an option somewhere?
         )
-        new_y = line_sol.value
-        result = RESULTS.where(
-            line_sol.result == RESULTS.nonlinear_max_steps_reached,
-            RESULTS.successful,
-            line_sol.result,
-        )
+        new_y = (y**ω + y_diff**ω).ω
         new_state = _GaussNewtonState(
-            step_size=line_sol.state.next_init,
-            diff=(new_y**ω - y**ω).ω,
+            search_state=new_search_state,
+            y_diff=y_diff,
             f_val=f_val,
             f_prev=state.f_val,
+            accept=accept,
             result=result,
         )
         return new_y, new_state, aux
@@ -238,9 +208,10 @@ class AbstractGaussNewton(
             self.atol,
             self.norm,
             y,
-            state.diff,
+            state.y_diff,
             state.f_val,
             state.f_prev,
+            state.accept,
             state.result,
         )
 
@@ -259,7 +230,7 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
     atol: float
     norm: Callable[[PyTree], Scalar]
     descent: AbstractDescent
-    line_search: AbstractLineSearch
+    search: AbstractSearch
 
     def __init__(
         self,
@@ -272,7 +243,7 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
         self.atol = atol
         self.norm = norm
         self.descent = NewtonDescent(linear_solver=linear_solver)
-        self.line_search = LearningRate(1.0)
+        self.search = LearningRate(1.0)
 
 
 GaussNewton.__init__.__doc__ = """**Arguments:**

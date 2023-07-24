@@ -16,60 +16,48 @@ from typing import Any, cast, Optional
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from equinox.internal import ω
-from jaxtyping import Array, PyTree, Scalar, ScalarLike
+from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
 
-from .._adjoint import AbstractAdjoint, RecursiveCheckpointAdjoint
-from .._custom_types import AbstractLineSearchState, Aux, Fn, Y
-from .._line_search import AbstractLineSearch
-from .._solution import RESULTS, Solution
+from .._custom_types import DescentState, NoAuxFn, Out, Y
+from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
+from .._solution import RESULTS
 
 
-class _LearningRateState(AbstractLineSearchState):
-    next_init: Scalar
-
-
-class LearningRate(AbstractLineSearch[Y, Aux, _LearningRateState]):
-    """Compute `y_new` from `y`, by taking a step of the fixed size `learning_rate`.
-
-    This requires the following `options`:
-
-    - `aux`: The auxiliary output of the function at the point `y`.
-    """
+class LearningRate(AbstractSearch[Y, Out, DescentState]):
+    """Move downhill by taking a step of the fixed size `learning_rate`."""
 
     learning_rate: ScalarLike = eqx.field(converter=jnp.asarray)
 
-    def solve(
+    def init(
         self,
-        fn: Fn[Y, Scalar, Aux],
-        y0: PyTree[Array],
+        descent: AbstractDescent,
+        fn: NoAuxFn[Y, Scalar],
+        y: Y,
         args: PyTree,
-        options: dict[str, Any],
-        *,
-        max_steps: Optional[int],
-        adjoint: AbstractAdjoint,
-        throw: bool,
-        tags: frozenset[object],
         f_struct: PyTree[jax.ShapeDtypeStruct],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
-    ) -> Solution[Y, Aux, _LearningRateState]:
-        assert isinstance(adjoint, RecursiveCheckpointAdjoint)
-        descent = options["descent"]
-        del max_steps, adjoint, throw, tags, f_struct, aux_struct
-        diff, _ = descent(cast(Array, self.learning_rate), args, options)
-        value = (y0**ω + diff**ω).ω
-        return Solution(
-            value=value,
-            result=RESULTS.successful,
-            aux=options["aux"],
-            stats={},
-            state=_LearningRateState(self.learning_rate),
+    ) -> DescentState:
+        return descent.optim_init(fn, y, args, f_struct)
+
+    def search(
+        self,
+        descent: AbstractDescent,
+        fn: NoAuxFn[Y, Out],
+        y: Y,
+        args: PyTree[Any],
+        f: Out,
+        state: DescentState,
+        deriv_info: DerivativeInfo,
+        max_steps: Optional[int],
+    ) -> tuple[Y, Bool[Array, ""], RESULTS, DescentState]:
+        state = descent.search_init(fn, y, args, f, state, deriv_info)
+        learning_rate = cast(Array, self.learning_rate)
+        y_diff, result, state = descent.descend(
+            learning_rate, fn, y, args, f, state, deriv_info
         )
+        return y_diff, jnp.array(True), result, state
 
 
 LearningRate.__init__.__doc__ = """**Arguments:**
 
-- `descent`: An [`optimistix.AbstractDescent`][] object, describing how to map from
-    step-size (a scalar) to update (in y-space).
 - `learning_rate`: The fixed step-size used at each step.
 """

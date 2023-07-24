@@ -14,6 +14,13 @@
 
 ---
 
+::: optimistix.NonlinearCGDescent
+    selection:
+        members:
+            false
+
+---
+
 ::: optimistix.NewtonDescent
     selection:
         members:
@@ -21,28 +28,21 @@
 
 ---
 
+::: optimistix.DampedNewtonDescent
+    selection:
+        members:
+            false
+
+---
+
+::: optimistix.IndirectDampedNewtonDescent
+    selection:
+        members:
+            false
+
+---
+
 ::: optimistix.DoglegDescent
-    selection:
-        members:
-            false
-
----
-
-::: optimistix.DirectIterativeDual
-    selection:
-        members:
-            false
-
----
-
-::: optimistix.IndirectIterativeDual
-    selection:
-        members:
-            false
-
----
-
-::: optimistix.NonlinearCGDescent
     selection:
         members:
             false

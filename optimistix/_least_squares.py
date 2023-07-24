@@ -37,7 +37,7 @@ class AbstractLeastSquaresSolver(AbstractSolver[Y, Out, Aux, SolverState]):
 
         def objective(_optimum):
             residual, _ = residual_fn(_optimum, args)
-            return sum_squares(residual)
+            return 0.5 * sum_squares(residual)
 
         return jax.grad(objective)(optimum)
 

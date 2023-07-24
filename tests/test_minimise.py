@@ -86,12 +86,17 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
         # Finite difference is very inaccurate on this problem.
         expected_out = t_expected_out = jtu.tree_map(jnp.zeros_like, init)
     elif _fn in (beale, matyas):
+        if isinstance(solver, optx.NonlinearCG):
+            eps = 1e-3
+            atol = rtol = 1e-2  # finite difference does a really bad job on this one
+        else:
+            eps = 1e-4
         expected_out, t_expected_out = finite_difference_jvp(
             minimise,
             (init, dynamic_args),
             (t_init, t_dynamic_args),
             adjoint=otd,
-            eps=1e-4,
+            eps=eps,
         )
     else:
         expected_out, t_expected_out = finite_difference_jvp(

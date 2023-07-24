@@ -27,20 +27,16 @@ else:
     from equinox import AbstractVar
 
 
-class AbstractLineSearchState(eqx.Module):
-    next_init: AbstractVar[Scalar]
-
-
 Args: TypeAlias = Any
 Aux = TypeVar("Aux")
 Out = TypeVar("Out")
 SolverState = TypeVar("SolverState")
-LineSearchState = TypeVar("LineSearchState", bound=AbstractLineSearchState)
+DescentState = TypeVar("DescentState")
+SearchState = TypeVar("SearchState")
 Y = TypeVar("Y")
 
 Fn: TypeAlias = Callable[[Y, Args], tuple[Out, Aux]]
-MaybeAuxFn: TypeAlias = Union[
-    Callable[[Y, Args], tuple[Out, Aux]], Callable[[Y, Args], Out]
-]
+NoAuxFn: TypeAlias = Callable[[Y, Args], Out]
+MaybeAuxFn: TypeAlias = Union[Fn[Y, Out, Aux], NoAuxFn[Y, Out]]
 
 sentinel: Any = eqxi.doc_repr(object(), "sentinel")
