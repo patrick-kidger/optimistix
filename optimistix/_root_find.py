@@ -22,23 +22,24 @@ import jax.tree_util as jtu
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._base_solver import AbstractHasTol, AbstractSolver
+from ._base_solver import AbstractHasTol
 from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
+from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver, least_squares
 from ._minimise import AbstractMinimiser
 from ._misc import inexact_asarray, NoneAux
 from ._solution import RESULTS, Solution
 
 
-class AbstractRootFinder(AbstractSolver[Y, Out, Aux, SolverState]):
+class AbstractRootFinder(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
     """Abstract base class for all root finders."""
 
-    @staticmethod
-    def rewrite_fn(root, _, inputs):
-        _, root_fn, args, *_ = inputs
-        del inputs
-        f_val, _ = root_fn(root, args)
-        return f_val
+
+def _rewrite_fn(root, _, inputs):
+    root_fn, _, _, args, *_ = inputs
+    del inputs
+    f_val, _ = root_fn(root, args)
+    return f_val
 
 
 @eqx.filter_jit
@@ -140,8 +141,9 @@ def root_find(
         return sol
     else:
         f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
-        return solver.solve(
+        return iterative_solve(
             fn,
+            solver,
             y0,
             args,
             options,
@@ -151,4 +153,5 @@ def root_find(
             tags=tags,
             f_struct=f_struct,
             aux_struct=aux_struct,
+            rewrite_fn=_rewrite_fn,
         )

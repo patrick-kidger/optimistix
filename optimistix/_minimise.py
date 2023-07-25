@@ -21,25 +21,25 @@ import jax.tree_util as jtu
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._base_solver import AbstractSolver
 from ._custom_types import Aux, Fn, MaybeAuxFn, SolverState, Y
+from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._misc import inexact_asarray, NoneAux
 from ._solution import Solution
 
 
-class AbstractMinimiser(AbstractSolver[Y, Scalar, Aux, SolverState]):
+class AbstractMinimiser(AbstractIterativeSolver[Y, Scalar, Aux, SolverState]):
     """Abstract base class for all minimisers."""
 
-    @staticmethod
-    def rewrite_fn(minimum, _, inputs):
-        _, minimise_fn, args, *_ = inputs
-        del inputs
 
-        def min_no_aux(x):
-            f_val, _ = minimise_fn(x, args)
-            return f_val
+def _rewrite_fn(minimum, _, inputs):
+    minimise_fn, _, _, args, *_ = inputs
+    del inputs
 
-        return jax.grad(min_no_aux)(minimum)
+    def min_no_aux(x):
+        f_val, _ = minimise_fn(x, args)
+        return f_val
+
+    return jax.grad(min_no_aux)(minimum)
 
 
 @eqx.filter_jit
@@ -108,8 +108,9 @@ def minimise(
             "minimisation function must output a single floating-point scalar."
         )
 
-    return solver.solve(
+    return iterative_solve(
         fn,
+        solver,
         y0,
         args,
         options,
@@ -119,4 +120,5 @@ def minimise(
         tags=tags,
         aux_struct=aux_struct,
         f_struct=f_struct,
+        rewrite_fn=_rewrite_fn,
     )

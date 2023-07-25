@@ -23,7 +23,6 @@ from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn
-from .._iterate import AbstractIterativeSolver
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
 
@@ -37,7 +36,6 @@ class _BisectionState(eqx.Module):
 
 class Bisection(
     AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState],
-    AbstractIterativeSolver[Scalar, Scalar, Aux, _BisectionState],
     AbstractHasTol,
 ):
     """The bisection method of root finding. This may only be used with functions

@@ -31,7 +31,6 @@ else:
 
 from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, NoAuxFn, Out, SearchState, Y
-from .._iterate import AbstractIterativeSolver
 from .._least_squares import AbstractLeastSquaresSolver
 from .._misc import (
     cauchy_termination,
@@ -120,9 +119,7 @@ class _GaussNewtonState(eqx.Module, Generic[Y, SearchState]):
 
 
 class AbstractGaussNewton(
-    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState],
-    AbstractIterativeSolver[Y, Out, Aux, _GaussNewtonState],
-    AbstractHasTol,
+    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState], AbstractHasTol
 ):
     """Abstract base class for all Gauss-Newton type methods.
 

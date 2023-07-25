@@ -21,8 +21,8 @@ from equinox.internal import ω
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._base_solver import AbstractSolver
 from ._custom_types import Args, Aux, Fn, MaybeAuxFn, SolverState, Y
+from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver
 from ._minimise import AbstractMinimiser
 from ._misc import inexact_asarray, NoneAux
@@ -30,15 +30,15 @@ from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
 
 
-class AbstractFixedPointSolver(AbstractSolver[Y, Y, Aux, SolverState]):
+class AbstractFixedPointSolver(AbstractIterativeSolver[Y, Y, Aux, SolverState]):
     """Abstract base class for all fixed point solvers."""
 
-    @staticmethod
-    def rewrite_fn(fixed_point, _, inputs):
-        _, fixed_point_fn, args, *_ = inputs
-        del inputs
-        f_val, _ = fixed_point_fn(fixed_point, args)
-        return (f_val**ω - fixed_point**ω).ω
+
+def _rewrite_fn(fixed_point, _, inputs):
+    fixed_point_fn, _, _, args, *_ = inputs
+    del inputs
+    f_val, _ = fixed_point_fn(fixed_point, args)
+    return (f_val**ω - fixed_point**ω).ω
 
 
 class _ToRootFn(eqx.Module, Generic[Y, Aux]):
@@ -147,8 +147,9 @@ def fixed_point(
             raise ValueError(
                 "The input and output of `fixed_point_fn` must have the same structure"
             )
-        return solver.solve(
+        return iterative_solve(
             fn,
+            solver,
             y0,
             args,
             options,
@@ -158,4 +159,5 @@ def fixed_point(
             tags=tags,
             f_struct=f_struct,
             aux_struct=aux_struct,
+            rewrite_fn=_rewrite_fn,
         )

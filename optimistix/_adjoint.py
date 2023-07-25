@@ -40,7 +40,6 @@ class AbstractAdjoint(eqx.Module):
         autodifferentiation behaviour; see for example the implementation of
         [`optimistix.ImplicitAdjoint`][].
         """
-        ...
 
 
 class RecursiveCheckpointAdjoint(AbstractAdjoint):

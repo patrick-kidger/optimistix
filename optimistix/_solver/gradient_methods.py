@@ -29,7 +29,6 @@ else:
 
 from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, NoAuxFn, Out, SearchState, Y
-from .._iterate import AbstractIterativeSolver
 from .._minimise import AbstractMinimiser
 from .._misc import cauchy_termination, max_norm, NoAux, tree_full_like
 from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
@@ -106,9 +105,7 @@ class _GradientDescentState(eqx.Module, Generic[Y, SearchState]):
 
 
 class AbstractGradientDescent(
-    AbstractMinimiser[Y, Aux, _GradientDescentState],
-    AbstractIterativeSolver[Y, Scalar, Aux, _GradientDescentState],
-    AbstractHasTol,
+    AbstractMinimiser[Y, Aux, _GradientDescentState], AbstractHasTol
 ):
     """The gradient descent method for unconstrained minimisation.
 

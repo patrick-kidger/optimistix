@@ -26,7 +26,6 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, Out, Y
-from .._iterate import AbstractIterativeSolver
 from .._misc import cauchy_termination, max_norm, tree_full_like
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
@@ -64,9 +63,7 @@ class _NewtonChordState(eqx.Module, Generic[Y]):
 
 
 class _NewtonChord(
-    AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]],
-    AbstractIterativeSolver[Y, Out, Aux, _NewtonChordState[Y]],
-    AbstractHasTol,
+    AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]], AbstractHasTol
 ):
     rtol: float
     atol: float

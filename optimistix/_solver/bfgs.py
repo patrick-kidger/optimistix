@@ -26,7 +26,6 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, SearchState, Y
-from .._iterate import AbstractIterativeSolver
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
@@ -94,11 +93,7 @@ class _BFGSState(eqx.Module, Generic[Y, SearchState]):
     result: RESULTS
 
 
-class BFGS(
-    AbstractMinimiser[Y, Aux, _BFGSState],
-    AbstractIterativeSolver[Y, Scalar, Aux, _BFGSState],
-    AbstractHasTol,
-):
+class BFGS(AbstractMinimiser[Y, Aux, _BFGSState], AbstractHasTol):
     """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way

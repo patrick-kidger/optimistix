@@ -18,10 +18,7 @@ from ._adjoint import (
     ImplicitAdjoint as ImplicitAdjoint,
     RecursiveCheckpointAdjoint as RecursiveCheckpointAdjoint,
 )
-from ._base_solver import (
-    AbstractHasTol as AbstractHasTol,
-    AbstractSolver as AbstractSolver,
-)
+from ._base_solver import AbstractHasTol as AbstractHasTol
 from ._fixed_point import (
     AbstractFixedPointSolver as AbstractFixedPointSolver,
     fixed_point as fixed_point,
@@ -32,11 +29,6 @@ from ._iterate import (
 from ._least_squares import (
     AbstractLeastSquaresSolver as AbstractLeastSquaresSolver,
     least_squares as least_squares,
-)
-from ._search import (
-    AbstractDescent as AbstractDescent,
-    AbstractSearch as AbstractSearch,
-    DerivativeInfo as DerivativeInfo,
 )
 from ._minimise import (
     AbstractMinimiser as AbstractMinimiser,
@@ -50,6 +42,11 @@ from ._misc import (
 from ._root_find import (
     AbstractRootFinder as AbstractRootFinder,
     root_find as root_find,
+)
+from ._search import (
+    AbstractDescent as AbstractDescent,
+    AbstractSearch as AbstractSearch,
+    DerivativeInfo as DerivativeInfo,
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solver import (

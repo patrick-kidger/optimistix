@@ -24,7 +24,6 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, Y
-from .._iterate import AbstractIterativeSolver
 from .._minimise import AbstractMinimiser
 from .._misc import cauchy_termination, max_norm
 from .._solution import RESULTS
@@ -34,11 +33,7 @@ _OptaxClass: TypeAlias = Any
 _OptState: TypeAlias = tuple[Any, Any, Any, Any]
 
 
-class OptaxMinimiser(
-    AbstractMinimiser[Y, Aux, _OptState],
-    AbstractIterativeSolver[Y, Scalar, Aux, _OptState],
-    AbstractHasTol,
-):
+class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptState], AbstractHasTol):
     """A wrapper to use Optax first-order gradient-based optimisers with
     [`optimistix.minimise`][].
     """

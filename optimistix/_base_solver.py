@@ -12,17 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import abc
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import equinox as eqx
-import jax
-from jaxtyping import Array, PyTree, Scalar
-
-from ._adjoint import AbstractAdjoint
-from ._custom_types import Aux, Fn, Out, SolverState, Y
-from ._solution import Solution
+from jaxtyping import PyTree, Scalar
 
 
 if TYPE_CHECKING:
@@ -31,28 +25,7 @@ else:
     from equinox import AbstractVar
 
 
-class AbstractSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
-    """Base class for all Optimistix solvers."""
-
-    @abc.abstractmethod
-    def solve(
-        self,
-        fn: Fn[Y, Out, Aux],
-        y0: PyTree[Array],
-        args: PyTree,
-        options: dict[str, Any],
-        *,
-        max_steps: Optional[int],
-        adjoint: AbstractAdjoint,
-        throw: bool,
-        tags: frozenset[object],
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-        aux_struct: PyTree[jax.ShapeDtypeStruct],
-    ) -> Solution[Y, Aux, SolverState]:
-        ...
-
-
-class AbstractHasTol(AbstractSolver):
+class AbstractHasTol(eqx.Module):
     """A solver guaranteed to have `atol` and `rtol` fields."""
 
     rtol: AbstractVar[float]

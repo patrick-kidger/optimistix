@@ -20,26 +20,26 @@ import jax.tree_util as jtu
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._base_solver import AbstractSolver
 from ._custom_types import Args, Aux, Fn, MaybeAuxFn, Out, SolverState, Y
+from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._minimise import AbstractMinimiser, minimise
 from ._misc import inexact_asarray, NoneAux, sum_squares
 from ._solution import Solution
 
 
-class AbstractLeastSquaresSolver(AbstractSolver[Y, Out, Aux, SolverState]):
+class AbstractLeastSquaresSolver(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
     """Abstract base class for all least squares solvers."""
 
-    @staticmethod
-    def rewrite_fn(optimum, _, inputs):
-        _, residual_fn, args, *_ = inputs
-        del inputs
 
-        def objective(_optimum):
-            residual, _ = residual_fn(_optimum, args)
-            return 0.5 * sum_squares(residual)
+def _rewrite_fn(optimum, _, inputs):
+    residual_fn, _, _, args, *_ = inputs
+    del inputs
 
-        return jax.grad(objective)(optimum)
+    def objective(_optimum):
+        residual, _ = residual_fn(_optimum, args)
+        return 0.5 * sum_squares(residual)
+
+    return jax.grad(objective)(optimum)
 
 
 class _ToMinimiseFn(eqx.Module, Generic[Y, Out, Aux]):
@@ -128,8 +128,9 @@ def least_squares(
     else:
         y0 = jtu.tree_map(inexact_asarray, y0)
         f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
-        return solver.solve(
+        return iterative_solve(
             fn,
+            solver,
             y0,
             args,
             options,
@@ -139,4 +140,5 @@ def least_squares(
             tags=tags,
             f_struct=f_struct,
             aux_struct=aux_struct,
+            rewrite_fn=_rewrite_fn,
         )
