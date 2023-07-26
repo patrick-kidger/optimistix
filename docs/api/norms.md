@@ -4,7 +4,9 @@ At several points, it is necessary to compute the norm of some arbitrary PyTree.
 
 Optimistix includes the following norms. (But any function `PyTree -> non-negative real scalar` will suffice.)
 
-For the curious: Optimistix typically uses [`optimistix.max_norm`][] as its default norm throughout. This is because it is invariant to the size of the problem, i.e. adding extra zero padding will never affect its output. This helps to ensure a consistent experience as the problem size changes. (This property is "sort of" true of [`optimistix.rms_norm`][], and not at all true of [`optimistix.two_norm`][].)
+!!! info
+
+    For the curious: Optimistix typically uses [`optimistix.max_norm`][] as its default norm throughout. This is because it is invariant to the size of the problem, i.e. adding extra zero padding will never affect its output. This helps to ensure a consistent experience as the problem size changes. (This property is "sort of" true of [`optimistix.rms_norm`][], and not at all true of [`optimistix.two_norm`][].)
 
 ::: optimistix.max_norm
 
