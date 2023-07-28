@@ -13,16 +13,10 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 import equinox as eqx
+from equinox import AbstractVar
 from jaxtyping import PyTree, Scalar
-
-
-if TYPE_CHECKING:
-    from typing import ClassVar as AbstractVar
-else:
-    from equinox import AbstractVar
 
 
 class AbstractHasTol(eqx.Module):

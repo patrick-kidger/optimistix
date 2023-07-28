@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, cast, Generic, Optional, TYPE_CHECKING
+from typing import Any, Generic, Optional, TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -21,6 +21,12 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
+
+
+if TYPE_CHECKING:
+    from typing import ClassVar as AbstractClassVar
+else:
+    from equinox import AbstractClassVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
@@ -29,12 +35,6 @@ from .._custom_types import Aux, Fn, Out, Y
 from .._misc import cauchy_termination, max_norm, tree_full_like
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
-
-
-if TYPE_CHECKING:
-    from typing import ClassVar as AbstractClassVar
-else:
-    from equinox import AbstractClassVar
 
 
 def _small(diffsize: Scalar) -> Bool[Array, " "]:
@@ -53,7 +53,7 @@ def _converged(factor: Scalar, tol: float) -> Bool[Array, " "]:
 
 
 class _NewtonChordState(eqx.Module, Generic[Y]):
-    f_val: PyTree[Array]
+    f: PyTree[Array]
     linear_state: Optional[tuple[lx.AbstractLinearOperator, PyTree]]
     diff: Y
     diffsize: Scalar
@@ -99,7 +99,7 @@ class _NewtonChord(
         else:
             f_val = None
         return _NewtonChordState(
-            f_val=f_val,
+            f=f_val,
             linear_state=linear_state,
             diff=tree_full_like(y, jnp.inf),
             diffsize=jnp.array(jnp.inf),
@@ -148,7 +148,7 @@ class _NewtonChord(
         else:
             f_val = None
         new_state = _NewtonChordState(
-            f_val=f_val,
+            f=f_val,
             linear_state=state.linear_state,
             diff=diff,
             diffsize=diffsize,
@@ -168,24 +168,21 @@ class _NewtonChord(
         tags: frozenset[object],
     ):
         del fn, args, options
-        linsolve_fail = state.result != RESULTS.successful
-        linsolve_fail = cast(Array, linsolve_fail)
         if self.cauchy_termination:
             # Compare `f_val` against 0, not against some `f_prev`. This is because
             # we're doing a root-find and know that we're aiming to get close to zero.
             # Note that this does mean that the `rtol` is ignored in f-space, and only
             # `atol` matters.
-            terminate, result = cauchy_termination(
+            terminate = cauchy_termination(
                 self.rtol,
                 self.atol,
                 self.norm,
                 y,
                 state.diff,
-                state.f_val,
-                jtu.tree_map(jnp.zeros_like, state.f_val),
-                jnp.array(True),
-                state.result,
+                jtu.tree_map(jnp.zeros_like, state.f),
+                state.f,
             )
+            terminate_result = RESULTS.successful
         else:
             # TODO(kidger): perform only one iteration when solving a linear system!
             at_least_two = state.step >= 2
@@ -195,10 +192,11 @@ class _NewtonChord(
             diverged = _diverged(rate)
             converged = _converged(factor, self.kappa)
             terminate = at_least_two & (small | diverged | converged)
-            result = RESULTS.where(
+            terminate_result = RESULTS.where(
                 diverged, RESULTS.nonlinear_divergence, RESULTS.successful
             )
-        result = RESULTS.where(linsolve_fail, state.result, result)
+        linsolve_fail = state.result != RESULTS.successful
+        result = RESULTS.where(linsolve_fail, state.result, terminate_result)
         terminate = linsolve_fail | terminate
         return terminate, result
 

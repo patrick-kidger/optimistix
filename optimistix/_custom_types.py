@@ -13,26 +13,18 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, TYPE_CHECKING, TypeVar, Union
+from typing import Any, TypeVar, Union
 from typing_extensions import TypeAlias
 
-import equinox as eqx
 import equinox.internal as eqxi
-from jaxtyping import Scalar
-
-
-if TYPE_CHECKING:
-    from typing import ClassVar as AbstractVar
-else:
-    from equinox import AbstractVar
 
 
 Args: TypeAlias = Any
 Aux = TypeVar("Aux")
 Out = TypeVar("Out")
 SolverState = TypeVar("SolverState")
-DescentState = TypeVar("DescentState")
 SearchState = TypeVar("SearchState")
+DescentState = TypeVar("DescentState")
 Y = TypeVar("Y")
 
 Fn: TypeAlias = Callable[[Y, Args], tuple[Out, Aux]]

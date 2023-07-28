@@ -39,11 +39,7 @@ def test_minimise(solver, _fn, minimum, init, args):
     optx_argmin = optx.minimise(
         fn, solver, init, has_aux=has_aux, args=args, max_steps=max_steps, throw=False
     ).value
-    out = fn(optx_argmin, args)
-    if has_aux:
-        optx_min, _ = out
-    else:
-        optx_min = out
+    optx_min = _fn(optx_argmin, args)
     assert tree_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
 
@@ -52,9 +48,10 @@ def test_minimise(solver, _fn, minimum, init, args):
 def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
     if isinstance(solver, (optx.GradientDescent, optx.NonlinearCG)):
         max_steps = 100_000
+        atol = rtol = 1e-2
     else:
         max_steps = 10_000
-    atol = rtol = 1e-3
+        atol = rtol = 1e-3
     has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
@@ -144,5 +141,5 @@ def test_nonlinear_cg_methods(method):
     #      = [[-0.3, 0.1], [0.1, 0.2]] [-100, 5]
     #      = [29.5, 9]
     y0 = jnp.array([2.0, 3.0])
-    sol = optx.minimise(f, solver, y0)
+    sol = optx.minimise(f, solver, y0, max_steps=500)
     assert tree_allclose(sol.value, jnp.array([29.5, 9.0]), rtol=1e-5, atol=1e-5)

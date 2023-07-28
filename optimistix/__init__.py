@@ -46,7 +46,7 @@ from ._root_find import (
 from ._search import (
     AbstractDescent as AbstractDescent,
     AbstractSearch as AbstractSearch,
-    DerivativeInfo as DerivativeInfo,
+    FunctionInfo as FunctionInfo,
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solver import (

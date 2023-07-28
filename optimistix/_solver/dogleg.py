@@ -13,18 +13,16 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any
-from typing_extensions import TypeAlias
+from typing import Any, Generic, Union
 
-import jax
+import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
 import lineax as lx
 from equinox.internal import ω
 from jaxtyping import PyTree, Scalar
 
-from .._custom_types import Aux, Out, Y, NoAuxFn
-from .._search import AbstractDescent, AbstractSearch, DerivativeInfo, newton_step
+from .._custom_types import Aux, Out, Y
 from .._misc import (
     max_norm,
     sum_squares,
@@ -34,88 +32,95 @@ from .._misc import (
     two_norm,
 )
 from .._root_find import AbstractRootFinder, root_find
+from .._search import AbstractDescent, FunctionInfo
 from .._solution import RESULTS
 from .bisection import Bisection
-from .gauss_newton import AbstractGaussNewton
+from .gauss_newton import AbstractGaussNewton, newton_step
 from .trust_region import ClassicalTrustRegion
 
 
-_DoglegDescentState: TypeAlias = tuple[Y, Y, Scalar, Scalar, RESULTS]
+class _DoglegDescentState(eqx.Module, Generic[Y]):
+    newton: Y
+    cauchy: Y
+    newton_norm: Scalar
+    cauchy_norm: Scalar
+    result: RESULTS
 
 
-class DoglegDescent(AbstractDescent[Y, Out, _DoglegDescentState]):
+class DoglegDescent(
+    AbstractDescent[
+        Y,
+        Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        _DoglegDescentState,
+    ]
+):
     """The Dogleg descent step, which switches between the Cauchy and the Newton
     descent directions.
     """
 
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
-    root_finder: AbstractRootFinder = Bisection(rtol=1e-3, atol=1e-3)
+    root_finder: AbstractRootFinder[Scalar, Scalar, None, Any] = Bisection(
+        rtol=1e-3, atol=1e-3
+    )
     trust_region_norm: Callable[[PyTree], Scalar] = two_norm
 
-    def optim_init(
+    def init(
         self,
-        fn: NoAuxFn[Y, Out],
         y: Y,
-        args: PyTree,
-        f_struct: PyTree[jax.ShapeDtypeStruct],
+        f_info_struct: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
     ) -> _DoglegDescentState:
         # Dummy values; unused
-        return y, y, jnp.array(0.), jnp.array(0.), RESULTS.successful
+        del f_info_struct
+        return _DoglegDescentState(
+            newton=y,
+            cauchy=y,
+            newton_norm=jnp.array(0.0),
+            cauchy_norm=jnp.array(0.0),
+            result=RESULTS.successful,
+        )
 
-    def search_init(
+    def query(
         self,
-        fn: NoAuxFn[Y, Out],
         y: Y,
-        args: PyTree[Any],
-        f: Out,
+        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
         state: _DoglegDescentState,
-        deriv_info: DerivativeInfo,
     ) -> _DoglegDescentState:
         del state
         # Compute `denom = grad^T Hess grad.`
-        if isinstance(deriv_info, (DerivativeInfo.Grad, DerivativeInfo.GradHessianInv)):
+        if isinstance(f_info, FunctionInfo.EvalGradHessian):
+            denom = tree_dot(f_info.grad, f_info.hessian.mv(f_info.grad))
+        elif isinstance(f_info, FunctionInfo.ResidualJac):
+            # Use Gauss--Newton approximation `Hess ~ J^T J`
+            denom = sum_squares(f_info.jac.mv(f_info.grad))
+        else:
             raise ValueError(
                 "`DoglegDescent` can only be used with least-squares solvers, or "
                 "quasi-Newton minimisers which make approximations to the Hessian "
                 "(like `optx.BFGS(use_inverse=False)`)"
             )
-        elif isinstance(deriv_info, DerivativeInfo.GradHessian):
-            denom = tree_dot(deriv_info.grad, deriv_info.hessian.mv(deriv_info.grad))
-        elif isinstance(deriv_info, DerivativeInfo.ResidualJac):
-            # Use Gauss--Newton approximation `Hess ~ J^T J`
-            denom = sum_squares(deriv_info.jac.mv(deriv_info.grad))
-        else:
-            assert False
         denom_nonzero = denom > jnp.finfo(denom.dtype).eps
         safe_denom = jnp.where(denom_nonzero, denom, 1)
         # Compute `grad^T grad / (grad^T Hess grad)`
-        scaling = jnp.where(
-            denom_nonzero, sum_squares(deriv_info.grad) / safe_denom, 0.0
-        )
+        scaling = jnp.where(denom_nonzero, sum_squares(f_info.grad) / safe_denom, 0.0)
 
         # Downhill towards the bottom of the quadratic basin.
-        newton_sol, linsolve_result = newton_step(deriv_info, self.linear_solver)
+        newton_sol, result = newton_step(f_info, self.linear_solver)
         newton = (-(newton_sol**ω)).ω
         newton_norm = self.trust_region_norm(newton_sol)
 
         # Downhill steepest descent.
-        cauchy = (-scaling * deriv_info.grad**ω).ω
+        cauchy = (-scaling * f_info.grad**ω).ω
         cauchy_norm = self.trust_region_norm(cauchy)
 
-        return newton, cauchy, newton_norm, cauchy_norm, linsolve_result
+        return _DoglegDescentState(
+            newton=newton,
+            cauchy=cauchy,
+            newton_norm=newton_norm,
+            cauchy_norm=cauchy_norm,
+            result=result,
+        )
 
-    def descend(
-        self,
-        step_size: Scalar,
-        fn: NoAuxFn[Y, Out],
-        y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: _DoglegDescentState,
-        deriv_info: DerivativeInfo,
-    ) -> tuple[Y, RESULTS, _DoglegDescentState]:
-        newton, cauchy, newton_norm, cauchy_norm, linsolve_result = state
-
+    def step(self, step_size: Scalar, state: _DoglegDescentState) -> tuple[Y, RESULTS]:
         # For trust-region methods like `DoglegDescent`, the trust-region size directly
         # controls how large a step we take. This is actually somewhat annoying,
         # as a trust region algorithm has no understanding of the scale of a
@@ -124,12 +129,12 @@ class DoglegDescent(AbstractDescent[Y, Out, _DoglegDescentState]):
         # A simple, heuristic way around this is to scale the trust region `step_size`
         # so that a `step_size` of `1` corresponds to the full length of the Newton
         # step (anything greater than `1` will still accept the Newton step.)
-        scaled_step_size = newton_norm * step_size
+        scaled_step_size = state.newton_norm * step_size
 
         def accept_scaled_cauchy(cauchy, newton):
             """Scale and return the Cauchy step."""
-            norm_nonzero = cauchy_norm > jnp.finfo(cauchy_norm.dtype).eps
-            safe_norm = jnp.where(norm_nonzero, cauchy_norm, 1)
+            norm_nonzero = state.cauchy_norm > jnp.finfo(state.cauchy_norm.dtype).eps
+            safe_norm = jnp.where(norm_nonzero, state.cauchy_norm, 1)
             # Return zeros in degenerate case instead of inf because if `cauchy_norm` is
             # near zero, then so is the gradient and `delta` must be tiny to accept
             # this.
@@ -161,7 +166,7 @@ class DoglegDescent(AbstractDescent[Y, Out, _DoglegDescentState]):
                 a = sum_squares((newton**ω - cauchy**ω).ω)
                 inner_prod = tree_dot(cauchy, (newton**ω - cauchy**ω).ω)
                 b = 2 * (inner_prod - a)
-                c = cauchy_norm**2 - 2 * inner_prod + a - scaled_step_size**2
+                c = state.cauchy_norm**2 - 2 * inner_prod + a - scaled_step_size**2
                 quadratic_1 = jnp.clip(
                     0.5 * (-b + jnp.sqrt(b**2 - 4 * a * c)) / a, a_min=1, a_max=2
                 )
@@ -181,7 +186,7 @@ class DoglegDescent(AbstractDescent[Y, Out, _DoglegDescentState]):
                         self.trust_region_norm(interpolate(t)) - scaled_step_size
                     ),
                     self.root_finder,
-                    y0=1.5,
+                    y0=jnp.array(1.5),
                     options=root_find_options,
                     throw=False,
                 )
@@ -194,18 +199,18 @@ class DoglegDescent(AbstractDescent[Y, Out, _DoglegDescentState]):
             return newton, RESULTS.successful
 
         index = jnp.where(
-            cauchy_norm > scaled_step_size, 0, jnp.where(step_size < 1, 1, 2)
+            state.cauchy_norm > scaled_step_size, 0, jnp.where(step_size < 1, 1, 2)
         )
         y_diff, root_result = lax.switch(
             index,
             [accept_scaled_cauchy, interpolate_cauchy_and_newton, accept_newton],
-            cauchy,
-            newton,
+            state.cauchy,
+            state.newton,
         )
         result = RESULTS.where(
-            linsolve_result == RESULTS.successful, root_result, linsolve_result
+            state.result == RESULTS.successful, root_result, state.result
         )
-        return y_diff, result, state
+        return y_diff, result
 
 
 DoglegDescent.__init__.__doc__ = """**Arguments:**
@@ -236,8 +241,8 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    descent: AbstractDescent
-    search: AbstractSearch
+    descent: DoglegDescent[Y]
+    search: ClassicalTrustRegion[Y]
 
     def __init__(
         self,

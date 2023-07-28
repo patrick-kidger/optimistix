@@ -12,35 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Generic, Optional
+from typing import cast, Union
+from typing_extensions import TypeAlias
 
 import equinox as eqx
-import equinox.internal as eqxi
-import jax
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
+from jaxtyping import Array, Bool, Scalar, ScalarLike
 
-from .._custom_types import DescentState, NoAuxFn, Out, Y
+from .._custom_types import Y
 from .._misc import (
-    sum_squares,
     tree_dot,
-    tree_full_like,
-    tree_where,
 )
-from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
+from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
 
-class _BacktrackingCarry(eqx.Module, Generic[Y, DescentState]):
+class _BacktrackingState(eqx.Module):
     step_size: Scalar
-    f_best: Scalar
-    y_diff: Y
-    result: RESULTS
-    state: DescentState
 
 
-class BacktrackingArmijo(AbstractSearch[Y, Out, DescentState]):
+_FnInfo: TypeAlias = Union[
+    FunctionInfo.EvalGrad,
+    FunctionInfo.EvalGradHessian,
+    FunctionInfo.EvalGradHessianInv,
+    FunctionInfo.ResidualJac,
+]
+_FnEvalInfo: TypeAlias = FunctionInfo
+
+
+class BacktrackingArmijo(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _BacktrackingState]):
     """Perform a backtracking Armijo line search."""
 
     decrease_factor: ScalarLike = 0.5
@@ -65,95 +66,58 @@ class BacktrackingArmijo(AbstractSearch[Y, Out, DescentState]):
             "`BacktrackingArmoji(step_init=...)` must be strictly greater than 0.",
         )
 
-    def init(
-        self,
-        descent: AbstractDescent,
-        fn: NoAuxFn[Y, Scalar],
-        y: Y,
-        args: PyTree,
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-    ) -> DescentState:
-        return descent.optim_init(fn, y, args, f_struct)
+    def init(self, y: Y, f_info_struct: _FnInfo) -> _BacktrackingState:
+        del f_info_struct
+        return _BacktrackingState(step_size=jnp.array(self.step_init))
 
-    def search(
+    def step(
         self,
-        descent: AbstractDescent,
-        fn: NoAuxFn[Y, Out],
+        first_step: Bool[Array, ""],
         y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: DescentState,
-        deriv_info: DerivativeInfo,
-        max_steps: Optional[int],
-    ) -> tuple[Y, Bool[Array, ""], RESULTS, DescentState]:
-        state = descent.search_init(fn, y, args, f, state, deriv_info)
+        y_eval: Y,
+        f_info: _FnInfo,
+        f_eval_info: _FnEvalInfo,
+        state: _BacktrackingState,
+    ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _BacktrackingState]:
+
         if isinstance(
-            deriv_info,
+            f_info,
             (
-                DerivativeInfo.Grad,
-                DerivativeInfo.GradHessian,
-                DerivativeInfo.GradHessianInv,
+                FunctionInfo.EvalGrad,
+                FunctionInfo.EvalGradHessian,
+                FunctionInfo.EvalGradHessianInv,
+                FunctionInfo.ResidualJac,
             ),
         ):
-            min_fn = fn
-            min_f0 = f
-        elif isinstance(deriv_info, DerivativeInfo.ResidualJac):
-            min_fn = lambda y, args: 0.5 * sum_squares(fn(y, args))
-            min_f0 = 0.5 * sum_squares(f)
+            grad = f_info.grad
         else:
-            assert False
-        grad = deriv_info.grad
-        assert isinstance(min_f0, Scalar)
-
-        def cond_fun(carry: _BacktrackingCarry):
-            """Terminate when the Armijo condition is satisfied. That is, `fn(new_y)`
-            must do better than its linear approximation:
-            `fn(y0 + y_diff) < fn(y0) + grad•y_diff`
-            """
-            # This should maybe include a Cauchy condition as well, especially if we
-            # pass `step_size=0`
-            failure = carry.result != RESULTS.successful
-            predicted_reduction = tree_dot(grad, carry.y_diff)
-            satisfies_armijo = carry.f_best <= min_f0 + self.slope * predicted_reduction
-            has_reduction = predicted_reduction <= 0
-            return failure | (satisfies_armijo & has_reduction)
-
-        def body_fun(carry: _BacktrackingCarry) -> _BacktrackingCarry:
-            y_diff, result, new_state = descent.descend(
-                carry.step_size, fn, y, args, f, carry.state, deriv_info
+            raise ValueError(
+                "Cannot use `BacktrackingArmijo` with this solver. This is because "
+                "`BacktrackingArmijo` requires gradients of the target function, but "
+                "this solver does not evaluate such gradients."
             )
-            y_candidate = (y**ω + y_diff**ω).ω
-            min_f = min_fn(y_candidate, args)
-            assert isinstance(min_f, Scalar)
-            new_best = min_f < carry.f_best
-            new_step_size = self.decrease_factor * carry.step_size
-            new_f = jnp.where(new_best, f, carry.f_best)
-            new_y_diff = tree_where(new_best, y_diff, carry.y_diff)
-            new_carry = _BacktrackingCarry(
-                step_size=new_step_size,
-                f_best=new_f,
-                y_diff=new_y_diff,
-                result=result,
-                state=new_state,
-            )
-            return new_carry
 
-        init_carry = _BacktrackingCarry(
-            step_size=jnp.asarray(self.step_init),
-            f_best=min_f0,
-            y_diff=tree_full_like(y, 0),
-            result=RESULTS.successful,
-            state=state,
-        )
-        final_carry = eqxi.while_loop(
-            cond_fun, body_fun, init_carry, kind="checkpointed", max_steps=max_steps
-        )
+        y_diff = (y_eval**ω - y**ω).ω
+        predicted_reduction = tree_dot(grad, y_diff)
+        # Terminate when the Armijo condition is satisfied. That is, `fn(y_eval)`
+        # must do better than its linear approximation:
+        # `fn(y_eval) < fn(y) + grad•y_diff`
+        f_min = f_info.as_min()
+        f_min_eval = f_eval_info.as_min()
+        f_min_diff = f_min_eval - f_min  # This number is probably negative
+        satisfies_armijo = f_min_diff <= self.slope * predicted_reduction
+        has_reduction = predicted_reduction <= 0
 
+        accept = first_step | (satisfies_armijo & has_reduction)
+        step_size = jnp.where(
+            accept, self.step_init, self.decrease_factor * state.step_size
+        )
+        step_size = cast(Scalar, step_size)
         return (
-            final_carry.y_diff,
-            jnp.array(True),
-            final_carry.result,
-            final_carry.state,
+            step_size,
+            accept,
+            RESULTS.successful,
+            _BacktrackingState(step_size=step_size),
         )
 
 

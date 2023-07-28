@@ -13,40 +13,33 @@
 # limitations under the License.
 
 import abc
-from typing import Any, Generic, Optional, TYPE_CHECKING
+from typing import TypeVar, Union
+from typing_extensions import TypeAlias
 
 import equinox as eqx
-import equinox.internal as eqxi
-import jax
-import jax.lax as lax
 import jax.numpy as jnp
+from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
+from jaxtyping import Array, Bool, Scalar, ScalarLike
 
-
-if TYPE_CHECKING:
-    from typing import ClassVar as AbstractVar
-else:
-    from equinox import AbstractVar
-
-from .._custom_types import DescentState, NoAuxFn, Out, Y
+from .._custom_types import Y
 from .._misc import (
     sum_squares,
     tree_dot,
-    tree_full_like,
-    tree_where,
 )
-from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
+from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
 
-class _TrustRegionState(eqx.Module, Generic[DescentState]):
+class _TrustRegionState(eqx.Module):
     step_size: Scalar
-    acceptable: Bool[Array, ""]
-    descent_state: DescentState
 
 
-class _AbstractTrustRegion(AbstractSearch[Y, Out, _TrustRegionState]):
+_FnInfo = TypeVar("_FnInfo", bound=FunctionInfo)
+_FnEvalInfo: TypeAlias = FunctionInfo
+
+
+class _AbstractTrustRegion(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _TrustRegionState]):
     """The abstract base class of the trust-region update algorithm.
 
     Trust region line searches compute the ratio
@@ -90,104 +83,50 @@ class _AbstractTrustRegion(AbstractSearch[Y, Out, _TrustRegionState]):
         )
 
     @abc.abstractmethod
-    def predict_reduction(self, deriv_info: DerivativeInfo, y_diff: Y) -> Scalar:
+    def predict_reduction(self, y_diff: Y, f_info: _FnInfo) -> Scalar:
         ...
 
-    def init(
-        self,
-        descent: AbstractDescent,
-        fn: NoAuxFn[Y, Scalar],
-        y: Y,
-        args: PyTree,
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-    ) -> _TrustRegionState:
-        return _TrustRegionState(
-            step_size=jnp.array(1.0),
-            acceptable=jnp.array(True),
-            descent_state=descent.optim_init(fn, y, args, f_struct),
-        )
+    def init(self, y: Y, f_info_struct: _FnInfo) -> _TrustRegionState:
+        del f_info_struct
+        return _TrustRegionState(step_size=jnp.array(1.0))
 
-    def search(
+    def step(
         self,
-        descent: AbstractDescent,
-        fn: NoAuxFn[Y, Out],
+        first_step: Bool[Array, ""],
         y: Y,
-        args: PyTree[Any],
-        f: Out,
+        y_eval: Y,
+        f_info: _FnInfo,
+        f_eval_info: _FnEvalInfo,
         state: _TrustRegionState,
-        deriv_info: DerivativeInfo,
-        max_steps: Optional[int],
-    ) -> tuple[Y, Bool[Array, ""], RESULTS, _TrustRegionState]:
-        def _cache_descent_state():
-            return state.descent_state
-
-        def _compute_descent_state():
-            return descent.search_init(fn, y, args, f, state.descent_state, deriv_info)
-
-        descent_state = lax.cond(
-            eqxi.unvmap_any(state.acceptable),
-            _compute_descent_state,
-            _cache_descent_state,
-        )
-        y_diff, result, descent_state = descent.descend(
-            state.step_size, fn, y, args, f, descent_state, deriv_info
-        )
-
-        if isinstance(
-            deriv_info,
-            (
-                DerivativeInfo.Grad,
-                DerivativeInfo.GradHessian,
-                DerivativeInfo.GradHessianInv,
-            ),
-        ):
-            min_fn = fn
-            min_f0 = f
-        elif isinstance(deriv_info, DerivativeInfo.ResidualJac):
-            min_fn = lambda y, args: 0.5 * sum_squares(fn(y, args))
-            min_f0 = 0.5 * sum_squares(f)
-        else:
-            assert False
-        assert isinstance(min_f0, Scalar)
-
-        y_candidate = (y**ω + y_diff**ω).ω
-        min_f = min_fn(y_candidate, args)
-        predicted_reduction = self.predict_reduction(deriv_info, y_diff)
-        f_diff = min_f - min_f0
+    ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _TrustRegionState]:
+        y_diff = (y_eval**ω - y**ω).ω
+        predicted_reduction = self.predict_reduction(y_diff, f_info)
         # We never actually compute the ratio
         # `true_reduction/predicted_reduction`. Instead, we rewrite the conditions as
         # `true_reduction < const * predicted_reduction` instead, where the inequality
         # flips because we assume `predicted_reduction` is negative.
         # This avoids an expensive division.
-        acceptable = f_diff <= self.low_cutoff * predicted_reduction
-        good = f_diff < self.high_cutoff * predicted_reduction
-        acceptable = acceptable & (predicted_reduction <= 0)
+        f_min = f_info.as_min()
+        f_min_eval = f_eval_info.as_min()
+        f_min_diff = f_min_eval - f_min  # This number is probably negative
+        accept = f_min_diff <= self.low_cutoff * predicted_reduction
+        good = f_min_diff < self.high_cutoff * predicted_reduction
         good = good & (predicted_reduction < 0)
+
+        good = good & jnp.invert(first_step)
+        accept = accept | first_step
         mul = jnp.where(good, self.high_constant, 1)
-        mul = jnp.where(acceptable, mul, self.low_constant)
+        mul = jnp.where(accept, mul, self.low_constant)
         new_step_size = mul * state.step_size
-        new_step_size = jnp.where(
-            new_step_size < jnp.finfo(new_step_size.dtype).eps,
-            jnp.array(1.0),
-            new_step_size,
-        )
-        y_diff = tree_where(acceptable, y_diff, tree_full_like(y, 0))
-        new_state = _TrustRegionState(
-            step_size=new_step_size,
-            acceptable=acceptable,
-            descent_state=descent_state,
-        )
-        # TODO(kidger): there are two more optimisations we can make here.
-        # (1) if we reject the step, then we can avoid recomputing f0 and grad on the
-        #     next iteration of the outer solver. This has other downstream impacts:
-        #     it means deriv_info is unchanged, which in turn means we can avoid
-        #     recomputing the init part of newton_step.
-        # (2) if we accept the step, then we can avoid recomputing f0 on the next
-        #     iteration of the outer solver.
-        return y_diff, acceptable, result, new_state
+        new_state = _TrustRegionState(step_size=new_step_size)
+        return new_step_size, accept, RESULTS.successful, new_state
 
 
-class ClassicalTrustRegion(_AbstractTrustRegion[Y, Out]):
+class ClassicalTrustRegion(
+    _AbstractTrustRegion[
+        Y, Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac]
+    ]
+):
     """The classic trust-region update algorithm which uses a quadratic approximation of
     the objective function to predict reduction.
 
@@ -206,7 +145,11 @@ class ClassicalTrustRegion(_AbstractTrustRegion[Y, Out]):
     high_constant: ScalarLike = 3.5
     low_constant: ScalarLike = 0.25
 
-    def predict_reduction(self, deriv_info: DerivativeInfo, y_diff: Y) -> Scalar:
+    def predict_reduction(
+        self,
+        y_diff: Y,
+        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+    ) -> Scalar:
         """Compute the expected decrease in loss from taking the step `y_diff`.
 
         The true reduction is
@@ -222,29 +165,22 @@ class ClassicalTrustRegion(_AbstractTrustRegion[Y, Out]):
 
         **Arguments**:
 
+        - `y_diff`: the proposed step by the descent method.
         - `deriv_info`: the derivative information (on the gradient and Hessian)
             provided by the outer loop.
-        - `y_diff`: the proposed step by the descent method.
 
         **Returns**:
 
         The expected decrease in loss from moving from `y0` to `y0 + y_diff`.
         """
 
-        if isinstance(deriv_info, (DerivativeInfo.Grad, DerivativeInfo.GradHessianInv)):
-            raise ValueError(
-                "Cannot use `ClassicalTrustRegion` with this solver. This is because "
-                "`ClassicalTrustRegion` requires (an approximation to) the Hessian of "
-                "the target function, but this solver does not make any estimate of "
-                "that information."
-            )
-        elif isinstance(deriv_info, DerivativeInfo.GradHessian):
+        if isinstance(f_info, FunctionInfo.EvalGradHessian):
             # Minimisation algorithm. Directly compute the quadratic approximation.
             return tree_dot(
                 y_diff,
-                (deriv_info.grad**ω + 0.5 * deriv_info.hessian.mv(y_diff) ** ω).ω,
+                (f_info.grad**ω + 0.5 * f_info.hessian.mv(y_diff) ** ω).ω,
             )
-        elif isinstance(deriv_info, DerivativeInfo.ResidualJac):
+        elif isinstance(f_info, FunctionInfo.ResidualJac):
             # Least-squares algorithm. So instead of considering fn (which returns the
             # residuals), instead consider `0.5*fn(y)^2`, and then apply the logic as
             # for minimisation.
@@ -261,13 +197,18 @@ class ClassicalTrustRegion(_AbstractTrustRegion[Y, Out]):
             # a single Jacobian-vector product, rather than the three we would have to
             # make by naively substituting `B = J^T J `and `g = J^T f0` into the general
             # algorithm used for minimisation.
-            rtr = sum_squares(deriv_info.residual)
+            rtr = sum_squares(f_info.residual)
             jacobian_term = sum_squares(
-                (deriv_info.jac.mv(y_diff) ** ω + deriv_info.residual**ω).ω
+                (f_info.jac.mv(y_diff) ** ω + f_info.residual**ω).ω
             )
             return 0.5 * (jacobian_term - rtr)
         else:
-            assert False
+            raise ValueError(
+                "Cannot use `ClassicalTrustRegion` with this solver. This is because "
+                "`ClassicalTrustRegion` requires (an approximation to) the Hessian of "
+                "the target function, but this solver does not make any estimate of "
+                "that information."
+            )
 
 
 # When using a gradient-based method, `LinearTrustRegion` is actually a variant of
@@ -275,7 +216,17 @@ class ClassicalTrustRegion(_AbstractTrustRegion[Y, Out]):
 # condition. The difference is that unlike standard backtracking,
 # `LinearTrustRegion` chooses its next step size based on how well it did in the
 # previous iteration.
-class LinearTrustRegion(_AbstractTrustRegion[Y, Out]):
+class LinearTrustRegion(
+    _AbstractTrustRegion[
+        Y,
+        Union[
+            FunctionInfo.EvalGrad,
+            FunctionInfo.EvalGradHessian,
+            FunctionInfo.EvalGradHessianInv,
+            FunctionInfo.ResidualJac,
+        ],
+    ]
+):
     """The trust-region update algorithm which uses a linear approximation of
     the objective function to predict reduction.
 
@@ -291,7 +242,16 @@ class LinearTrustRegion(_AbstractTrustRegion[Y, Out]):
     high_constant: ScalarLike = 3.5
     low_constant: ScalarLike = 0.25
 
-    def predict_reduction(self, deriv_info: DerivativeInfo, y_diff: Y) -> Scalar:
+    def predict_reduction(
+        self,
+        y_diff: Y,
+        f_info: Union[
+            FunctionInfo.EvalGrad,
+            FunctionInfo.EvalGradHessian,
+            FunctionInfo.EvalGradHessianInv,
+            FunctionInfo.ResidualJac,
+        ],
+    ) -> Scalar:
         """Compute the expected decrease in loss from taking the step `y_diff`.
 
         The true reduction is
@@ -305,25 +265,31 @@ class LinearTrustRegion(_AbstractTrustRegion[Y, Out]):
 
         **Arguments**:
 
+        - `y_diff`: the proposed step by the descent method.
         - `deriv_info`: the derivative information (on the gradient and Hessian)
             provided by the outer loop.
-        - `y_diff`: the proposed step by the descent method.
 
         **Returns**:
 
         The expected decrease in loss from moving from `y0` to `y0 + y_diff`.
         """
 
-        assert isinstance(
-            deriv_info,
+        if isinstance(
+            f_info,
             (
-                DerivativeInfo.Grad,
-                DerivativeInfo.GradHessian,
-                DerivativeInfo.GradHessian,
-                DerivativeInfo.ResidualJac,
+                FunctionInfo.EvalGrad,
+                FunctionInfo.EvalGradHessian,
+                FunctionInfo.EvalGradHessianInv,
+                FunctionInfo.ResidualJac,
             ),
-        )
-        return tree_dot(deriv_info.grad, y_diff)
+        ):
+            return tree_dot(f_info.grad, y_diff)
+        else:
+            raise ValueError(
+                "Cannot use `LinearTrustRegion` with this solver. This is because "
+                "`LinearTrustRegion` requires gradients of the target function, but "
+                "this solver does not evaluate such gradients."
+            )
 
 
 _init_doc = """In the following, `ratio` refers to the ratio

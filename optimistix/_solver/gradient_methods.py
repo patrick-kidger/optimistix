@@ -13,77 +13,84 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TYPE_CHECKING
+from typing import Any, Generic, Optional, Union
+from typing_extensions import TypeAlias
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-
-if TYPE_CHECKING:
-    from typing import ClassVar as AbstractVar
-else:
-    from equinox import AbstractVar
-
 from .._base_solver import AbstractHasTol
-from .._custom_types import Aux, Fn, NoAuxFn, Out, SearchState, Y
+from .._custom_types import Aux, DescentState, Fn, Out, SearchState, Y
 from .._minimise import AbstractMinimiser
-from .._misc import cauchy_termination, max_norm, NoAux, tree_full_like
-from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
+from .._misc import (
+    cauchy_termination,
+    filter_cond,
+    lin_to_grad,
+    max_norm,
+    tree_full_like,
+)
+from .._search import (
+    AbstractDescent,
+    AbstractSearch,
+    FunctionInfo,
+)
 from .._solution import RESULTS
 from .learning_rate import LearningRate
 
 
-class SteepestDescent(AbstractDescent[Y, Out, None]):
+class _SteepestDescentState(eqx.Module, Generic[Y]):
+    grad: Y
+
+
+_FnInfo: TypeAlias = Union[
+    FunctionInfo.EvalGrad,
+    FunctionInfo.EvalGradHessian,
+    FunctionInfo.EvalGradHessianInv,
+    FunctionInfo.ResidualJac,
+]
+
+
+class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState]):
     """The descent direction given by locally following the gradient."""
 
     norm: Optional[Callable[[PyTree], Scalar]] = None
 
-    def optim_init(
-        self,
-        fn: NoAuxFn[Y, Out],
-        y: Y,
-        args: PyTree,
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-    ) -> None:
-        return None
+    def init(self, y: Y, f_info_struct: _FnInfo) -> _SteepestDescentState:
+        del f_info_struct
+        # Dummy; unused
+        return _SteepestDescentState(y)
 
-    def search_init(
-        self,
-        fn: NoAuxFn[Y, Out],
-        y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: None,
-        deriv_info: DerivativeInfo,
-    ) -> None:
-        return None
-
-    def descend(
-        self,
-        step_size: Scalar,
-        fn: NoAuxFn[Y, Out],
-        y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: None,
-        deriv_info: DerivativeInfo,
-    ) -> tuple[Y, RESULTS, None]:
-        assert isinstance(
-            deriv_info,
+    def query(
+        self, y: Y, f_info: _FnInfo, state: _SteepestDescentState
+    ) -> _SteepestDescentState:
+        if isinstance(
+            f_info,
             (
-                DerivativeInfo.Grad,
-                DerivativeInfo.GradHessian,
-                DerivativeInfo.GradHessianInv,
-                DerivativeInfo.ResidualJac,
+                FunctionInfo.EvalGrad,
+                FunctionInfo.EvalGradHessian,
+                FunctionInfo.EvalGradHessianInv,
+                FunctionInfo.ResidualJac,
             ),
-        )
-        grad = deriv_info.grad
+        ):
+            grad = f_info.grad
+        else:
+            raise ValueError(
+                "Cannot use `SteepestDescent` with this solver. This is because "
+                "`SteepestDescent` requires gradients of the target function, but "
+                "this solver does not evaluate such gradients."
+            )
         if self.norm is not None:
             grad = (grad**ω / self.norm(grad)).ω
-        return (-step_size * grad**ω).ω, RESULTS.successful, None
+        return _SteepestDescentState(grad)
+
+    def step(
+        self, step_size: Scalar, state: _SteepestDescentState
+    ) -> tuple[Y, RESULTS]:
+        return (-step_size * state.grad**ω).ω, RESULTS.successful
 
 
 SteepestDescent.__init__.__doc__ = """**Arguments:**
@@ -95,12 +102,19 @@ SteepestDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class _GradientDescentState(eqx.Module, Generic[Y, SearchState]):
+class _GradientDescentState(
+    eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState]
+):
+    # Updated every search step
+    first_step: Bool[Array, ""]
+    y_eval: Y
     search_state: SearchState
-    y_diff: Y
-    f_val: Scalar
-    f_prev: Scalar
-    accept: Bool[Array, ""]
+    # Updated after each descent step
+    f_info: FunctionInfo.EvalGrad
+    aux: Aux
+    descent_state: DescentState
+    # Used for termination
+    terminate: Bool[Array, ""]
     result: RESULTS
 
 
@@ -117,8 +131,10 @@ class AbstractGradientDescent(
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
-    descent: AbstractVar[AbstractDescent]
-    search: AbstractVar[AbstractSearch]
+    descent: AbstractVar[AbstractDescent[Y, FunctionInfo.EvalGrad, Any]]
+    search: AbstractVar[
+        AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
+    ]
 
     def init(
         self,
@@ -130,15 +146,16 @@ class AbstractGradientDescent(
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _GradientDescentState:
-        del aux_struct
-        maxval = jnp.finfo(f_struct.dtype).max
-        init_search_state = self.search.init(self.descent, NoAux(fn), y, args, f_struct)
+        f_info = FunctionInfo.EvalGrad(jnp.zeros(f_struct.shape, f_struct.dtype), y)
+        f_info_struct = jax.eval_shape(lambda: f_info)
         return _GradientDescentState(
-            search_state=init_search_state,
-            y_diff=tree_full_like(y, jnp.inf),
-            f_val=jnp.array(maxval, dtype=f_struct.dtype),
-            f_prev=jnp.array(0.5 * maxval, dtype=f_struct.dtype),
-            accept=jnp.array(True),
+            first_step=jnp.array(True),
+            y_eval=y,
+            search_state=self.search.init(y, f_info_struct),
+            f_info=f_info,
+            aux=tree_full_like(aux_struct, 0),
+            descent_state=self.descent.init(y, f_info_struct),
+            terminate=jnp.array(False),
             result=RESULTS.successful,
         )
 
@@ -151,31 +168,53 @@ class AbstractGradientDescent(
         state: _GradientDescentState,
         tags: frozenset[object],
     ) -> tuple[Y, _GradientDescentState, Aux]:
-        f_val: Scalar
-        aux: Aux
-        grad: Y
-        (f_val, aux), grad = jax.value_and_grad(fn, has_aux=True)(y, args)
-        deriv_info = DerivativeInfo.Grad(grad)
-        y_diff, accept, result, new_search_state = self.search.search(
-            self.descent,
-            NoAux(fn),
-            y,
-            args,
-            f_val,
-            state.search_state,
-            deriv_info,
-            max_steps=256,  # TODO(kidger): offer an API for this?
+        f_eval, lin_fn, aux_eval = jax.linearize(
+            lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
-        new_y = (y**ω + y_diff**ω).ω
-        new_state = _GradientDescentState(
-            search_state=new_search_state,
-            y_diff=y_diff,
-            f_val=f_val,
-            f_prev=state.f_val,
-            accept=accept,
+        step_size, accept, search_result, search_state = self.search.step(
+            state.first_step,
+            y,
+            state.y_eval,
+            state.f_info,
+            FunctionInfo.Eval(f_eval),
+            state.search_state,
+        )
+
+        def accepted(descent_state):
+            (grad,) = lin_to_grad(lin_fn, y)
+            f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
+            descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
+            y_diff = (state.y_eval**ω - y**ω).ω
+            f_diff = (f_eval**ω - state.f_info.f**ω).ω
+            terminate = cauchy_termination(
+                self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff
+            )
+            return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
+
+        def rejected(descent_state):
+            return y, state.f_info, state.aux, descent_state, jnp.array(False)
+
+        y, f_info, aux, descent_state, terminate = filter_cond(
+            accept, accepted, rejected, state.descent_state
+        )
+
+        y_descent, descent_result = self.descent.step(step_size, descent_state)
+        y_eval = (y**ω + y_descent**ω).ω
+        result = RESULTS.where(
+            search_result == RESULTS.successful, descent_result, search_result
+        )
+
+        state = _GradientDescentState(
+            first_step=jnp.array(False),
+            y_eval=y_eval,
+            search_state=search_state,
+            f_info=f_info,
+            aux=aux,
+            descent_state=descent_state,
+            terminate=terminate,
             result=result,
         )
-        return new_y, new_state, aux
+        return y, state, aux
 
     def terminate(
         self,
@@ -186,19 +225,9 @@ class AbstractGradientDescent(
         state: _GradientDescentState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
-        return cauchy_termination(
-            self.rtol,
-            self.atol,
-            self.norm,
-            y,
-            state.y_diff,
-            state.f_val,
-            state.f_prev,
-            state.accept,
-            state.result,
-        )
+        return state.terminate, state.result
 
-    def buffers(self, state: _GradientDescentState[Y, Aux]) -> tuple[()]:
+    def buffers(self, state: _GradientDescentState) -> tuple[()]:
         return ()
 
 
@@ -208,8 +237,8 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    descent: AbstractDescent
-    search: AbstractSearch
+    descent: SteepestDescent[Y]
+    search: LearningRate[Y]
 
     def __init__(
         self,
@@ -218,20 +247,18 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
     ):
+        """**Arguments:**
+
+        - `learning_rate`: Specifies a constant learning rate to use at each step.
+        - `rtol`: Relative tolerance for terminating the solve.
+        - `atol`: Absolute tolerance for terminating the solve.
+        - `norm`: The norm used to determine the difference between two iterates in the
+            convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+            includes three built-in norms: [`optimistix.max_norm`][],
+            [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+        """
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.descent = SteepestDescent()
         self.search = LearningRate(learning_rate)
-
-
-GradientDescent.__init__.__doc__ = """**Arguments:**
-
-- `learning_rate`: Specifies a constant learning rate to use at each step.
-- `rtol`: Relative tolerance for terminating the solve.
-- `atol`: Absolute tolerance for terminating the solve.
-- `norm`: The norm used to determine the difference between two iterates in the 
-    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
-    includes three built-in norms: [`optimistix.max_norm`][],
-    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
-"""

@@ -13,41 +13,96 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TYPE_CHECKING
-from typing_extensions import TypeAlias
+from typing import Any, Generic, Optional, Union
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-
-if TYPE_CHECKING:
-    from typing import ClassVar as AbstractVar
-else:
-    from equinox import AbstractVar
-
 from .._base_solver import AbstractHasTol
-from .._custom_types import Aux, Fn, NoAuxFn, Out, SearchState, Y
+from .._custom_types import Args, Aux, DescentState, Fn, Out, SearchState, Y
 from .._least_squares import AbstractLeastSquaresSolver
-from .._misc import (
-    cauchy_termination,
-    max_norm,
-    NoAux,
-    sum_squares,
-    tree_full_like,
+from .._misc import cauchy_termination, filter_cond, max_norm, tree_full_like
+from .._search import (
+    AbstractDescent,
+    AbstractSearch,
+    FunctionInfo,
 )
-from .._search import AbstractDescent, AbstractSearch, DerivativeInfo, newton_step
 from .._solution import RESULTS
 from .learning_rate import LearningRate
 
 
-_NewtonDescentState: TypeAlias = tuple[Y, RESULTS]
+def newton_step(
+    f_info: Union[
+        FunctionInfo.EvalGradHessian,
+        FunctionInfo.EvalGradHessianInv,
+        FunctionInfo.ResidualJac,
+    ],
+    linear_solver: lx.AbstractLinearSolver,
+) -> tuple[PyTree[Array], RESULTS]:
+    """Compute a Newton step.
+
+    For a minimisation problem, this means computing `Hess^{-1} grad`.
+
+    For a least-squares problem, we convert to a minimisation problem via
+    `0.5*residuals^2`, which then implies `Hess^{-1} ~ J^T J` (Gauss--Newton
+    approximation) and `grad = J^T residuals`.
+
+    Thus `Hess^{-1} grad ~ (J^T J)^{-1} J^T residuals`.   [Equation A]
+
+    Now if `J` is well-posed then this equals `J^{-1} residuals`, which is exactly what
+    we compute here.
+
+    And if `J` is ill-posed then [Equation A] is just the normal equations, which should
+    almost never be treated directly! (Squares the condition number blahblahblah.) The
+    solution of the normal equations matches the pseudoinverse solution `J^{dagger}`
+    residuals, which is what we get using an ill-posed-capable linear solver (typically
+    QR). So we solve the same linear system as in the well-posed case, we just need to
+    set a different linear solver. (Which happens with
+    `linear_solver=lx.AutoLinearSolver(well_posed=None)`, which is the recommended
+    value.)
+    """
+    if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
+        newton = f_info.hessian_inv.mv(f_info.grad)
+        result = RESULTS.successful
+    else:
+        if isinstance(f_info, FunctionInfo.EvalGradHessian):
+            operator = f_info.hessian
+            vector = f_info.grad
+        elif isinstance(f_info, FunctionInfo.ResidualJac):
+            operator = f_info.jac
+            vector = f_info.residual
+        else:
+            raise ValueError(
+                "Cannot use a Newton descent with a solver that only evaluates the "
+                "gradient, or only the function itself."
+            )
+        out = lx.linear_solve(operator, vector, linear_solver)
+        newton = out.value
+        result = RESULTS.promote(out.result)
+    return newton, result
 
 
-class NewtonDescent(AbstractDescent[Y, Out, _NewtonDescentState]):
+class _NewtonDescentState(eqx.Module, Generic[Y]):
+    newton: Y
+    result: RESULTS
+
+
+class NewtonDescent(
+    AbstractDescent[
+        Y,
+        Union[
+            FunctionInfo.EvalGradHessian,
+            FunctionInfo.EvalGradHessianInv,
+            FunctionInfo.ResidualJac,
+        ],
+        _NewtonDescentState,
+    ]
+):
     """Newton descent direction.
 
     Given a quadratic bowl `x -> x^T Hess x` -- a local quadratic approximation
@@ -60,43 +115,29 @@ class NewtonDescent(AbstractDescent[Y, Out, _NewtonDescentState]):
     norm: Optional[Callable[[PyTree], Scalar]] = None
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
-    def optim_init(
-        self,
-        fn: NoAuxFn[Y, Out],
-        y: Y,
-        args: PyTree,
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-    ) -> tuple[Y, RESULTS]:
+    def init(self, y: Y, f_info_struct: FunctionInfo) -> _NewtonDescentState:
+        del f_info_struct
         # Dummy values of the right shape; unused.
-        return y, RESULTS.successful
+        return _NewtonDescentState(y, RESULTS.successful)
 
-    def search_init(
+    def query(
         self,
-        fn: NoAuxFn[Y, Out],
         y: Y,
-        args: PyTree[Any],
-        f: Out,
+        f_info: Union[
+            FunctionInfo.EvalGradHessian,
+            FunctionInfo.EvalGradHessianInv,
+            FunctionInfo.ResidualJac,
+        ],
         state: _NewtonDescentState,
-        deriv_info: DerivativeInfo,
     ) -> _NewtonDescentState:
-        del fn, y, args, f, state  # only used within a search, not between searches.
-        newton, result = newton_step(deriv_info, self.linear_solver)
+        del state
+        newton, result = newton_step(f_info, self.linear_solver)
         if self.norm is not None:
             newton = (newton**ω / self.norm(newton)).ω
-        return newton, result
+        return _NewtonDescentState(newton, result)
 
-    def descend(
-        self,
-        step_size: Scalar,
-        fn: NoAuxFn[Y, Out],
-        y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: _NewtonDescentState,
-        deriv_info: DerivativeInfo,
-    ) -> tuple[Y, RESULTS, _NewtonDescentState]:
-        newton, result = state
-        return (-step_size * newton**ω).ω, result, state
+    def step(self, step_size: Scalar, state: _NewtonDescentState) -> tuple[Y, RESULTS]:
+        return (-step_size * state.newton**ω).ω, state.result
 
 
 NewtonDescent.__init__.__doc__ = """**Arguments:**
@@ -109,13 +150,26 @@ NewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class _GaussNewtonState(eqx.Module, Generic[Y, SearchState]):
+class _GaussNewtonState(eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState]):
+    # Updated every search step
+    first_step: Bool[Array, ""]
+    y_eval: Y
     search_state: SearchState
-    y_diff: Y
-    f_val: Scalar
-    f_prev: Scalar
-    accept: Bool[Array, ""]
+    # Updated after each descent step
+    f_info: FunctionInfo.ResidualJac
+    aux: Aux
+    descent_state: DescentState
+    # Used for termination
+    terminate: Bool[Array, ""]
     result: RESULTS
+
+
+def _make_f_info(
+    fn: Callable[[Y, Args], tuple[Any, Aux]], y: Y, args: Args, tags: frozenset
+) -> tuple[FunctionInfo.ResidualJac, Aux]:
+    f_eval, lin_fn, aux_eval = jax.linearize(lambda _y: fn(_y, args), y, has_aux=True)
+    jac_eval = lx.FunctionLinearOperator(lin_fn, jax.eval_shape(lambda: y), tags)
+    return FunctionInfo.ResidualJac(f_eval, jac_eval), aux_eval
 
 
 class AbstractGaussNewton(
@@ -130,8 +184,10 @@ class AbstractGaussNewton(
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
-    descent: AbstractVar[AbstractDescent]
-    search: AbstractVar[AbstractSearch]
+    descent: AbstractVar[AbstractDescent[Y, FunctionInfo.ResidualJac, Any]]
+    search: AbstractVar[
+        AbstractSearch[Y, FunctionInfo.ResidualJac, FunctionInfo.ResidualJac, Any]
+    ]
 
     def init(
         self,
@@ -142,16 +198,17 @@ class AbstractGaussNewton(
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _GaussNewtonState[Y, Aux]:
-        del aux_struct, options
-        sum_squares_struct = jax.eval_shape(sum_squares, f_struct)
-        init_search_state = self.search.init(self.descent, NoAux(fn), y, args, f_struct)
+    ) -> _GaussNewtonState:
+        f_info_struct, _ = eqx.filter_eval_shape(_make_f_info, fn, y, args, tags)
+        f_info = tree_full_like(f_info_struct, 0, allow_static=True)
         return _GaussNewtonState(
-            search_state=init_search_state,
-            y_diff=tree_full_like(y, jnp.inf),
-            f_val=jnp.array(jnp.inf, sum_squares_struct.dtype),
-            f_prev=jnp.array(jnp.inf, sum_squares_struct.dtype),
-            accept=jnp.array(True),
+            first_step=jnp.array(True),
+            y_eval=y,
+            search_state=self.search.init(y, f_info_struct),
+            f_info=f_info,
+            aux=tree_full_like(aux_struct, 0),
+            descent_state=self.descent.init(y, f_info_struct),
+            terminate=jnp.array(False),
             result=RESULTS.successful,
         )
 
@@ -161,35 +218,58 @@ class AbstractGaussNewton(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _GaussNewtonState[Y, Aux],
+        state: _GaussNewtonState,
         tags: frozenset[object],
-    ) -> tuple[Y, _GaussNewtonState[Y, Aux], Aux]:
-        residual, lin_fn, aux = jax.linearize(
-            lambda _y: fn(_y, args), y, has_aux=True  # pyright: ignore
-        )
-        jac = lx.FunctionLinearOperator(lin_fn, jax.eval_shape(lambda: y), tags)
-        f_val = 0.5 * sum_squares(residual)
-        deriv_info = DerivativeInfo.ResidualJac(residual, jac)
-        y_diff, accept, result, new_search_state = self.search.search(
-            self.descent,
-            NoAux(fn),
+    ) -> tuple[Y, _GaussNewtonState, Aux]:
+        f_eval_info, aux_eval = _make_f_info(fn, state.y_eval, args, tags)
+        step_size, accept, search_result, search_state = self.search.step(
+            state.first_step,
             y,
-            args,
-            residual,
+            state.y_eval,
+            state.f_info,
+            f_eval_info,
             state.search_state,
-            deriv_info,
-            max_steps=256,  # TODO(kidger): expose as an option somewhere?
         )
-        new_y = (y**ω + y_diff**ω).ω
-        new_state = _GaussNewtonState(
-            search_state=new_search_state,
-            y_diff=y_diff,
-            f_val=f_val,
-            f_prev=state.f_val,
-            accept=accept,
+
+        def accepted(descent_state):
+            descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
+            y_diff = (state.y_eval**ω - y**ω).ω
+            f_diff = (f_eval_info.residual**ω - state.f_info.residual**ω).ω
+            terminate = cauchy_termination(
+                self.rtol,
+                self.atol,
+                self.norm,
+                state.y_eval,
+                y_diff,
+                f_eval_info.residual,
+                f_diff,
+            )
+            return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
+
+        def rejected(descent_state):
+            return y, state.f_info, state.aux, descent_state, jnp.array(False)
+
+        y, f_info, aux, descent_state, terminate = filter_cond(
+            accept, accepted, rejected, state.descent_state
+        )
+
+        y_descent, descent_result = self.descent.step(step_size, descent_state)
+        y_eval = (y**ω + y_descent**ω).ω
+        result = RESULTS.where(
+            search_result == RESULTS.successful, descent_result, search_result
+        )
+
+        state = _GaussNewtonState(
+            first_step=jnp.array(False),
+            y_eval=y_eval,
+            search_state=search_state,
+            f_info=f_info,
+            aux=aux,
+            descent_state=descent_state,
+            terminate=terminate,
             result=result,
         )
-        return new_y, new_state, aux
+        return y, state, aux
 
     def terminate(
         self,
@@ -197,22 +277,12 @@ class AbstractGaussNewton(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _GaussNewtonState[Y, Aux],
+        state: _GaussNewtonState,
         tags: frozenset[object],
     ):
-        return cauchy_termination(
-            self.rtol,
-            self.atol,
-            self.norm,
-            y,
-            state.y_diff,
-            state.f_val,
-            state.f_prev,
-            state.accept,
-            state.result,
-        )
+        return state.terminate, state.result
 
-    def buffers(self, state: _GaussNewtonState[Y, Aux]) -> tuple[()]:
+    def buffers(self, state: _GaussNewtonState) -> tuple[()]:
         return ()
 
 
@@ -226,8 +296,8 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    descent: AbstractDescent
-    search: AbstractSearch
+    descent: NewtonDescent[Y]
+    search: LearningRate[Y]
 
     def __init__(
         self,

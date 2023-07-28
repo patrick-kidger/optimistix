@@ -1,9 +1,36 @@
-# Derivative information
+# Function information
 
-::: optimistix.DerivativeInfo
+::: optimistix.FunctionInfo
     selection:
         members:
-            - Grad
-            - GradHessian
-            - GradHessianInv
-            - ResidualJac
+            - as_min
+
+::: optimistix.FunctionInfo.Eval
+    selection:
+        members:
+            false
+
+::: optimistix.FunctionInfo.EvalGrad
+    selection:
+        members:
+            false
+
+::: optimistix.FunctionInfo.EvalGradHessian
+    selection:
+        members:
+            false
+
+::: optimistix.FunctionInfo.EvalGradHessianInv
+    selection:
+        members:
+            false
+
+::: optimistix.FunctionInfo.Residual
+    selection:
+        members:
+            false
+
+::: optimistix.FunctionInfo.ResidualJac
+    selection:
+        members:
+            false

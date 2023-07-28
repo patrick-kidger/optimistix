@@ -13,15 +13,14 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, cast, Generic
+from typing import Any, cast, Generic, Union
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
-from .._custom_types import Aux, NoAuxFn, Out, Y
+from .._custom_types import Aux, Y
 from .._misc import (
     max_norm,
     sum_squares,
@@ -29,7 +28,7 @@ from .._misc import (
     tree_full_like,
     tree_where,
 )
-from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
+from .._search import AbstractDescent, AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .gradient_methods import AbstractGradientDescent
@@ -90,41 +89,63 @@ class _NonlinearCGDescentState(eqx.Module, Generic[Y]):
     grad: Y
 
 
-class NonlinearCGDescent(AbstractDescent[Y, Out, _NonlinearCGDescentState]):
+class NonlinearCGDescent(
+    AbstractDescent[
+        Y,
+        Union[
+            FunctionInfo.EvalGrad,
+            FunctionInfo.EvalGradHessian,
+            FunctionInfo.EvalGradHessianInv,
+            FunctionInfo.ResidualJac,
+        ],
+        _NonlinearCGDescentState,
+    ]
+):
     """The nonlinear conjugate gradient step."""
 
     method: Callable[[Y, Y, Y], Scalar]
 
-    def optim_init(
+    def init(
         self,
-        fn: NoAuxFn[Y, Out],
         y: Y,
-        args: PyTree,
-        f_struct: PyTree[jax.ShapeDtypeStruct],
+        f_info_struct: Union[
+            FunctionInfo.EvalGrad,
+            FunctionInfo.EvalGradHessian,
+            FunctionInfo.EvalGradHessianInv,
+            FunctionInfo.ResidualJac,
+        ],
     ) -> _NonlinearCGDescentState:
+        del f_info_struct
         return _NonlinearCGDescentState(
             y_diff=tree_full_like(y, 0),
             grad=tree_full_like(y, 0),
         )
 
-    def search_init(
+    def query(
         self,
-        fn: NoAuxFn[Y, Out],
         y: Y,
-        args: PyTree[Any],
-        f: Out,
+        f_info: Union[
+            FunctionInfo.EvalGrad,
+            FunctionInfo.EvalGradHessian,
+            FunctionInfo.EvalGradHessianInv,
+            FunctionInfo.ResidualJac,
+        ],
         state: _NonlinearCGDescentState,
-        deriv_info: DerivativeInfo,
     ) -> _NonlinearCGDescentState:
-        assert isinstance(
-            deriv_info,
+        if not isinstance(
+            f_info,
             (
-                DerivativeInfo.Grad,
-                DerivativeInfo.GradHessian,
-                DerivativeInfo.GradHessianInv,
-                DerivativeInfo.ResidualJac,
+                FunctionInfo.EvalGrad,
+                FunctionInfo.EvalGradHessian,
+                FunctionInfo.EvalGradHessianInv,
+                FunctionInfo.ResidualJac,
             ),
-        )
+        ):
+            raise ValueError(
+                "Cannot use `NonlinearCGDescent` with this solver. This is because "
+                "`NonlinearCGDescent` requires gradients of the target function, but "
+                "this solver does not evaluate such gradients."
+            )
         # On the very first step, we have (from `optim_init`) that `state.y_diff = 0`
         # and `state.grad = 0`. For all methods, this implies that `beta = 0`, so
         # `nonlinear_cg_diretion = neg_grad`, and (as desired) we take just a gradient
@@ -132,28 +153,21 @@ class NonlinearCGDescent(AbstractDescent[Y, Out, _NonlinearCGDescentState]):
         # Furthermore, the same mechanism handles convergence: once
         # `state.{grad, y_diff} = 0`, i.e. our previous step hit a local minima, then
         # on this next step we'll again just use gradient descent, and stop.
-        beta = self.method(deriv_info.grad, state.grad, state.y_diff)
-        neg_grad = (-(deriv_info.grad**ω)).ω
+        beta = self.method(f_info.grad, state.grad, state.y_diff)
+        neg_grad = (-(f_info.grad**ω)).ω
         nonlinear_cg_direction = (neg_grad**ω + beta * state.y_diff**ω).ω
         # Check if this is a descent direction. Use gradient descent if it isn't.
         y_diff = tree_where(
-            tree_dot(deriv_info.grad, nonlinear_cg_direction) < 0,
+            tree_dot(f_info.grad, nonlinear_cg_direction) < 0,
             nonlinear_cg_direction,
             neg_grad,
         )
-        return _NonlinearCGDescentState(y_diff=y_diff, grad=deriv_info.grad)
+        return _NonlinearCGDescentState(y_diff=y_diff, grad=f_info.grad)
 
-    def descend(
-        self,
-        step_size: Scalar,
-        fn: NoAuxFn[Y, Out],
-        y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: _NonlinearCGDescentState,
-        deriv_info: DerivativeInfo,
-    ) -> tuple[Y, RESULTS, _NonlinearCGDescentState]:
-        return (step_size * state.y_diff**ω).ω, RESULTS.successful, state
+    def step(
+        self, step_size: Scalar, state: _NonlinearCGDescentState
+    ) -> tuple[Y, RESULTS]:
+        return (step_size * state.y_diff**ω).ω, RESULTS.successful
 
 
 NonlinearCGDescent.__init__.__doc__ = """**Arguments:**
@@ -175,8 +189,8 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    descent: AbstractDescent
-    search: AbstractSearch
+    descent: NonlinearCGDescent[Y]
+    search: AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
 
     def __init__(
         self,
@@ -185,9 +199,9 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
         norm: Callable[[PyTree[Array]], Scalar] = max_norm,
         method: Callable[[Y, Y, Y], Scalar] = polak_ribiere,
         # TODO(raderj): replace the default line search with something better.
-        search: AbstractSearch[Y, Scalar, Any] = BacktrackingArmijo(
-            decrease_factor=0.5, slope=0.1
-        ),
+        search: AbstractSearch[
+            Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any
+        ] = BacktrackingArmijo(decrease_factor=0.5, slope=0.1),
     ):
         """**Arguments:**
 
@@ -208,4 +222,4 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
         self.atol = atol
         self.norm = norm
         self.descent = NonlinearCGDescent(method=method)
-        self.search = BacktrackingArmijo(decrease_factor=0.5, slope=0.1)
+        self.search = search

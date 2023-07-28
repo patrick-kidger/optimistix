@@ -16,7 +16,7 @@ import functools as ft
 import operator
 import random
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -32,6 +32,11 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
 import optimistix as optx
+
+
+Y = TypeVar("Y")
+Out = TypeVar("Out")
+Aux = TypeVar("Aux")
 
 
 def getkey():
@@ -134,14 +139,14 @@ def finite_difference_jvp(fn, primals, tangents, eps=None, **kwargs):
 #
 
 
-class DoglegMax(optx.AbstractGaussNewton):
+class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
     """Dogleg with trust region shape given by the max norm instead of the two norm."""
 
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    descent: optx.AbstractDescent
-    search: optx.AbstractSearch
+    descent: optx.DoglegDescent[Y]
+    search: optx.ClassicalTrustRegion[Y]
 
     def __init__(
         self,
@@ -244,7 +249,8 @@ minimisers = (
     bfgs_trust_region(rtol, atol, use_inverse=False),
     bfgs_trust_region(rtol, atol, use_inverse=True),
     optx.GradientDescent(1.5e-2, rtol, atol),
-    optx.NonlinearCG(rtol, atol),
+    # Tighter tolerance needed to have NonlinearCG pass the JVP test.
+    optx.NonlinearCG(1e-10, 1e-10),
     optx.OptaxMinimiser(optax.adam, rtol=rtol, atol=atol, learning_rate=3e-3),
 )
 

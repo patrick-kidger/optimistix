@@ -11,50 +11,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, cast, Optional
+from typing import cast
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
+from jaxtyping import Array, Bool, Scalar, ScalarLike
 
-from .._custom_types import DescentState, NoAuxFn, Out, Y
-from .._search import AbstractDescent, AbstractSearch, DerivativeInfo
+from .._custom_types import Y
+from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
 
-class LearningRate(AbstractSearch[Y, Out, DescentState]):
+class LearningRate(AbstractSearch[Y, FunctionInfo, FunctionInfo, None]):
     """Move downhill by taking a step of the fixed size `learning_rate`."""
 
     learning_rate: ScalarLike = eqx.field(converter=jnp.asarray)
 
-    def init(
-        self,
-        descent: AbstractDescent,
-        fn: NoAuxFn[Y, Scalar],
-        y: Y,
-        args: PyTree,
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-    ) -> DescentState:
-        return descent.optim_init(fn, y, args, f_struct)
+    def init(self, y: Y, f_info_struct: FunctionInfo) -> None:
+        return None
 
-    def search(
+    def step(
         self,
-        descent: AbstractDescent,
-        fn: NoAuxFn[Y, Out],
+        first_step: Bool[Array, ""],
         y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: DescentState,
-        deriv_info: DerivativeInfo,
-        max_steps: Optional[int],
-    ) -> tuple[Y, Bool[Array, ""], RESULTS, DescentState]:
-        state = descent.search_init(fn, y, args, f, state, deriv_info)
+        y_eval: Y,
+        f_info: FunctionInfo,
+        f_eval_info: FunctionInfo,
+        state: None,
+    ) -> tuple[Scalar, Bool[Array, ""], RESULTS, None]:
+        del first_step, y, y_eval, f_info, f_eval_info, state
         learning_rate = cast(Array, self.learning_rate)
-        y_diff, result, state = descent.descend(
-            learning_rate, fn, y, args, f, state, deriv_info
-        )
-        return y_diff, jnp.array(True), result, state
+        return learning_rate, jnp.array(True), RESULTS.successful, None
 
 
 LearningRate.__init__.__doc__ = """**Arguments:**

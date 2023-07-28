@@ -15,17 +15,19 @@
 import functools as ft
 import math
 from collections.abc import Callable
-from typing import cast, TYPE_CHECKING, TypeVar, Union
+from typing import Literal, overload, TYPE_CHECKING, TypeVar, Union
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
+import jax.core
+import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, Inexact, PyTree, Scalar
 
 from ._custom_types import Y
-from ._solution import RESULTS
 
 
 if TYPE_CHECKING:
@@ -41,11 +43,29 @@ def default_floating_dtype():
         return jnp.float32
 
 
+@overload
 def tree_full_like(
-    struct: PyTree[Union[Array, jax.ShapeDtypeStruct]], fill_value: ArrayLike
+    struct: PyTree[Union[Array, jax.ShapeDtypeStruct]],
+    fill_value: ArrayLike,
+    allow_static: Literal[False] = False,
 ):
+    ...
+
+
+@overload
+def tree_full_like(
+    struct: PyTree, fill_value: ArrayLike, allow_static: Literal[True] = True
+):
+
+    ...
+
+
+def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = False):
     """Return a pytree with the same type and shape as the input with values
     `fill_value`.
+
+    If `allow_static=True`, then any non-{array, struct}s are ignored and left alone.
+    If `allow_static=False` then any non-{array, struct}s will result in an error.
     """
     fn = lambda x: jnp.full(x.shape, fill_value, x.dtype)
     if isinstance(fill_value, (int, float)):
@@ -53,6 +73,13 @@ def tree_full_like(
             fn = lambda x: jnp.zeros(x.shape, x.dtype)
         elif fill_value == 1:
             fn = lambda x: jnp.ones(x.shape, x.dtype)
+    if allow_static:
+        _fn = fn
+        fn = (
+            lambda x: _fn(x)
+            if eqx.is_array(x) or isinstance(x, jax.ShapeDtypeStruct)
+            else x
+        )
     return jtu.tree_map(fn, struct)
 
 
@@ -168,17 +195,6 @@ class NoneAux(eqx.Module):
         return self.fn(*args, **kwargs), None
 
 
-class NoAux(eqx.Module):
-    """Wrap an aux-producing function `fn`, to drop its aux."""
-
-    fn: Callable
-
-    def __call__(self, *args, **kwargs):
-        out, aux = self.fn(*args, **kwargs)
-        del aux
-        return out
-
-
 def jacobian(fn, in_size, out_size, has_aux=False):
     """Compute the Jacobian of a function using forward or backward mode AD.
 
@@ -192,6 +208,10 @@ def jacobian(fn, in_size, out_size, has_aux=False):
         return jax.jacfwd(fn, has_aux=has_aux)
     else:
         return jax.jacrev(fn, has_aux=has_aux)
+
+
+def lin_to_grad(lin_fn, *primals):
+    return jax.linear_transpose(lin_fn, *primals)(1.0)
 
 
 def _asarray(dtype, x):
@@ -223,24 +243,76 @@ def cauchy_termination(
     rtol: float,
     atol: float,
     norm: Callable[[PyTree], Scalar],
-    y_prev: Y,
-    y_diff: Y,  # *Not* y_val
-    f_val: _F,
-    f_prev: _F,
-    accept: Bool[Array, ""],
-    result: RESULTS,
-) -> tuple[Bool[Array, ""], RESULTS]:
+    y: Y,
+    y_diff: Y,
+    f: _F,
+    f_diff: _F,
+) -> Bool[Array, ""]:
     """Terminate if there is a small difference in both `y` space and `f` space, as
     determined by `rtol` and `atol`.
 
-    Specifically, this checks that `y_difference < atol + rtol * y` and
-    `f_difference < atol + rtol * f_prev`, terminating if both of these are true.
+    Specifically, this checks that `y_diff < atol + rtol * y` and
+    `f_diff < atol + rtol * f_prev`, terminating if both of these are true.
     """
-    f_diff = (f_val**ω - f_prev**ω).ω
-    y_scale = (atol + rtol * ω(y_prev).call(jnp.abs)).ω
-    f_scale = (atol + rtol * ω(f_prev).call(jnp.abs)).ω
+    y_scale = (atol + rtol * ω(y).call(jnp.abs)).ω
+    f_scale = (atol + rtol * ω(f).call(jnp.abs)).ω
     y_converged = norm((ω(y_diff).call(jnp.abs) / y_scale**ω).ω) < 1
     f_converged = norm((ω(f_diff).call(jnp.abs) / f_scale**ω).ω) < 1
-    terminate = (result != RESULTS.successful) | (y_converged & f_converged & accept)
-    terminate = cast(Array, terminate)
-    return terminate, result
+    return y_converged & f_converged
+
+
+class _JaxprEqual:
+    def __init__(self, jaxpr: jax.core.Jaxpr):
+        self.jaxpr = jaxpr
+
+    def __hash__(self):
+        return 0
+
+    def __eq__(self, other):
+        # Could also implement actual checks here.
+        return type(self) is type(other)
+
+
+def _wrap_jaxpr_impl(leaf):
+    # But not jax.core.ClosedJaxpr, which contains constants that should be handled in
+    # pytree style.
+    if isinstance(leaf, jax.core.Jaxpr):
+        return _JaxprEqual(leaf)
+    else:
+        return leaf
+
+
+def _wrap_jaxpr(tree):
+    return jtu.tree_map(_wrap_jaxpr_impl, tree)
+
+
+def _unwrap_jaxpr_impl(leaf):
+    if isinstance(leaf, _JaxprEqual):
+        return leaf.jaxpr
+    else:
+        return leaf
+
+
+def _unwrap_jaxpr(tree):
+    return jtu.tree_map(_unwrap_jaxpr_impl, tree)
+
+
+def filter_cond(pred, true_fun, false_fun, *operands):
+    dynamic, static = eqx.partition(operands, eqx.is_array)
+
+    def _true_fun(_dynamic):
+        _operands = eqx.combine(_dynamic, static)
+        _out = true_fun(*_operands)
+        _dynamic_out, _static_out = eqx.partition(_out, eqx.is_array)
+        _static_out = _wrap_jaxpr(_static_out)
+        return _dynamic_out, eqxi.Static(_static_out)
+
+    def _false_fun(_dynamic):
+        _operands = eqx.combine(_dynamic, static)
+        _out = false_fun(*_operands)
+        _dynamic_out, _static_out = eqx.partition(_out, eqx.is_array)
+        _static_out = _wrap_jaxpr(_static_out)
+        return _dynamic_out, eqxi.Static(_static_out)
+
+    dynamic_out, static_out = lax.cond(pred, _true_fun, _false_fun, dynamic)
+    return eqx.combine(dynamic_out, _unwrap_jaxpr(static_out.value))

@@ -13,11 +13,9 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any
-from typing_extensions import TypeAlias
+from typing import cast, Generic, Union
 
 import equinox as eqx
-import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -25,25 +23,19 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar, ScalarLike
 
-from .._custom_types import Aux, NoAuxFn, Out, Y
-from .._misc import max_norm, two_norm
+from .._custom_types import Aux, Out, Y
+from .._misc import max_norm, two_norm, tree_full_like
 from .._root_find import AbstractRootFinder, root_find
-from .._search import (
-    AbstractDescent,
-    AbstractSearch,
-    damped_newton_step,
-    DerivativeInfo,
-    newton_step,
-)
+from .._search import AbstractDescent, FunctionInfo
 from .._solution import RESULTS
-from .gauss_newton import AbstractGaussNewton
+from .gauss_newton import AbstractGaussNewton, newton_step
 from .newton_chord import Newton
 from .trust_region import ClassicalTrustRegion
 
 
 class _Damped(eqx.Module):
     operator: lx.AbstractLinearOperator
-    damping: Float[Array, " "]
+    damping: Float[Array, ""]
 
     def __call__(self, y: PyTree[Array]):
         residual = self.operator.mv(y)
@@ -51,7 +43,62 @@ class _Damped(eqx.Module):
         return residual, damped
 
 
-class DampedNewtonDescent(AbstractDescent[Y, Out, None]):
+def damped_newton_step(
+    step_size: Scalar,
+    f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+    linear_solver: lx.AbstractLinearSolver,
+) -> tuple[PyTree[Array], RESULTS]:
+    """Compute a damped Newton step.
+
+    For a minimisation problem, this means solving `(Hess + λI)^{-1} grad`.
+
+    In the (nonlinear) least-squares case, for which the minimisation objective
+    is given by `0.5*residual^2`, then we know that `grad=J^T residual`, and we make
+    the Gauss--Newton approximation `Hess ~ J^T J`. This reduces the above to
+    solving the (linear) least-squares problem
+    ```
+    [    J   ] [diff]  =  [residual]
+    [sqrt(λ)I]         =  [   0    ]
+    ```
+    This can be seen by observing that the normal equations for the this linear
+    least-squares problem is the original linear problem we wanted to solve.
+    """
+
+    pred = step_size > jnp.finfo(step_size.dtype).eps
+    safe_step_size = jnp.where(pred, step_size, 1)
+    lm_param = jnp.where(pred, 1 / safe_step_size, jnp.finfo(step_size).max)
+    lm_param = cast(Array, lm_param)
+    if isinstance(f_info, FunctionInfo.EvalGradHessian):
+        operator = f_info.hessian + lm_param * lx.IdentityLinearOperator(
+            f_info.hessian.in_structure()
+        )
+        vector = f_info.grad
+        if lx.is_positive_semidefinite(f_info.hessian):
+            operator = lx.TaggedLinearOperator(operator, lx.positive_semidefinite_tag)
+    elif isinstance(f_info, FunctionInfo.ResidualJac):
+        y_structure = f_info.jac.in_structure()
+        operator = lx.FunctionLinearOperator(_Damped(f_info.jac, lm_param), y_structure)
+        vector = (f_info.residual, tree_full_like(y_structure, 0))
+    else:
+        raise ValueError(
+            "Damped newton descent cannot be used with a solver that does not "
+            "provide (approximate) Hessian information."
+        )
+    linear_sol = lx.linear_solve(operator, vector, linear_solver, throw=False)
+    return linear_sol.value, RESULTS.promote(linear_sol.result)
+
+
+class _DampedNewtonDescentState(eqx.Module):
+    f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac]
+
+
+class DampedNewtonDescent(
+    AbstractDescent[
+        Y,
+        Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        _DampedNewtonDescentState,
+    ]
+):
     """The damped Newton (Levenberg--Marquardt) descent.
 
     That is: gradient descent is about moving in the direction of `-grad`.
@@ -70,42 +117,32 @@ class DampedNewtonDescent(AbstractDescent[Y, Out, None]):
     # QR (for least-squares problems).
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
-    def optim_init(
+    def init(
         self,
-        fn: NoAuxFn[Y, Out],
         y: Y,
-        args: PyTree,
-        f_struct: PyTree[jax.ShapeDtypeStruct],
-    ) -> None:
-        return None
+        f_info_struct: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+    ) -> _DampedNewtonDescentState:
+        del y
+        f_info_init = tree_full_like(f_info_struct, 0, allow_static=True)
+        return _DampedNewtonDescentState(f_info_init)
 
-    def search_init(
+    def query(
         self,
-        fn: NoAuxFn[Y, Out],
         y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: None,
-        deriv_info: DerivativeInfo,
-    ) -> None:
-        return None
+        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        state: _DampedNewtonDescentState,
+    ) -> _DampedNewtonDescentState:
+        del y, state
+        return _DampedNewtonDescentState(f_info)
 
-    def descend(
-        self,
-        step_size: Scalar,
-        fn: NoAuxFn[Y, Out],
-        y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: None,
-        deriv_info: DerivativeInfo,
-    ) -> tuple[Y, RESULTS, None]:
-        del fn, y, args, f, state
+    def step(
+        self, step_size: Scalar, state: _DampedNewtonDescentState
+    ) -> tuple[Y, RESULTS]:
         sol_value, result = damped_newton_step(
-            step_size, deriv_info, self.linear_solver
+            step_size, state.f_info, self.linear_solver
         )
         y_diff = (-(sol_value**ω)).ω
-        return y_diff, result, None
+        return y_diff, result
 
 
 DampedNewtonDescent.__init__.__doc__ = """**Arguments:**
@@ -114,11 +151,19 @@ DampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-_IndirectDampedNewtonDescentState: TypeAlias = tuple[Scalar, Y, Scalar, RESULTS]
+class _IndirectDampedNewtonDescentState(eqx.Module, Generic[Y]):
+    f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac]
+    newton: Y
+    newton_norm: Scalar
+    result: RESULTS
 
 
 class IndirectDampedNewtonDescent(
-    AbstractDescent[Y, Out, _IndirectDampedNewtonDescentState]
+    AbstractDescent[
+        Y,
+        Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        _IndirectDampedNewtonDescentState,
+    ]
 ):
     """The indirect damped Newton (Levenberg--Marquardt) trust-region descent.
 
@@ -141,41 +186,34 @@ class IndirectDampedNewtonDescent(
     root_finder: AbstractRootFinder = Newton(rtol=1e-2, atol=1e-2)
     trust_region_norm: Callable[[PyTree], Scalar] = two_norm
 
-    def optim_init(
+    def init(
         self,
-        fn: NoAuxFn[Y, Out],
         y: Y,
-        args: PyTree,
-        f_struct: PyTree[jax.ShapeDtypeStruct],
+        f_info_struct: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
     ) -> _IndirectDampedNewtonDescentState:
-        # Dummy values
-        return jnp.array(self.lambda_0), y, jnp.array(0.0), RESULTS.successful
+        return _IndirectDampedNewtonDescentState(
+            f_info=tree_full_like(f_info_struct, 0, allow_static=True),
+            newton=y,
+            newton_norm=jnp.array(0.0),
+            result=RESULTS.successful,
+        )
 
-    def search_init(
+    def query(
         self,
-        fn: NoAuxFn[Y, Out],
         y: Y,
-        args: PyTree[Any],
-        f: Out,
+        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
         state: _IndirectDampedNewtonDescentState,
-        deriv_info: DerivativeInfo,
     ) -> _IndirectDampedNewtonDescentState:
-        lambda_0, *_ = state
-        newton_sol, newton_result = newton_step(deriv_info, self.linear_solver)
-        newton_norm = self.trust_region_norm(newton_sol)
-        return lambda_0, newton_sol, newton_norm, newton_result
+        del y
+        newton, result = newton_step(f_info, self.linear_solver)
+        newton_norm = self.trust_region_norm(newton)
+        return _IndirectDampedNewtonDescentState(
+            f_info=f_info, newton=newton, newton_norm=newton_norm, result=result
+        )
 
-    def descend(
-        self,
-        step_size: Scalar,
-        fn: NoAuxFn[Y, Out],
-        y: Y,
-        args: PyTree[Any],
-        f: Out,
-        state: _IndirectDampedNewtonDescentState,
-        deriv_info: DerivativeInfo,
-    ) -> tuple[Y, RESULTS, _IndirectDampedNewtonDescentState]:
-        lambda_0, newton_sol, newton_norm, newton_result = state
+    def step(
+        self, step_size: Scalar, state: _IndirectDampedNewtonDescentState
+    ) -> tuple[Y, RESULTS]:
         # For trust-region methods like `IndirectDampedNewtonDescent`, the trust-region
         # size directly controls how large a step we take. This is actually somewhat
         # annoying, as a trust region algorithm has no understanding of the scale of a
@@ -184,10 +222,10 @@ class IndirectDampedNewtonDescent(
         # A simple, heuristic way around this is to scale the trust region `step_size`
         # so that a `step_size` of `1` corresponds to the full length of the Newton
         # step (anything greater than `1` will still accept the Newton step.)
-        scaled_step_size = newton_norm * step_size
+        scaled_step_size = state.newton_norm * step_size
 
-        def comparison_fn(lambda_i: Scalar, args: PyTree):
-            step, _ = damped_newton_step(1 / lambda_i, deriv_info, self.linear_solver)
+        def comparison_fn(lambda_i: Scalar, _):
+            step, _ = damped_newton_step(1 / lambda_i, state.f_info, self.linear_solver)
             return self.trust_region_norm(step) - scaled_step_size
 
         def reject_newton():
@@ -195,28 +233,24 @@ class IndirectDampedNewtonDescent(
                 fn=comparison_fn,
                 has_aux=False,
                 solver=self.root_finder,
-                y0=lambda_0,
-                args=args,
+                y0=jnp.asarray(self.lambda_0),
                 options=dict(lower=1e-5),
                 max_steps=32,
                 throw=False,
             ).value
             y_diff, result = damped_newton_step(
-                1 / lambda_out, deriv_info, self.linear_solver
+                1 / lambda_out, state.f_info, self.linear_solver
             )
-            return lambda_out, y_diff, result
+            return y_diff, result
 
         def accept_newton():
-            return lambda_0, newton_sol, newton_result
+            return state.newton, state.result
 
         # Only do a root-find if we have a small step size, and our Newton step was
         # successful.
-        do_root_solve = (newton_result == RESULTS.successful) & (step_size < 1)
-        lambda_out, neg_y_diff, new_result = lax.cond(
-            do_root_solve, reject_newton, accept_newton
-        )
-        new_state = (lambda_out, newton_sol, newton_norm, newton_result)
-        return (-(neg_y_diff**ω)).ω, new_result, new_state
+        do_root_solve = (state.result == RESULTS.successful) & (step_size < 1)
+        neg_y_diff, new_result = lax.cond(do_root_solve, reject_newton, accept_newton)
+        return (-(neg_y_diff**ω)).ω, new_result
 
 
 IndirectDampedNewtonDescent.__init__.__doc__ = """**Arguments:**    
@@ -245,8 +279,8 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    descent: AbstractDescent
-    search: AbstractSearch
+    descent: DampedNewtonDescent[Y]
+    search: ClassicalTrustRegion[Y]
 
     def __init__(
         self,
@@ -287,8 +321,8 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    descent: AbstractDescent
-    search: AbstractSearch
+    descent: IndirectDampedNewtonDescent[Y]
+    search: ClassicalTrustRegion[Y]
 
     def __init__(
         self,
