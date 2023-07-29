@@ -32,15 +32,6 @@ In addition to the following, note that the [Optax]](https://github.com/deepmind
 
 ---
 
-Note that `NonlinearCG` comes in several flavours; see the page on [nonlinear CG variants](./nonlinear-cg-variants.md) for more.
-
-::: optimistix.NonlinearCG
-    selection:
-        members:
-            false
-
----
-
 ::: optimistix.BFGS
     selection:
         members:
@@ -52,3 +43,20 @@ Note that `NonlinearCG` comes in several flavours; see the page on [nonlinear CG
     selection:
         members:
             - __init__
+
+---
+
+::: optimistix.NonlinearCG
+    selection:
+        members:
+            false
+
+[`optimistix.NonlinearCG`][] supports several different methods for computing its β parameter. If you are trying multiple solvers to see which works best on your problem, then you may wish to try all four versions of nonlinear CG. These can each be passed as `NonlinearCG(..., method=...)`.
+
+::: optimistix.polak_ribiere
+
+::: optimistix.fletcher_reeves
+
+::: optimistix.hestenes_stiefel
+
+::: optimistix.dai_yuan
