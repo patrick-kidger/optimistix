@@ -87,8 +87,18 @@ class FixedPointIteration(
     ) -> tuple[Bool[Array, ""], RESULTS]:
         return state.relative_error < 1, RESULTS.successful
 
-    def buffers(self, state: _FixedPointState) -> tuple[()]:
-        return ()
+    def postprocess(
+        self,
+        fn: Fn[Y, Y, Aux],
+        y: Y,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _FixedPointState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Y, Aux, dict[str, Any]]:
+        return y, aux, {}
 
 
 FixedPointIteration.__init__.__doc__ = """**Arguments:**

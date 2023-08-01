@@ -13,7 +13,13 @@
 # limitations under the License.
 
 from .backtracking import BacktrackingArmijo as BacktrackingArmijo
-from .bfgs import BFGS as BFGS
+from .best_so_far import (
+    BestSoFarFixedPoint as BestSoFarFixedPoint,
+    BestSoFarLeastSquares as BestSoFarLeastSquares,
+    BestSoFarMinimiser as BestSoFarMinimiser,
+    BestSoFarRootFinder as BestSoFarRootFinder,
+)
+from .bfgs import AbstractBFGS as AbstractBFGS, BFGS as BFGS
 from .bisection import Bisection as Bisection
 from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
 from .fixed_point import FixedPointIteration as FixedPointIteration

@@ -21,12 +21,18 @@ import jax.numpy as jnp
 import lineax as lx
 from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._base_solver import AbstractHasTol
 from .._custom_types import Args, Aux, DescentState, Fn, Out, SearchState, Y
 from .._least_squares import AbstractLeastSquaresSolver
-from .._misc import cauchy_termination, filter_cond, max_norm, tree_full_like
+from .._misc import (
+    cauchy_termination,
+    filter_cond,
+    max_norm,
+    sum_squares,
+    tree_full_like,
+)
 from .._search import (
     AbstractDescent,
     AbstractSearch,
@@ -162,6 +168,10 @@ class _GaussNewtonState(eqx.Module, Generic[Y, Out, Aux, SearchState, DescentSta
     # Used for termination
     terminate: Bool[Array, ""]
     result: RESULTS
+    # Use for verbose logging
+    num_steps: Int[Array, ""]
+    num_accepted_steps: Int[Array, ""]
+    num_steps_since_acceptance: Int[Array, ""]
 
 
 def _make_f_info(
@@ -179,6 +189,15 @@ class AbstractGaussNewton(
 
     This includes methods such as [`optimistix.GaussNewton`][],
     [`optimistix.LevenbergMarquardt`][], and [`optimistix.Dogleg`][].
+
+    Subclasses must provide the following abstract attributes, with the following types:
+
+    - `rtol: float`
+    - `atol: float`
+    - `norm: Callable[[PyTree], Scalar]`
+    - `descent: AbstractDescent`
+    - `search: AbstractSearch`
+    - `verbose: bool`
     """
 
     rtol: AbstractVar[float]
@@ -188,6 +207,7 @@ class AbstractGaussNewton(
     search: AbstractVar[
         AbstractSearch[Y, FunctionInfo.ResidualJac, FunctionInfo.ResidualJac, Any]
     ]
+    verbose: AbstractVar[bool]
 
     def init(
         self,
@@ -210,6 +230,9 @@ class AbstractGaussNewton(
             descent_state=self.descent.init(y, f_info_struct),
             terminate=jnp.array(False),
             result=RESULTS.successful,
+            num_steps=jnp.array(0),
+            num_accepted_steps=jnp.array(0),
+            num_steps_since_acceptance=jnp.array(0),
         )
 
     def step(
@@ -230,6 +253,26 @@ class AbstractGaussNewton(
             f_eval_info,
             state.search_state,
         )
+        num_steps = state.num_steps + 1
+        num_accepted_steps = state.num_accepted_steps + jnp.where(accept, 1, 0)
+        num_steps_since_acceptance = jnp.where(
+            accept, 0, state.num_steps_since_acceptance + 1
+        )
+
+        if self.verbose:
+            loss_eval = 0.5 * sum_squares(f_eval_info.residual)
+            loss = 0.5 * sum_squares(state.f_info.residual)
+            jax.debug.print(
+                """
+Step: {} , Accepted steps: {} , Steps since acceptance: {} , Loss on this step: {} , Loss on the last accepted step: {} , Step size: {}
+""".strip(),  # noqa: E501
+                state.num_steps,
+                state.num_accepted_steps,
+                state.num_steps_since_acceptance,
+                loss_eval,
+                loss,
+                step_size,
+            )
 
         def accepted(descent_state):
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
@@ -268,6 +311,9 @@ class AbstractGaussNewton(
             descent_state=descent_state,
             terminate=terminate,
             result=result,
+            num_steps=num_steps,
+            num_accepted_steps=num_accepted_steps,
+            num_steps_since_acceptance=num_steps_since_acceptance,
         )
         return y, state, aux
 
@@ -282,8 +328,18 @@ class AbstractGaussNewton(
     ):
         return state.terminate, state.result
 
-    def buffers(self, state: _GaussNewtonState) -> tuple[()]:
-        return ()
+    def postprocess(
+        self,
+        fn: Fn[Y, Out, Aux],
+        y: Y,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _GaussNewtonState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Y, Aux, dict[str, Any]]:
+        return y, aux, {}
 
 
 class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
@@ -298,6 +354,7 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: NewtonDescent[Y]
     search: LearningRate[Y]
+    verbose: bool
 
     def __init__(
         self,
@@ -305,12 +362,14 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
+        verbose: bool = False,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.descent = NewtonDescent(linear_solver=linear_solver)
         self.search = LearningRate(1.0)
+        self.verbose = verbose
 
 
 GaussNewton.__init__.__doc__ = """**Arguments:**
@@ -322,4 +381,6 @@ GaussNewton.__init__.__doc__ = """**Arguments:**
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `linear_solver`: The linear solver used to compute the Newton step.
+- `verbose`: If `True`, then extra information about the solve will be printed to
+    stdout.
 """

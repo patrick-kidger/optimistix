@@ -459,8 +459,25 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], AbstractHa
         )
         return terminate, result
 
-    def buffers(self, state: _NelderMeadState[Y, Aux]) -> PyTree:
-        return state.simplex
+    def postprocess(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _NelderMeadState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Y, Aux, dict[str, Any]]:
+        stats = dict(
+            num_reflections=state.stats.n_reflect,
+            num_inner_contractions=state.stats.n_inner_contract,
+            num_outer_contractions=state.stats.n_outer_contract,
+            num_expansions=state.stats.n_expand,
+            num_shrinkages=state.stats.n_shrink,
+        )
+        return y, aux, stats
 
 
 NelderMead.__init__.__doc__ = """**Arguments:**

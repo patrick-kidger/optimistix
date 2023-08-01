@@ -24,7 +24,7 @@ from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Out, Y
-from .._misc import max_norm, two_norm, tree_full_like
+from .._misc import max_norm, tree_full_like, two_norm
 from .._root_find import AbstractRootFinder, root_find
 from .._search import AbstractDescent, FunctionInfo
 from .._solution import RESULTS
@@ -281,18 +281,21 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: DampedNewtonDescent[Y]
     search: ClassicalTrustRegion[Y]
+    verbose: bool
 
     def __init__(
         self,
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
+        verbose: bool = False,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.descent = DampedNewtonDescent()
         self.search = ClassicalTrustRegion()
+        self.verbose = verbose
 
 
 LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
@@ -303,6 +306,8 @@ LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `verbose`: If `True`, then extra information about the solve will be printed to
+    stdout.
 """
 
 
@@ -323,6 +328,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: IndirectDampedNewtonDescent[Y]
     search: ClassicalTrustRegion[Y]
+    verbose: bool
 
     def __init__(
         self,
@@ -332,6 +338,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         lambda_0: ScalarLike = 1.0,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False),
         root_finder: AbstractRootFinder = Newton(rtol=0.01, atol=0.01),
+        verbose: bool = False,
     ):
         self.rtol = rtol
         self.atol = atol
@@ -342,6 +349,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
             root_finder=root_finder,
         )
         self.search = ClassicalTrustRegion()
+        self.verbose = verbose
 
 
 IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
@@ -358,4 +366,6 @@ IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 - `linear_solver`: The linear solver used to compute the Newton step.
 - `root_finder`: The root finder used to find the Levenberg--Marquardt parameter which
     hits the trust-region radius.
+- `verbose`: If `True`, then extra information about the solve will be printed to
+    stdout.
 """

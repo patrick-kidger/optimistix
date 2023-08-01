@@ -13,13 +13,12 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, cast, ClassVar
+from typing import Any, ClassVar, Literal, Union
 
 import equinox as eqx
-import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, Int, PyTree, Scalar
+from jaxtyping import Array, Bool, Float, PyTree, Scalar
 
 from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn
@@ -31,7 +30,7 @@ class _BisectionState(eqx.Module):
     lower: Scalar
     upper: Scalar
     flip: Bool[Array, ""]
-    step: Int[Array, ""]
+    error: Float[Array, ""]
 
 
 class Bisection(
@@ -54,6 +53,7 @@ class Bisection(
 
     rtol: float
     atol: float
+    flip: Union[bool, Literal["detect"]] = "detect"
     # All norms are the same for scalars.
     norm: ClassVar[Callable[[PyTree], Scalar]] = jnp.abs
 
@@ -67,8 +67,8 @@ class Bisection(
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _BisectionState:
-        lower = options["lower"]
-        upper = options["upper"]
+        lower = jnp.asarray(options["lower"], f_struct.dtype)
+        upper = jnp.asarray(options["upper"], f_struct.dtype)
         del options, aux_struct
         if jnp.shape(y) != () or jnp.shape(lower) != () or jnp.shape(upper) != ():
             raise ValueError(
@@ -80,19 +80,27 @@ class Bisection(
                 "Bisection can only be used to find the roots of a function producing "
                 "a scalar output."
             )
-        # `extended_upper` and `extended_lower` form a range such that
-        # `f(0.5 * (a+b))` is the user-passed `lower` on the first step,
-        # and the user passed `upper` on the second step. This saves us from
-        # compiling `fn` two extra times in the init.
-        range = upper - lower
-        extended_upper = upper + range
-        extended_range = extended_upper - lower
-        extended_lower = lower - extended_range
+        if isinstance(self.flip, bool):
+            # Make it possible to avoid the extra two function compilations.
+            flip = jnp.array(self.flip)
+        elif self.flip == "detect":
+            lower_val, _ = fn(lower, args)
+            upper_val, _ = fn(upper, args)
+            lower_neg = lower_val < 0
+            upper_neg = upper_val < 0
+            flip = lower_val > upper_val
+            flip = eqx.error_if(
+                flip,
+                lower_neg == upper_neg,
+                msg="The root is not contained in [lower, upper]",
+            )
+        else:
+            raise ValueError("`flip` may only be True, False, or 'detect'.")
         return _BisectionState(
-            lower=jnp.asarray(extended_lower, f_struct.dtype),
-            upper=jnp.asarray(extended_upper, f_struct.dtype),
-            flip=jnp.array(False),
-            step=jnp.array(0),
+            lower=lower,
+            upper=upper,
+            flip=flip,
+            error=jnp.array(jnp.inf, f_struct.dtype),
         )
 
     def step(
@@ -104,29 +112,14 @@ class Bisection(
         state: _BisectionState,
         tags: frozenset[object],
     ) -> tuple[Scalar, _BisectionState, Aux]:
-        del y, options
-        new_y = state.lower + 0.5 * (state.upper - state.lower)
-        error, aux = fn(new_y, args)
-        too_large = cast(Bool[Array, ""], state.flip ^ (error < 0))
-        # On step 0 and 1 we set `too_large` to update `state.lower` and `state.upper`
-        # to match the values set by the user instead of the extended range computed in
-        # the init.
-        too_large = jnp.where(state.step == 0, True, too_large)
-        too_large = jnp.where(state.step == 1, False, too_large)
-        new_lower = jnp.where(too_large, new_y, state.lower)
-        new_upper = jnp.where(too_large, state.upper, new_y)
-        flip = jnp.where(state.step < 2, error < 0, state.flip)
-        # `step` is passed through to make sure this error check does not get DCEd.
-        step = eqxi.error_if(
-            state.step,
-            (state.step == 1) & (state.flip ^ (error > 0)),
-            msg="The root is not contained in [lower, upper]",
-        )
+        del options
+        error, aux = fn(y, args)
+        negative = state.flip ^ (error < 0)
+        new_lower = jnp.where(negative, y, state.lower)
+        new_upper = jnp.where(negative, state.upper, y)
+        new_y = new_lower + 0.5 * (new_upper - new_lower)
         new_state = _BisectionState(
-            lower=new_lower,
-            upper=new_upper,
-            flip=flip,
-            step=step + 1,
+            lower=new_lower, upper=new_upper, flip=state.flip, error=error
         )
         return new_y, new_state, aux
 
@@ -141,14 +134,31 @@ class Bisection(
     ) -> tuple[Bool[Array, ""], RESULTS]:
         del fn, args, options
         scale = self.atol + self.rtol * jnp.abs(y)
-        return jnp.abs(state.lower - state.upper) < scale, RESULTS.successful
+        y_small = jnp.abs(state.lower - state.upper) < scale
+        f_small = jnp.abs(state.error) < self.atol
+        return y_small & f_small, RESULTS.successful
 
-    def buffers(self, state: _BisectionState) -> tuple[()]:
-        return ()
+    def postprocess(
+        self,
+        fn: Fn[Scalar, Scalar, Aux],
+        y: Scalar,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _BisectionState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Scalar, Aux, dict[str, Any]]:
+        return y, aux, {}
 
 
 Bisection.__init__.__doc__ = """**Arguments:**
 
 - `rtol`: Relative tolerance for terminating solve.
 - `atol`: Absolute tolerance for terminating solve.
+- `flip`: Can be set to any of:
+    - `False`: specify that `fn(lower, args) < 0 < fn(upper, args)`.
+    - `True`: specify that `fn(lower, args) > 0 > fn(upper, args)`.
+    - `"detect"`: automatically check `fn(lower, args)` and `fn(upper, args)`. Note that
+        this option may increase both runtime and compilation time.
 """

@@ -243,6 +243,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: DoglegDescent[Y]
     search: ClassicalTrustRegion[Y]
+    verbose: bool
 
     def __init__(
         self,
@@ -250,6 +251,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
+        verbose: bool = False,
     ):
         # We don't expose root_finder to the default API for Dogleg because
         # we assume the `trust_region_norm` norm is `two_norm`, which has
@@ -259,6 +261,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         self.norm = norm
         self.descent = DoglegDescent(linear_solver=linear_solver)
         self.search = ClassicalTrustRegion()
+        self.verbose = verbose
 
 
 Dogleg.__init__.__doc__ = """**Arguments:**
@@ -270,4 +273,6 @@ Dogleg.__init__.__doc__ = """**Arguments:**
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `linear_solver`: The linear solver used to compute the Newton part of the dogleg step.
+- `verbose`: If `True`, then extra information about the solve will be printed to
+    stdout.
 """

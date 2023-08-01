@@ -43,15 +43,14 @@ class AbstractAdjoint(eqx.Module):
 
 
 class RecursiveCheckpointAdjoint(AbstractAdjoint):
-    """Backpropagate through [`optimistix.iterative_solve`][] by differentiating the
-    iterates directly.
+    """Backpropagate by differentiating through the iterates directly.
 
     Uses a binomial checkpointing scheme to keep memory usage low.
 
     !!! info
 
         Note that this cannot be forward-mode autodifferentiated. (E.g. using
-        `jax.jvp`.) Try using [`diffrax.DirectAdjoint`][] if that is something you need.
+        `jax.jvp`.)
 
     ??? cite "References"
 
@@ -135,10 +134,7 @@ def _primal_fn(inputs):
 
 
 class ImplicitAdjoint(AbstractAdjoint):
-    r"""Backpropogate through [`optimistix.iterative_solve`][] via the
-    [implicit function theorem](
-    https://en.wikipedia.org/wiki/Implicit_function_theorem
-    ).
+    r"""Backpropagate via the [implicit function theorem](https://en.wikipedia.org/wiki/Implicit_function_theorem).
 
     For example, using the root-finding case by way of example: suppose we find the
     root `y(θ)` for which `f(y(θ), θ) = θ`.

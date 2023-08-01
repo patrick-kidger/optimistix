@@ -92,7 +92,7 @@ def root_find(
         Keyword only argument.
     - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing the
         any structure of the Jacobian of `fn` with respect to `y`. Used with some
-        solvers (e.g. [`optimistix.Neweton`][]), and with some adjoint methods (e.g.
+        solvers (e.g. [`optimistix.Newton`][]), and with some adjoint methods (e.g.
         [`optimistix.ImplicitAdjoint`][]) to improve the efficiency of linear solves.
         Keyword only argument.
 

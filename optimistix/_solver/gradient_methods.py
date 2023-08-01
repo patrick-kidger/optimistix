@@ -126,6 +126,14 @@ class AbstractGradientDescent(
     At every step, this algorithm performs a line search along the steepest descent
     direction. You should subclass this to provide it with a particular choice of line
     search. (E.g. [`optimistix.GradientDescent`][] uses a simple learning rate step.)
+
+    Subclasses must provide the following abstract attributes, with the following types:
+
+    - `rtol: float`
+    - `atol: float`
+    - `norm: Callable[[PyTree], Scalar]`
+    - `descent: AbstractDescent`
+    - `search: AbstractSearch`
     """
 
     rtol: AbstractVar[float]
@@ -227,8 +235,18 @@ class AbstractGradientDescent(
     ) -> tuple[Bool[Array, ""], RESULTS]:
         return state.terminate, state.result
 
-    def buffers(self, state: _GradientDescentState) -> tuple[()]:
-        return ()
+    def postprocess(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _GradientDescentState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Y, Aux, dict[str, Any]]:
+        return y, aux, {}
 
 
 class GradientDescent(AbstractGradientDescent[Y, Aux]):

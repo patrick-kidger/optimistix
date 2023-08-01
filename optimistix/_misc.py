@@ -130,7 +130,17 @@ def two_norm(x: PyTree[ArrayLike]) -> Scalar:
     Considering the input `x` as a flat vector `(x_1, ..., x_n)`, then this computes
     `sqrt(Σ_i x_i^2)`
     """
-    return jnp.sqrt(sum_squares(x))
+    leaves = jtu.tree_leaves(x)
+    size = sum([jnp.size(xi) for xi in leaves])
+    if size == 1:
+        # Avoid needless squaring-and-then-rooting.
+        for leaf in leaves:
+            if jnp.size(leaf) == 1:
+                return jnp.abs(jnp.reshape(leaf, ()))
+        else:
+            assert False
+    else:
+        return jnp.sqrt(sum_squares(x))
 
 
 @two_norm.defjvp
@@ -158,7 +168,7 @@ def rms_norm(x: PyTree[ArrayLike]) -> Scalar:
     `sqrt((Σ_i x_i^2)/n)`
     """
     leaves = jtu.tree_leaves(x)
-    size = sum([jnp.size(x) for x in leaves])
+    size = sum([jnp.size(xi) for xi in leaves])
     return two_norm(x) / math.sqrt(size)
 
 

@@ -134,5 +134,15 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState], AbstractHasTol):
         del fn, args, options
         return state.terminate, RESULTS.successful
 
-    def buffers(self, state: _OptaxState) -> tuple[()]:
-        return ()
+    def postprocess(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _OptaxState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Y, Aux, dict[str, Any]]:
+        return y, aux, {}

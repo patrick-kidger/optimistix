@@ -20,11 +20,12 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
+from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._base_solver import AbstractHasTol
-from .._custom_types import Aux, DescentState, Fn, Out, SearchState, Y
+from .._custom_types import Aux, DescentState, Fn, SearchState, Y
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
@@ -140,7 +141,7 @@ _Hessian = TypeVar(
 )
 
 
-class _BFGSState(eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState, _Hessian]):
+class _BFGSState(eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian]):
     # Updated every search step
     first_step: Bool[Array, ""]
     y_eval: Y
@@ -154,27 +155,24 @@ class _BFGSState(eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState, _He
     result: RESULTS
 
 
-class BFGS(
+class AbstractBFGS(
     AbstractMinimiser[Y, Aux, _BFGSState], AbstractHasTol, Generic[Y, Aux, _Hessian]
 ):
-    """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
+    """Abstract BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
     it progressively builds up a Hessian approximation using multiple steps of gradient
     information.
+
+    This abstract version may be subclassed to choose alternative descent and searches.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar] = max_norm
-    use_inverse: bool = True
-    descent: AbstractDescent[Y, _Hessian, Any] = NewtonDescent(
-        linear_solver=lx.Cholesky()
-    )
-    # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
-    search: AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any] = BacktrackingArmijo(
-        slope=0.1, decrease_factor=0.5
-    )
+    rtol: AbstractVar[float]
+    atol: AbstractVar[float]
+    norm: AbstractVar[Callable[[PyTree], Scalar]]
+    use_inverse: AbstractVar[bool]
+    descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
+    search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
 
     def init(
         self,
@@ -286,8 +284,49 @@ class BFGS(
     ) -> tuple[Bool[Array, ""], RESULTS]:
         return state.terminate, state.result
 
-    def buffers(self, state: _BFGSState) -> tuple[()]:
-        return ()
+    def postprocess(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _BFGSState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Y, Aux, dict[str, Any]]:
+        return y, aux, {}
+
+
+class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
+    """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
+
+    This is a quasi-Newton optimisation algorithm, whose defining feature is the way
+    it progressively builds up a Hessian approximation using multiple steps of gradient
+    information.
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    use_inverse: bool
+    descent: NewtonDescent
+    search: BacktrackingArmijo
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        use_inverse: bool = True,
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.use_inverse = use_inverse
+        self.descent = NewtonDescent(linear_solver=lx.Cholesky())
+        # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
+        self.search = BacktrackingArmijo()
 
 
 BFGS.__init__.__doc__ = """**Arguments:**
@@ -308,6 +347,4 @@ BFGS.__init__.__doc__ = """**Arguments:**
     default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
     line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
     Hessian approximation `B` as part of their own computations.
-- `descent`: The descent for the update.
-- `search`: The search for the update.
 """

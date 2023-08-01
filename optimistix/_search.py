@@ -61,7 +61,7 @@ class FunctionInfo(eqx.Module):
     This enumeration-ish object captures the different variants.
 
     Available variants are
-    `optimistix.DerivativeInfo.{Eval, EvalGrad, EvalGradHessian, EvalGradHessianInv, Residual, ResidualJac}`.
+    `optimistix.FunctionInfo.{Eval, EvalGrad, EvalGradHessian, EvalGradHessianInv, Residual, ResidualJac}`.
     """  # noqa: E501
 
     Eval: ClassVar[Type["Eval"]]
@@ -92,7 +92,7 @@ class Eval(FunctionInfo):
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
 class EvalGrad(FunctionInfo, Generic[Y]):
-    """Has a `.f` attribute as with [`optimistix.FunctionEval.Eval`][]. Also has a
+    """Has a `.f` attribute as with [`optimistix.FunctionInfo.Eval`][]. Also has a
     `.grad` attribute describing `d(fn)/dy`. Used with first-order solvers for
     minimisation problems. (E.g. gradient descent; nonlinear CG.)
     """
@@ -121,7 +121,7 @@ class EvalGradHessian(FunctionInfo, Generic[Y]):
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
 class EvalGradHessianInv(FunctionInfo, Generic[Y]):
-    """As [`optimistix.DerivativeInfo.GradHessian`][], but records the (approximate)
+    """As [`optimistix.FunctionInfo.EvalGradHessian`][], but records the (approximate)
     inverse-Hessian instead. Has `.f` and `.grad` and `.hessian_inv` attributes.
     """
 

@@ -77,10 +77,10 @@ def least_squares(
     - `fn`: The residual function. This should take two arguments: `fn(y, args)` and
         return a pytree of arrays not necessarily of the same shape as the input `y`.
     - `solver`: The least-squares solver to use. This can be either an
-        [`optimistix.AbstractLeastSquares`][] solver, or an
+        [`optimistix.AbstractLeastSquaresSolver`][] solver, or an
         [`optimistix.AbstractMinimiser`][]. If `solver` is an
-        [`AbstractMinimiser`][], then it will attempt to minimise the scalar loss
-        $\min_y \sum_i \textrm{fn}(y, \textrm{args})_i^2$ directly.
+        [`optimistix.AbstractMinimiser`][], then it will attempt to minimise the scalar
+        loss $\min_y \sum_i \textrm{fn}(y, \textrm{args})_i^2$ directly.
     - `y0`: An initial guess for what `y` may be.
     - `args`: Passed as the `args` of `fn(y, args)`.
     - `options`: Individual solvers may accept additional runtime arguments.

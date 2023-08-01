@@ -200,8 +200,18 @@ class _NewtonChord(
         terminate = linsolve_fail | terminate
         return terminate, result
 
-    def buffers(self, state: _NewtonChordState) -> tuple[()]:
-        return ()
+    def postprocess(
+        self,
+        fn: Fn[Y, Out, Aux],
+        y: Y,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _NewtonChordState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Y, Aux, dict[str, Any]]:
+        return y, aux, {}
 
 
 class Newton(_NewtonChord[Y, Out, Aux]):

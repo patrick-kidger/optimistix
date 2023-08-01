@@ -50,9 +50,14 @@ from ._search import (
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solver import (
+    AbstractBFGS as AbstractBFGS,
     AbstractGaussNewton as AbstractGaussNewton,
     AbstractGradientDescent as AbstractGradientDescent,
     BacktrackingArmijo as BacktrackingArmijo,
+    BestSoFarFixedPoint as BestSoFarFixedPoint,
+    BestSoFarLeastSquares as BestSoFarLeastSquares,
+    BestSoFarMinimiser as BestSoFarMinimiser,
+    BestSoFarRootFinder as BestSoFarRootFinder,
     BFGS as BFGS,
     Bisection as Bisection,
     Chord as Chord,
