@@ -1,8 +1,8 @@
 # Line searches, trust regions, learning rates
 
-??? abstract "`optimistix.AbstractLineSearch`"
+??? abstract "`optimistix.AbstractSearch`"
 
-    ::: optimistix.AbstractLineSearch
+    ::: optimistix.AbstractSearch
         selection:
             members:
                 false

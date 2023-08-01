@@ -1,6 +1,6 @@
 # Minimisation
 
-In addition to the following, note that the [Optax]](https://github.com/deepmind/optax) library offers an extensive collection of minimisers via first-order gradient methods -- as are in widespread use for neural networks. If you would like to use these through the Optimistix API then an [`optimistix.OptaxMinimiser`][] wrapper is provided.
+In addition to the following, note that the [Optax](https://github.com/deepmind/optax) library offers an extensive collection of minimisers via first-order gradient methods -- as are in widespread use for neural networks. If you would like to use these through the Optimistix API then an [`optimistix.OptaxMinimiser`][] wrapper is provided.
 
 ::: optimistix.minimise
 
@@ -16,7 +16,7 @@ In addition to the following, note that the [Optax]](https://github.com/deepmind
                 - init
                 - step
                 - terminate
-                - buffers
+                - postprocess
 
 ??? abstract "`optimistix.AbstractGradientDescent`"
 
@@ -28,9 +28,16 @@ In addition to the following, note that the [Optax]](https://github.com/deepmind
 ::: optimistix.GradientDescent
     selection:
         members:
-            false
+            - __init__
 
 ---
+
+??? abstract "`optimistix.AbstractBFGS`"
+
+    ::: optimistix.AbstractBFGS
+        selection:
+            members:
+                false
 
 ::: optimistix.BFGS
     selection:
@@ -49,7 +56,7 @@ In addition to the following, note that the [Optax]](https://github.com/deepmind
 ::: optimistix.NonlinearCG
     selection:
         members:
-            false
+            - __init__
 
 [`optimistix.NonlinearCG`][] supports several different methods for computing its β parameter. If you are trying multiple solvers to see which works best on your problem, then you may wish to try all four versions of nonlinear CG. These can each be passed as `NonlinearCG(..., method=...)`.
 
@@ -60,3 +67,10 @@ In addition to the following, note that the [Optax]](https://github.com/deepmind
 ::: optimistix.hestenes_stiefel
 
 ::: optimistix.dai_yuan
+
+---
+
+::: optimistix.BestSoFarMinimiser
+    selection:
+        members:
+            - __init__

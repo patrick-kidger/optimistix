@@ -147,6 +147,7 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: optx.DoglegDescent[Y]
     search: optx.ClassicalTrustRegion[Y]
+    verbose: bool
 
     def __init__(
         self,
@@ -162,67 +163,62 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
             trust_region_norm=optx.max_norm,
         )
         self.search = optx.ClassicalTrustRegion()
+        self.verbose = False
 
 
-def bfgs_damped_newton(rtol: float, atol: float):
+class BFGSDampedNewton(optx.AbstractBFGS):
     """BFGS Hessian + direct Levenberg Marquardt update."""
-    return optx.BFGS(
-        rtol=rtol,
-        atol=atol,
-        descent=optx.DampedNewtonDescent(),
-        search=optx.ClassicalTrustRegion(),
-        norm=optx.max_norm,
-        use_inverse=False,
-    )
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    use_inverse: bool = False
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.DampedNewtonDescent()
 
 
-def bfgs_indirect_damped_newton(rtol: float, atol: float):
+class BFGSIndirectDampedNewton(optx.AbstractBFGS):
     """BFGS Hessian + indirect Levenberg Marquardt update."""
-    return optx.BFGS(
-        rtol=rtol,
-        atol=atol,
-        descent=optx.IndirectDampedNewtonDescent(),
-        search=optx.ClassicalTrustRegion(),
-        norm=optx.max_norm,
-        use_inverse=False,
-    )
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    use_inverse: bool = False
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.IndirectDampedNewtonDescent()
 
 
-def bfgs_dogleg(rtol: float, atol: float):
+class BFGSDogleg(optx.AbstractBFGS):
     """BFGS Hessian + dogleg update."""
 
-    return optx.BFGS(
-        rtol=rtol,
-        atol=atol,
-        descent=optx.DoglegDescent(linear_solver=lx.SVD()),
-        search=optx.ClassicalTrustRegion(),
-        norm=optx.max_norm,
-        use_inverse=False,
-    )
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    use_inverse: bool = False
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.DoglegDescent(linear_solver=lx.SVD())
 
 
-def bfgs_backtracking(rtol: float, atol: float, use_inverse: bool):
+class BFGSBacktracking(optx.AbstractBFGS):
     """Standard BFGS + backtracking line search."""
-    return optx.BFGS(
-        rtol=rtol,
-        atol=atol,
-        descent=optx.NewtonDescent(),
-        search=optx.BacktrackingArmijo(),
-        norm=optx.max_norm,
-        use_inverse=False,
-    )
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    use_inverse: bool = False
+    search: optx.AbstractSearch = optx.BacktrackingArmijo()
+    descent: optx.AbstractDescent = optx.NewtonDescent()
 
 
-def bfgs_trust_region(rtol: float, atol: float, use_inverse: bool):
-    """Standard BFGS + classical trust region upate."""
-    return optx.BFGS(
-        rtol=rtol,
-        atol=atol,
-        descent=optx.NewtonDescent(),
-        search=optx.LinearTrustRegion(),
-        norm=optx.max_norm,
-        use_inverse=False,
-    )
+class BFGSTrustRegion(optx.AbstractBFGS):
+    """Standard BFGS + classical trust region update."""
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    use_inverse: bool = False
+    search: optx.AbstractSearch = optx.LinearTrustRegion()
+    descent: optx.AbstractDescent = optx.NewtonDescent()
 
 
 atol = rtol = 1e-8
@@ -240,14 +236,14 @@ minimisers = (
     optx.NelderMead(rtol, atol),
     optx.BFGS(rtol, atol, use_inverse=False),
     optx.BFGS(rtol, atol, use_inverse=True),
-    bfgs_damped_newton(rtol, atol),
-    bfgs_indirect_damped_newton(rtol, atol),
+    BFGSDampedNewton(rtol, atol),
+    BFGSIndirectDampedNewton(rtol, atol),
     # Tighter tolerance needed to have bfgs_dogleg pass the JVP test.
-    bfgs_dogleg(1e-10, 1e-10),
-    bfgs_backtracking(rtol, atol, use_inverse=False),
-    bfgs_backtracking(rtol, atol, use_inverse=True),
-    bfgs_trust_region(rtol, atol, use_inverse=False),
-    bfgs_trust_region(rtol, atol, use_inverse=True),
+    BFGSDogleg(1e-10, 1e-10),
+    BFGSBacktracking(rtol, atol, use_inverse=False),
+    BFGSBacktracking(rtol, atol, use_inverse=True),
+    BFGSTrustRegion(rtol, atol, use_inverse=False),
+    BFGSTrustRegion(rtol, atol, use_inverse=True),
     optx.GradientDescent(1.5e-2, rtol, atol),
     # Tighter tolerance needed to have NonlinearCG pass the JVP test.
     optx.NonlinearCG(1e-10, 1e-10),
