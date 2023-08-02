@@ -53,10 +53,8 @@ class _ToMinimiseFn(eqx.Module, Generic[Y, Out, Aux]):
 @eqx.filter_jit
 def least_squares(
     fn: MaybeAuxFn[Y, Out, Aux],
-    solver: Union[
-        AbstractLeastSquaresSolver[Y, Out, Aux, SolverState],
-        AbstractMinimiser[Y, Aux, SolverState],
-    ],
+    # no type parameters, see https://github.com/microsoft/pyright/discussions/5599
+    solver: Union[AbstractLeastSquaresSolver, AbstractMinimiser],
     y0: Y,
     args: PyTree[Any] = None,
     options: Optional[dict[str, Any]] = None,
@@ -66,7 +64,7 @@ def least_squares(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
-) -> Solution[Y, Aux, SolverState]:
+) -> Solution[Y, Aux]:
     r"""Solve a nonlinear least-squares problem.
 
     Given a nonlinear function `fn(y, args)` which returns a pytree of residuals,
@@ -107,7 +105,7 @@ def least_squares(
     """
 
     if not has_aux:
-        fn = NoneAux(fn)
+        fn = NoneAux(fn)  # pyright: ignore
     fn = cast(Fn[Y, Out, Aux], fn)
     if options is None:
         options = {}

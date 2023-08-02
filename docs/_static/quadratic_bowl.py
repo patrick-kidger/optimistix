@@ -1,4 +1,4 @@
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # pyright: ignore
 import numpy as np
 
 

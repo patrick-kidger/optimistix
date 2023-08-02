@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Generic
+from typing import Any, Generic
 
 import equinox as eqx
 import lineax as lx
 from jaxtyping import ArrayLike, PyTree
 
-from ._custom_types import Aux, SolverState, Y
+from ._custom_types import Aux, Y
 
 
 # Extend `lineax.RESULTS` as we want to be able to use their error messages too.
@@ -36,7 +36,7 @@ class RESULTS(lx.RESULTS):  # pyright: ignore
     )
 
 
-class Solution(eqx.Module, Generic[Y, Aux, SolverState]):
+class Solution(eqx.Module, Generic[Y, Aux]):
     """The solution to a nonlinear solve.
 
     **Attributes:**
@@ -57,4 +57,4 @@ class Solution(eqx.Module, Generic[Y, Aux, SolverState]):
     result: RESULTS
     aux: Aux
     stats: dict[str, PyTree[ArrayLike]]
-    state: SolverState
+    state: Any

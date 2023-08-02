@@ -237,7 +237,9 @@ class AbstractBFGS(
             f_eval_info = _bfgs_update(
                 f_eval, grad, state.f_info.grad, hessian, hessian_inv, y_diff
             )
-            descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
+            descent_state = self.descent.query(
+                state.y_eval, f_eval_info, descent_state  # pyright: ignore
+            )
             f_diff = (f_eval**ω - state.f_info.f**ω).ω
             terminate = cauchy_termination(
                 self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff

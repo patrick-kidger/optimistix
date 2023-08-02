@@ -45,11 +45,8 @@ def _rewrite_fn(root, _, inputs):
 @eqx.filter_jit
 def root_find(
     fn: MaybeAuxFn[Y, Out, Aux],
-    solver: Union[
-        AbstractRootFinder[Y, Out, Aux, SolverState],
-        AbstractLeastSquaresSolver[Y, Out, Aux, SolverState],
-        AbstractMinimiser[Y, Aux, SolverState],
-    ],
+    # no type parameters, see https://github.com/microsoft/pyright/discussions/5599
+    solver: Union[AbstractRootFinder, AbstractLeastSquaresSolver, AbstractMinimiser],
     y0: Y,
     args: PyTree = None,
     options: Optional[dict[str, Any]] = None,
@@ -59,7 +56,7 @@ def root_find(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
-) -> Solution[Y, Aux, SolverState]:
+) -> Solution[Y, Aux]:
     """Solve a root-finding problem.
 
     Given a nonlinear function `fn(y, args)` which returns a pytree of arrays,
@@ -103,7 +100,7 @@ def root_find(
 
     y0 = jtu.tree_map(inexact_asarray, y0)
     if not has_aux:
-        fn = NoneAux(fn)
+        fn = NoneAux(fn)  # pyright: ignore
     fn = cast(Fn[Y, Out, Aux], fn)
     if options is None:
         options = {}

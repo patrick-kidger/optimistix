@@ -60,10 +60,10 @@ class _ToRootFn(eqx.Module, Generic[Y, Aux]):
 def fixed_point(
     fn: MaybeAuxFn[Y, Y, Aux],
     solver: Union[
-        AbstractFixedPointSolver[Y, Aux, SolverState],
-        AbstractRootFinder[Y, Y, Aux, SolverState],
-        AbstractLeastSquaresSolver[Y, Y, Aux, SolverState],
-        AbstractMinimiser[Y, Aux, SolverState],
+        AbstractFixedPointSolver,
+        AbstractRootFinder,
+        AbstractLeastSquaresSolver,
+        AbstractMinimiser,
     ],
     y0: Y,
     args: PyTree[Any] = None,
@@ -74,7 +74,7 @@ def fixed_point(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset()
-) -> Solution[Y, Aux, SolverState]:
+) -> Solution[Y, Aux]:
     """Find a fixed-point of a function.
 
     Given a nonlinear function `fn(y, args)` which returns a pytree of arrays of the
@@ -120,7 +120,7 @@ def fixed_point(
     """
 
     if not has_aux:
-        fn = NoneAux(fn)
+        fn = NoneAux(fn)  # pyright: ignore
     fn = cast(Fn[Y, Y, Aux], fn)
     if options is None:
         options = {}

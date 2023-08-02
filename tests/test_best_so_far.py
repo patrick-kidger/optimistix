@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+
 import optimistix as optx
 
 
@@ -35,7 +36,7 @@ def test_least_squares():
 
 def test_minimise():
     def fn(y, _):
-        return 0.5 * (y - jnp.tanh(y + 1))**2
+        return 0.5 * (y - jnp.tanh(y + 1)) ** 2
 
     solver = optx.BFGS(rtol=1e-6, atol=1e-6)
     sol = optx.minimise(fn, solver, jnp.array(0.0))

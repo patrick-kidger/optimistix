@@ -263,7 +263,8 @@ def _iterate(inputs, while_loop):
 
 def iterative_solve(
     fn: Fn[Y, Out, Aux],
-    solver: AbstractIterativeSolver[Y, Out, Aux, SolverState],
+    # no type parameters, see https://github.com/microsoft/pyright/discussions/5599
+    solver: AbstractIterativeSolver,
     y0: PyTree[Array],
     args: PyTree = None,
     options: Optional[dict[str, Any]] = None,
@@ -275,7 +276,7 @@ def iterative_solve(
     f_struct: PyTree[jax.ShapeDtypeStruct],
     aux_struct: PyTree[jax.ShapeDtypeStruct],
     rewrite_fn: Callable,
-) -> Solution[Y, Aux, SolverState]:
+) -> Solution[Y, Aux]:
     """Compute the iterates of an iterative numerical method.
 
     Given a nonlinear function `fn(y, args)` and an iterative method `solver`,

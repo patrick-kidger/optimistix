@@ -45,7 +45,8 @@ def _rewrite_fn(minimum, _, inputs):
 @eqx.filter_jit
 def minimise(
     fn: MaybeAuxFn[Y, Scalar, Aux],
-    solver: AbstractMinimiser[Y, Aux, SolverState],
+    # no type parameters, see https://github.com/microsoft/pyright/discussions/5599
+    solver: AbstractMinimiser,
     y0: Y,
     args: PyTree[Any] = None,
     options: Optional[dict[str, Any]] = None,
@@ -55,7 +56,7 @@ def minimise(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
-) -> Solution[Y, Aux, SolverState]:
+) -> Solution[Y, Aux]:
     """Minimise a function.
 
     This minimises a nonlinear function `fn(y, args)` which returns a scalar value.
@@ -93,7 +94,7 @@ def minimise(
 
     y0 = jtu.tree_map(inexact_asarray, y0)
     if not has_aux:
-        fn = NoneAux(fn)
+        fn = NoneAux(fn)  # pyright: ignore
     fn = cast(Fn[Y, Scalar, Aux], fn)
     f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
     if options is None:
