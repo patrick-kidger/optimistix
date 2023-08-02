@@ -16,7 +16,6 @@ import warnings
 from typing import Any, cast, Optional, Union
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import PyTree
@@ -98,12 +97,8 @@ def root_find(
     An [`optimistix.Solution`][] object.
     """
 
-    y0 = jtu.tree_map(inexact_asarray, y0)
     if not has_aux:
         fn = NoneAux(fn)  # pyright: ignore
-    fn = cast(Fn[Y, Out, Aux], fn)
-    if options is None:
-        options = {}
 
     if isinstance(solver, (AbstractMinimiser, AbstractLeastSquaresSolver)):
         del tags
@@ -137,7 +132,12 @@ def root_find(
             sol = sol.result.error_if(sol, sol.result != RESULTS.successful)
         return sol
     else:
-        f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
+        y0 = jtu.tree_map(inexact_asarray, y0)
+        fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
+        fn = cast(Fn[Y, Out, Aux], fn)
+        f_struct, aux_struct = fn.out_struct
+        if options is None:
+            options = {}
         return iterative_solve(
             fn,
             solver,

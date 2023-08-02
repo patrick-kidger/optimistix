@@ -106,9 +106,6 @@ def least_squares(
 
     if not has_aux:
         fn = NoneAux(fn)  # pyright: ignore
-    fn = cast(Fn[Y, Out, Aux], fn)
-    if options is None:
-        options = {}
 
     if isinstance(solver, AbstractMinimiser):
         del tags
@@ -125,7 +122,11 @@ def least_squares(
         )
     else:
         y0 = jtu.tree_map(inexact_asarray, y0)
-        f_struct, aux_struct = jax.eval_shape(lambda: fn(y0, args))
+        fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
+        fn = cast(Fn[Y, Out, Aux], fn)
+        f_struct, aux_struct = fn.out_struct
+        if options is None:
+            options = {}
         return iterative_solve(
             fn,
             solver,
