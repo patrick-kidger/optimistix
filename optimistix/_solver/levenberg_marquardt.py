@@ -288,12 +288,13 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
+        linear_solver: lx.AbstractLinearSolver = lx.QR(),
         verbose: bool = False,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.descent = DampedNewtonDescent()
+        self.descent = DampedNewtonDescent(linear_solver=linear_solver)
         self.search = ClassicalTrustRegion()
         self.verbose = verbose
 
@@ -306,6 +307,8 @@ LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `linear_solver`: The linear solver to use to solve the damped Newton step. Defaults to
+    `lineax.QR`.
 - `verbose`: If `True`, then extra information about the solve will be printed to
     stdout.
 """
