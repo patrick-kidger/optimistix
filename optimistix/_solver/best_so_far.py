@@ -30,12 +30,24 @@ def _auxmented(fn, y, args):
     return out, (out, aux)
 
 
-class _BestSoFarSolver(eqx.Module, Generic[Y, Out, Aux]):
+class _BestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
     solver: AbstractVar[AbstractIterativeSolver[Y, Out, tuple[Out, Aux], Any]]
 
     @abc.abstractmethod
     def _to_loss(self, y: Y, f: Out) -> Scalar:
         ...
+
+    @property  # pyright: ignore
+    def rtol(self):
+        return self.solver.rtol
+
+    @property  # pyright: ignore
+    def atol(self):
+        return self.solver.atol
+
+    @property  # pyright: ignore
+    def norm(self):
+        return self.solver.norm
 
     def init(
         self,
@@ -104,7 +116,7 @@ class _BestSoFarSolver(eqx.Module, Generic[Y, Out, Aux]):
         return state.best_y, state.best_aux, {}
 
 
-class BestSoFarMinimiser(
+class BestSoFarMinimiser(  # pyright: ignore
     _BestSoFarSolver[Y, Scalar, Aux], AbstractMinimiser[Y, Aux, _BestSoFarState]
 ):
     """Wraps another minimiser, to return the best-so-far value. That is, it makes a
@@ -123,7 +135,7 @@ BestSoFarMinimiser.__init__.__doc__ = """**Arguments:**
 """
 
 
-class BestSoFarLeastSquares(
+class BestSoFarLeastSquares(  # pyright: ignore
     _BestSoFarSolver[Y, Out, Aux],
     AbstractLeastSquaresSolver[Y, Out, Aux, _BestSoFarState],
 ):
@@ -143,7 +155,7 @@ BestSoFarLeastSquares.__init__.__doc__ = """**Arguments:**
 """
 
 
-class BestSoFarRootFinder(
+class BestSoFarRootFinder(  # pyright: ignore
     _BestSoFarSolver[Y, Out, Aux], AbstractRootFinder[Y, Out, Aux, _BestSoFarState]
 ):
     """Wraps another root-finder, to return the best-so-far value. That is, it
@@ -162,7 +174,7 @@ BestSoFarRootFinder.__init__.__doc__ = """**Arguments:**
 """
 
 
-class BestSoFarFixedPoint(
+class BestSoFarFixedPoint(  # pyright: ignore
     _BestSoFarSolver[Y, Y, Aux], AbstractFixedPointSolver[Y, Aux, _BestSoFarState]
 ):
     """Wraps another fixed-point solver, to return the best-so-far value. That is, it

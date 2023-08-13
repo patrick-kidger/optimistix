@@ -22,7 +22,8 @@ import jax
 import jax.core
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import Array, Bool, PyTree
+from equinox import AbstractVar
+from jaxtyping import Array, Bool, PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint
 from ._custom_types import Aux, Fn, Out, SolverState, Y
@@ -45,6 +46,13 @@ def _is_array_or_jaxpr(x):
 
 class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
     """Abstract base class for all iterative solvers."""
+
+    # Essentially every solver has an rtol+atol+norm. So for now we're just hardcoding
+    # that every solver must have these variables, as they're needed when using a
+    # minimiser or least-squares solver on a root-finding problem.
+    rtol: AbstractVar[float]
+    atol: AbstractVar[float]
+    norm: AbstractVar[Callable[[PyTree], Scalar]]
 
     @abc.abstractmethod
     def init(

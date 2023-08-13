@@ -15,16 +15,18 @@
 from typing import Any, cast, Optional, Union
 
 import equinox as eqx
+import jax.numpy as jnp
 import jax.tree_util as jtu
+from equinox import AbstractVar
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver, least_squares
-from ._minimise import AbstractMinimiser
-from ._misc import inexact_asarray, max_norm, NoneAux
-from ._solution import RESULTS, Solution
+from ._minimise import AbstractMinimiser, minimise
+from ._misc import inexact_asarray, NoneAux, tree_full_like
+from ._solution import Solution
 
 
 class AbstractRootFinder(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
@@ -36,6 +38,62 @@ def _rewrite_fn(root, _, inputs):
     del inputs
     f_val, _ = root_fn(root, args)
     return f_val
+
+
+def _to_minimise_fn(root_fn, norm, y, args):
+    root, aux = root_fn(y, args)
+    return norm(root), (root, aux)
+
+
+def _to_lstsq_fn(root_fn, y, args):
+    root, aux = root_fn(y, args)
+    return root, (root, aux)
+
+
+# Adds an additional termination condition, that `fn(y, args)` be near zero.
+class _ToRoot(AbstractIterativeSolver):
+    solver: AbstractVar[AbstractIterativeSolver]
+
+    @property  # pyright: ignore
+    def rtol(self):
+        return self.solver.rtol
+
+    @property  # pyright: ignore
+    def atol(self):
+        return self.solver.atol
+
+    @property  # pyright: ignore
+    def norm(self):
+        return self.solver.norm
+
+    def init(self, fn, y, args, options, f_struct, aux_struct, tags):
+        orig_f_struct, _ = aux_struct
+        init_state = self.solver.init(fn, y, args, options, f_struct, aux_struct, tags)
+        f_inf = tree_full_like(orig_f_struct, jnp.inf)
+        return (init_state, f_inf)
+
+    def step(self, fn, y, args, options, state, tags):
+        state, _ = state
+        new_y, new_state, (f, aux) = self.solver.step(fn, y, args, options, state, tags)
+        return new_y, (new_state, f), (f, aux)
+
+    def terminate(self, fn, y, args, options, state, tags):
+        state, f = state
+        terminate, result = self.solver.terminate(fn, y, args, options, state, tags)
+        # No rtol, because `rtol * 0 = 0`.
+        near_zero = self.norm(f) < self.atol
+        return terminate & near_zero, result
+
+    def postprocess(self, fn, y, aux, args, options, state, tags, result):
+        return self.solver.postprocess(fn, y, aux, args, options, state, tags, result)
+
+
+class _MinimToRoot(AbstractMinimiser, _ToRoot):
+    solver: AbstractMinimiser
+
+
+class _LstsqToRoot(AbstractLeastSquaresSolver, _ToRoot):
+    solver: AbstractLeastSquaresSolver
 
 
 @eqx.filter_jit
@@ -97,43 +155,37 @@ def root_find(
     if not has_aux:
         fn = NoneAux(fn)  # pyright: ignore
 
-    if isinstance(solver, (AbstractMinimiser, AbstractLeastSquaresSolver)):
+    if isinstance(solver, AbstractMinimiser):
         del tags
-        # `fn` is unchanged, as `least_squares` expects the residuals.
-        sol = least_squares(
-            fn,
-            solver,
+        sol = minimise(
+            eqx.Partial(_to_minimise_fn, fn, solver.norm),
+            _MinimToRoot(solver),
             y0,
             args,
             options,
             has_aux=True,
             max_steps=max_steps,
             adjoint=adjoint,
-            throw=False,
+            throw=throw,
         )
-        # This is an ugly heuristic. I'd welcome any thoughts on how to improve it.
-        # Consider trying to find a root of x->1+x^2 with a minimiser. It obviously
-        # won't find a root, but it will find a local minimum and declare success.
-        # So we need to check that we've actually got a root and raise an error if not.
-        #
-        # What should the tolerance on that be? At first you might think we could do
-        # `solver.norm(f_val) < solver.aval`, but this doesn't work: the original solver
-        # may terminate before this condition is satisfied. In particular this happens
-        # because minimisers often stop once a Cauchy condition is satisfied, i.e. two
-        # adjacent iterates are close. That offers no guarantees that the above is also
-        # satisfied (an indeed in practice it frequently is not).
-        #
-        # So, this is a best-effort attempt: max norm with tolerance 0.1, hardcoded.
-        f_val = fn(sol.value, args)
-        did_not_find_root = max_norm(f_val) > 0.1
-        result = RESULTS.where(
-            did_not_find_root & (sol.result == RESULTS.successful),
-            RESULTS.nonlinear_root_conversion_failed,
-            sol.result,
+        _, aux = sol.aux
+        sol = eqx.tree_at(lambda s: s.aux, sol, aux)
+        return sol
+    elif isinstance(solver, AbstractLeastSquaresSolver):
+        del tags
+        return least_squares(
+            eqx.Partial(_to_lstsq_fn, fn),
+            _LstsqToRoot(solver),
+            y0,
+            args,
+            options,
+            has_aux=True,
+            max_steps=max_steps,
+            adjoint=adjoint,
+            throw=throw,
         )
-        sol = eqx.tree_at(lambda s: s.result, sol, result)
-        if throw:
-            sol = sol.result.error_if(sol, sol.result != RESULTS.successful)
+        _, aux = sol.aux
+        sol = eqx.tree_at(lambda s: s.aux, sol, aux)
         return sol
     else:
         y0 = jtu.tree_map(inexact_asarray, y0)
