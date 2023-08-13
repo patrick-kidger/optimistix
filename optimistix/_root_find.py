@@ -12,21 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import warnings
 from typing import Any, cast, Optional, Union
 
 import equinox as eqx
-import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._base_solver import AbstractHasTol
 from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver, least_squares
 from ._minimise import AbstractMinimiser
-from ._misc import inexact_asarray, NoneAux
+from ._misc import inexact_asarray, max_norm, NoneAux
 from ._solution import RESULTS, Solution
 
 
@@ -114,20 +111,27 @@ def root_find(
             adjoint=adjoint,
             throw=False,
         )
-        if isinstance(solver, AbstractHasTol):
-            f_val = fn(sol.value, args)
-            success = jnp.abs(solver.norm(f_val)) < solver.atol
-            result = RESULTS.where(
-                success, sol.result, RESULTS.nonlinear_root_conversion_failed
-            )
-            sol = eqx.tree_at(lambda s: s.result, sol, result)
-            del f_val, success, result
-        else:
-            solver_name = solver.__class__.__name__
-            warnings.warn(
-                f"`optimistix.root_find(solver={solver_name}(...), ...)` does not "
-                "check that the returned solution is actually a root."
-            )
+        # This is an ugly heuristic. I'd welcome any thoughts on how to improve it.
+        # Consider trying to find a root of x->1+x^2 with a minimiser. It obviously
+        # won't find a root, but it will find a local minimum and declare success.
+        # So we need to check that we've actually got a root and raise an error if not.
+        #
+        # What should the tolerance on that be? At first you might think we could do
+        # `solver.norm(f_val) < solver.aval`, but this doesn't work: the original solver
+        # may terminate before this condition is satisfied. In particular this happens
+        # because minimisers often stop once a Cauchy condition is satisfied, i.e. two
+        # adjacent iterates are close. That offers no guarantees that the above is also
+        # satisfied (an indeed in practice it frequently is not).
+        #
+        # So, this is a best-effort attempt: max norm with tolerance 0.1, hardcoded.
+        f_val = fn(sol.value, args)
+        did_not_find_root = max_norm(f_val) > 0.1
+        result = RESULTS.where(
+            did_not_find_root & (sol.result == RESULTS.successful),
+            RESULTS.nonlinear_root_conversion_failed,
+            sol.result,
+        )
+        sol = eqx.tree_at(lambda s: s.result, sol, result)
         if throw:
             sol = sol.result.error_if(sol, sol.result != RESULTS.successful)
         return sol

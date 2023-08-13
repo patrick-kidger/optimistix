@@ -21,7 +21,6 @@ import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, Y
 from .._fixed_point import AbstractFixedPointSolver
 from .._misc import max_norm
@@ -32,9 +31,7 @@ class _FixedPointState(eqx.Module):
     relative_error: Scalar
 
 
-class FixedPointIteration(
-    AbstractFixedPointSolver[Y, Aux, _FixedPointState], AbstractHasTol
-):
+class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
     """Repeatedly calls a function in search of a fixed point.
 
     This is one of the simplest ways to find a fixed point `y` of `f`: simply

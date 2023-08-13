@@ -21,7 +21,6 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
 from .._misc import cauchy_termination, max_norm
@@ -37,7 +36,7 @@ class _OptaxState(eqx.Module):
     terminate: Bool[Array, ""]
 
 
-class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState], AbstractHasTol):
+class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
     """A wrapper to use Optax first-order gradient-based optimisers with
     [`optimistix.minimise`][].
     """

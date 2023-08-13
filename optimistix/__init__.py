@@ -18,7 +18,6 @@ from ._adjoint import (
     ImplicitAdjoint as ImplicitAdjoint,
     RecursiveCheckpointAdjoint as RecursiveCheckpointAdjoint,
 )
-from ._base_solver import AbstractHasTol as AbstractHasTol
 from ._fixed_point import (
     AbstractFixedPointSolver as AbstractFixedPointSolver,
     fixed_point as fixed_point,

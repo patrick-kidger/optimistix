@@ -23,7 +23,6 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
-from .._base_solver import AbstractHasTol
 from .._custom_types import Args, Aux, DescentState, Fn, Out, SearchState, Y
 from .._least_squares import AbstractLeastSquaresSolver
 from .._misc import (
@@ -182,9 +181,7 @@ def _make_f_info(
     return FunctionInfo.ResidualJac(f_eval, jac_eval), aux_eval
 
 
-class AbstractGaussNewton(
-    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState], AbstractHasTol
-):
+class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState]):
     """Abstract base class for all Gauss-Newton type methods.
 
     This includes methods such as [`optimistix.GaussNewton`][],

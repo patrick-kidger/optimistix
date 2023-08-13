@@ -18,8 +18,6 @@ Optimistix is fully extendable. It provides a number of abstract base classes ("
 
     In each case, they offer a general way to combine a [search and a descent](./api/searches/introduction.md).
 
-In addition, if your solver has `atol`, `rtol` and `norm` attributes used for convergence (this is true of most solvers), then annotate this by subclassing `optimistix.AbstractHasTol`. Minimisers and least-squares solvers annotated in this way are also compatible with root-finding problems. (As root-finding problems can be automatically converted into minimisation/least-square problems.)
-
 **Line searches, trust regions, learning rates etc.**
 
 These may be defined by subclassing [`optimistix.AbstractSearch`][]. See also the [introduction to searches and descent](./api/searches/introduction.md)

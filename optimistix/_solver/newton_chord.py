@@ -30,7 +30,6 @@ else:
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn, Out, Y
 from .._misc import cauchy_termination, max_norm, tree_full_like
 from .._root_find import AbstractRootFinder
@@ -62,9 +61,7 @@ class _NewtonChordState(eqx.Module, Generic[Y]):
     step: Scalar
 
 
-class _NewtonChord(
-    AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]], AbstractHasTol
-):
+class _NewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm

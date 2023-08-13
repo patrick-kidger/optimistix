@@ -23,7 +23,6 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, DescentState, Fn, Out, SearchState, Y
 from .._minimise import AbstractMinimiser
 from .._misc import (
@@ -118,9 +117,7 @@ class _GradientDescentState(
     result: RESULTS
 
 
-class AbstractGradientDescent(
-    AbstractMinimiser[Y, Aux, _GradientDescentState], AbstractHasTol
-):
+class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
     """The gradient descent method for unconstrained minimisation.
 
     At every step, this algorithm performs a line search along the steepest descent

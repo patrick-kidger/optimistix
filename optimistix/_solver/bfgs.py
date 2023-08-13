@@ -24,7 +24,6 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, DescentState, Fn, SearchState, Y
 from .._minimise import AbstractMinimiser
 from .._misc import (
@@ -155,9 +154,7 @@ class _BFGSState(eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian
     result: RESULTS
 
 
-class AbstractBFGS(
-    AbstractMinimiser[Y, Aux, _BFGSState], AbstractHasTol, Generic[Y, Aux, _Hessian]
-):
+class AbstractBFGS(AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessian]):
     """Abstract BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way

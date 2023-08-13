@@ -20,7 +20,6 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, PyTree, Scalar
 
-from .._base_solver import AbstractHasTol
 from .._custom_types import Aux, Fn
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
@@ -33,10 +32,7 @@ class _BisectionState(eqx.Module):
     error: Float[Array, ""]
 
 
-class Bisection(
-    AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState],
-    AbstractHasTol,
-):
+class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
     """The bisection method of root finding. This may only be used with functions
     `R->R`, i.e. functions with scalar input and scalar output.
 
