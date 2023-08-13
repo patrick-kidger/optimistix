@@ -31,6 +31,7 @@ from .._misc import (
     max_norm,
     sum_squares,
     tree_full_like,
+    verbose_print,
 )
 from .._search import (
     AbstractDescent,
@@ -194,7 +195,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
     - `norm: Callable[[PyTree], Scalar]`
     - `descent: AbstractDescent`
     - `search: AbstractSearch`
-    - `verbose: bool`
+    - `verbose: frozenset[str]
     """
 
     rtol: AbstractVar[float]
@@ -204,7 +205,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
     search: AbstractVar[
         AbstractSearch[Y, FunctionInfo.ResidualJac, FunctionInfo.ResidualJac, Any]
     ]
-    verbose: AbstractVar[bool]
+    verbose: AbstractVar[frozenset[str]]
 
     def init(
         self,
@@ -256,21 +257,6 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             accept, 0, state.num_steps_since_acceptance + 1
         )
 
-        if self.verbose:
-            loss_eval = 0.5 * sum_squares(f_eval_info.residual)
-            loss = 0.5 * sum_squares(state.f_info.residual)
-            jax.debug.print(
-                """
-Step: {} , Accepted steps: {} , Steps since acceptance: {} , Loss on this step: {} , Loss on the last accepted step: {} , Step size: {}
-""".strip(),  # noqa: E501
-                state.num_steps,
-                state.num_accepted_steps,
-                state.num_steps_since_acceptance,
-                loss_eval,
-                loss,
-                step_size,
-            )
-
         def accepted(descent_state):
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
             y_diff = (state.y_eval**ω - y**ω).ω
@@ -292,6 +278,37 @@ Step: {} , Accepted steps: {} , Steps since acceptance: {} , Loss on this step: 
         y, f_info, aux, descent_state, terminate = filter_cond(
             accept, accepted, rejected, state.descent_state
         )
+
+        if len(self.verbose) > 0:
+            verbose_step = "step" in self.verbose
+            verbose_loss = "loss" in self.verbose
+            verbose_accepted = "accepted" in self.verbose
+            verbose_step_size = "step_size" in self.verbose
+            verbose_y = "y" in self.verbose
+            loss_eval = 0.5 * sum_squares(f_eval_info.residual)
+            loss = 0.5 * sum_squares(state.f_info.residual)
+            verbose_print(
+                (verbose_step, "Step", state.num_steps),
+                (
+                    verbose_step and verbose_accepted,
+                    "Accepted steps",
+                    state.num_accepted_steps,
+                ),
+                (
+                    verbose_step and verbose_accepted,
+                    "Steps since acceptance",
+                    state.num_steps_since_acceptance,
+                ),
+                (verbose_loss, "Loss on this step", loss_eval),
+                (
+                    verbose_loss and verbose_accepted,
+                    "Loss on the last accepted step",
+                    loss,
+                ),
+                (verbose_step_size, "Step size", step_size),
+                (verbose_y, "y", state.y_eval),
+                (verbose_y and verbose_accepted, "y on the last accepted step", y),
+            )
 
         y_descent, descent_result = self.descent.step(step_size, descent_state)
         y_eval = (y**ω + y_descent**ω).ω
@@ -351,7 +368,7 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: NewtonDescent[Y]
     search: LearningRate[Y]
-    verbose: bool
+    verbose: frozenset[str]
 
     def __init__(
         self,
@@ -359,7 +376,7 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
-        verbose: bool = False,
+        verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol
         self.atol = atol
@@ -378,6 +395,8 @@ GaussNewton.__init__.__doc__ = """**Arguments:**
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `linear_solver`: The linear solver used to compute the Newton step.
-- `verbose`: If `True`, then extra information about the solve will be printed to
-    stdout.
+- `verbose`: Whether to print out extra information about how the solve is proceeding.
+    Should be a frozenset of strings, specifying what information to print out. Valid
+    entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
+    `verbose=frozenset({"loss", "step_size"})`.
 """

@@ -19,11 +19,11 @@ from typing_extensions import TypeAlias
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
-from .._misc import cauchy_termination, max_norm
+from .._misc import cauchy_termination, max_norm, verbose_print
 from .._solution import RESULTS
 
 
@@ -31,6 +31,7 @@ _OptaxClass: TypeAlias = Any
 
 
 class _OptaxState(eqx.Module):
+    step: Int[Array, ""]
     f: Scalar
     opt_state: Any
     terminate: Bool[Array, ""]
@@ -47,6 +48,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
+    verbose: frozenset[str]
 
     def __init__(
         self,
@@ -55,6 +57,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
+        verbose: frozenset[str] = frozenset(),
         **kwargs
     ):
         """**Arguments:**
@@ -70,6 +73,10 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
             includes three built-in norms: [`optimistix.max_norm`][],
             [`optimistix.rms_norm`][], and [`optimistix.two_norm`][]. Keyword only
             argument.
+        - `verbose`: Whether to print out extra information about how the solve is
+            proceeding. Should be a frozenset of strings, specifying what information to
+            print out. Valid entries are `step`, `loss`, `y`. For example
+            `verbose=frozenset({"step", "loss"})`.
         """
         self.optax_cls = optax_cls
         self.args = args
@@ -77,6 +84,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
+        self.verbose = verbose
 
     def init(
         self,
@@ -92,7 +100,9 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         optim = self.optax_cls(*self.args, **self.kwargs)
         opt_state = optim.init(y)
         maxval = jnp.array(jnp.finfo(f_struct.dtype).max, f_struct.dtype)
-        return _OptaxState(f=maxval, opt_state=opt_state, terminate=jnp.array(False))
+        return _OptaxState(
+            step=jnp.array(0), f=maxval, opt_state=opt_state, terminate=jnp.array(False)
+        )
 
     def step(
         self,
@@ -106,6 +116,12 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         del options
         (f, aux), grads = eqx.filter_value_and_grad(fn, has_aux=True)(y, args)
         f = cast(Array, f)
+        if len(self.verbose) > 0:
+            verbose_print(
+                ("step" in self.verbose, "Step", state.step),
+                ("loss" in self.verbose, "Loss", f),
+                ("y" in self.verbose, "y", y),
+            )
         optim = self.optax_cls(*self.args, **self.kwargs)
         updates, new_opt_state = optim.update(grads, state.opt_state)
         new_y = eqx.apply_updates(y, updates)
@@ -118,7 +134,9 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
             f,
             f - state.f,
         )
-        new_state = _OptaxState(f=f, opt_state=new_opt_state, terminate=terminate)
+        new_state = _OptaxState(
+            step=state.step + 1, f=f, opt_state=new_opt_state, terminate=terminate
+        )
         return new_y, new_state, aux
 
     def terminate(

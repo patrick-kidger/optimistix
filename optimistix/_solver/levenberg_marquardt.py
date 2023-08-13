@@ -281,7 +281,7 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: DampedNewtonDescent[Y]
     search: ClassicalTrustRegion[Y]
-    verbose: bool
+    verbose: frozenset[str]
 
     def __init__(
         self,
@@ -289,7 +289,7 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.QR(),
-        verbose: bool = False,
+        verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol
         self.atol = atol
@@ -309,8 +309,10 @@ LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `linear_solver`: The linear solver to use to solve the damped Newton step. Defaults to
     `lineax.QR`.
-- `verbose`: If `True`, then extra information about the solve will be printed to
-    stdout.
+- `verbose`: Whether to print out extra information about how the solve is proceeding.
+    Should be a frozenset of strings, specifying what information to print out. Valid
+    entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
+    `verbose=frozenset({"loss", "step_size"})`.
 """
 
 
@@ -331,7 +333,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: IndirectDampedNewtonDescent[Y]
     search: ClassicalTrustRegion[Y]
-    verbose: bool
+    verbose: frozenset[str]
 
     def __init__(
         self,
@@ -341,7 +343,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         lambda_0: ScalarLike = 1.0,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False),
         root_finder: AbstractRootFinder = Newton(rtol=0.01, atol=0.01),
-        verbose: bool = False,
+        verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol
         self.atol = atol
@@ -369,6 +371,8 @@ IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 - `linear_solver`: The linear solver used to compute the Newton step.
 - `root_finder`: The root finder used to find the Levenberg--Marquardt parameter which
     hits the trust-region radius.
-- `verbose`: If `True`, then extra information about the solve will be printed to
-    stdout.
+- `verbose`: Whether to print out extra information about how the solve is proceeding.
+    Should be a frozenset of strings, specifying what information to print out. Valid
+    entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
+    `verbose=frozenset({"loss", "step_size"})`.
 """

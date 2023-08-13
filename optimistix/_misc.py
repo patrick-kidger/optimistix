@@ -15,7 +15,7 @@
 import functools as ft
 import math
 from collections.abc import Callable
-from typing import Literal, overload, TYPE_CHECKING, TypeVar, Union
+from typing import Any, Literal, overload, TYPE_CHECKING, TypeVar, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -326,3 +326,15 @@ def filter_cond(pred, true_fun, false_fun, *operands):
 
     dynamic_out, static_out = lax.cond(pred, _true_fun, _false_fun, dynamic)
     return eqx.combine(dynamic_out, _unwrap_jaxpr(static_out.value))
+
+
+def verbose_print(*args: tuple[bool, str, Any]) -> None:
+    string_pieces = []
+    arg_pieces = []
+    for display, name, value in args:
+        if display:
+            string_pieces.append(name + ": {}")
+            arg_pieces.append(value)
+    if len(string_pieces) > 0:
+        string = ", ".join(string_pieces)
+        jax.debug.print(string, *arg_pieces)
