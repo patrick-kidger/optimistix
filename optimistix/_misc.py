@@ -178,11 +178,24 @@ def max_norm(x: PyTree[ArrayLike]) -> Scalar:
     This is the largest absolute elementwise value. Considering the input `x` as a flat
     vector `(x_1, ..., x_n)`, then this computes `max_i |x_i|`.
     """
-    leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x)]
+    leaf_maxes = [jnp.max(jnp.abs(xi)) for xi in jtu.tree_leaves(x) if jnp.size(xi) > 0]
     if len(leaf_maxes) == 0:
         return jnp.array(0, default_floating_dtype())
     else:
-        return ft.reduce(jnp.maximum, leaf_maxes)
+        out = ft.reduce(jnp.maximum, leaf_maxes)
+        return _zero_grad_at_zero(out)
+
+
+@jax.custom_jvp
+def _zero_grad_at_zero(x):
+    return x
+
+
+@_zero_grad_at_zero.defjvp
+def _zero_grad_at_zero_jvp(primals, tangents):
+    (out,) = primals
+    (t_out,) = tangents
+    return out, jnp.where(out == 0, 0, t_out)
 
 
 def resolve_rcond(rcond, n, m, dtype):
