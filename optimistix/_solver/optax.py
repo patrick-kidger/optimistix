@@ -14,9 +14,9 @@
 
 from collections.abc import Callable
 from typing import Any, cast
-from typing_extensions import TypeAlias
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
@@ -25,9 +25,6 @@ from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
 from .._misc import cauchy_termination, max_norm, verbose_print
 from .._solution import RESULTS
-
-
-_OptaxClass: TypeAlias = Any
 
 
 class _OptaxState(eqx.Module):
@@ -42,9 +39,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
     [`optimistix.minimise`][].
     """
 
-    optax_cls: _OptaxClass
-    args: tuple[Any, ...]
-    kwargs: dict[str, Any]
+    optim: "optax.GradientTransformation"  # pyright: ignore  # noqa: F821
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
@@ -52,20 +47,15 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
 
     def __init__(
         self,
-        optax_cls,
-        *args,
+        optim,
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         verbose: frozenset[str] = frozenset(),
-        **kwargs
     ):
         """**Arguments:**
 
-        - `optax_cls`: The **class** of the Optax method to use. Do not pass an
-            **instance** of the Optax class.
-        - `args`: The arguments used to instantiate `optax_cls`.
-        - `kwargs`: The keyword arguments used to instantiate `optax_cls`.
+        - `optim`: The Optax optimiser to use.
         - `rtol`: Relative tolerance for terminating the solve. Keyword only argument.
         - `atol`: Absolute tolerance for terminating the solve. Keyword only argument.
         - `norm`: The norm used to determine the difference between two iterates in the
@@ -78,9 +68,9 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
             print out. Valid entries are `step`, `loss`, `y`. For example
             `verbose=frozenset({"step", "loss"})`.
         """
-        self.optax_cls = optax_cls
-        self.args = args
-        self.kwargs = kwargs
+        # See https://github.com/deepmind/optax/issues/577: Optax has an issue in which
+        # it doesn't use pytrees correctly.
+        self.optim = eqxi.closure_to_pytree(optim)
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
@@ -97,8 +87,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         tags: frozenset[object],
     ) -> _OptaxState:
         del fn, args, options, aux_struct
-        optim = self.optax_cls(*self.args, **self.kwargs)
-        opt_state = optim.init(y)
+        opt_state = self.optim.init(y)
         maxval = jnp.array(jnp.finfo(f_struct.dtype).max, f_struct.dtype)
         return _OptaxState(
             step=jnp.array(0), f=maxval, opt_state=opt_state, terminate=jnp.array(False)
@@ -122,8 +111,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
                 ("loss" in self.verbose, "Loss", f),
                 ("y" in self.verbose, "y", y),
             )
-        optim = self.optax_cls(*self.args, **self.kwargs)
-        updates, new_opt_state = optim.update(grads, state.opt_state)
+        updates, new_opt_state = self.optim.update(grads, state.opt_state)
         new_y = eqx.apply_updates(y, updates)
         terminate = cauchy_termination(
             self.rtol,

@@ -5,6 +5,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import optax
 import pytest
 
 import optimistix as optx
@@ -143,3 +144,29 @@ def test_nonlinear_cg_methods(method):
     y0 = jnp.array([2.0, 3.0])
     sol = optx.minimise(f, solver, y0, max_steps=500)
     assert tree_allclose(sol.value, jnp.array([29.5, 9.0]), rtol=1e-5, atol=1e-5)
+
+
+def test_optax_recompilation():
+    optim1 = optax.chain(
+        optax.adam(jnp.array(1e-3)),
+        optax.scale_by_schedule(optax.piecewise_constant_schedule(1, {200: 0.1})),
+    )
+    solver1 = optx.OptaxMinimiser(optim1, rtol=1e-3, atol=1e-3)
+
+    optim2 = optax.chain(
+        optax.adam(jnp.array(1e-2)),
+        optax.scale_by_schedule(optax.piecewise_constant_schedule(1, {200: 0.1})),
+    )
+    solver2 = optx.OptaxMinimiser(optim2, rtol=1e-3, atol=1e-3)
+
+    num_called = 0
+
+    def f(x, _):
+        nonlocal num_called
+        num_called += 1
+        return x**2
+
+    optx.minimise(f, solver1, 1.0)
+    num_called_so_far = num_called
+    optx.minimise(f, solver2, 1.0)
+    assert num_called_so_far == num_called

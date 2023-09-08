@@ -22,7 +22,7 @@ These are an important special case of minimisation problems.
 
 Either [`optimistix.LevenbergMarquardt`][] or [`optimistix.Dogleg`][] are recommended for most problems.
 
-If your problem is particularly messy, as discussed above, then use a first-order gradient algorithm, e.g. `optimistix.OptaxMinimiser(optax.adabelief, ...)`. These are compatible with `optimistix.least_squares`.
+If your problem is particularly messy, as discussed above, then use a first-order gradient algorithm, e.g. `optimistix.OptaxMinimiser(optax.adabelief(...), ...)`. These are compatible with `optimistix.least_squares`.
 
 ## Root-finding problems
 
@@ -32,7 +32,7 @@ For relatively "well-behaved" problems, then either [`optimistix.Newton`][] or [
 
 If your problem is a little bit messy, then try [`optimistix.LevenbergMarquardt`][] or [`optimistix.Dogleg`][]. (These are compatible with root-finding problems.)
 
-If your problem is particularly messy, as discussed above, then use a first-order gradient algorithm, e.g. `optimistix.OptaxMinimiser(optax.adabelief, ...)`. (These are also compatible with root-finding problems.)
+If your problem is particularly messy, as discussed above, then use a first-order gradient algorithm, e.g. `optimistix.OptaxMinimiser(optax.adabelief(...), ...)`. (These are also compatible with root-finding problems.)
 
 ## Fixed-point problems
 

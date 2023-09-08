@@ -147,7 +147,7 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: optx.DoglegDescent[Y]
     search: optx.ClassicalTrustRegion[Y]
-    verbose: bool
+    verbose: frozenset[str]
 
     def __init__(
         self,
@@ -163,7 +163,7 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
             trust_region_norm=optx.max_norm,
         )
         self.search = optx.ClassicalTrustRegion()
-        self.verbose = False
+        self.verbose = frozenset()
 
 
 class BFGSDampedNewton(optx.AbstractBFGS):
@@ -247,7 +247,7 @@ minimisers = (
     optx.GradientDescent(1.5e-2, rtol, atol),
     # Tighter tolerance needed to have NonlinearCG pass the JVP test.
     optx.NonlinearCG(1e-10, 1e-10),
-    optx.OptaxMinimiser(optax.adam, rtol=rtol, atol=atol, learning_rate=3e-3),
+    optx.OptaxMinimiser(optax.adam(learning_rate=3e-3), rtol=rtol, atol=atol),
 )
 
 # the minimisers can handle least squares problems, but the least squares
