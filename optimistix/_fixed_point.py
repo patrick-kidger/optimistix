@@ -25,7 +25,7 @@ from ._custom_types import Args, Aux, Fn, MaybeAuxFn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver
 from ._minimise import AbstractMinimiser
-from ._misc import inexact_asarray, NoneAux
+from ._misc import inexact_asarray, NoneAux, OutAsArray
 from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
 
@@ -121,6 +121,7 @@ def fixed_point(
 
     if not has_aux:
         fn = NoneAux(fn)  # pyright: ignore
+    fn = OutAsArray(fn)
 
     if isinstance(
         solver, (AbstractRootFinder, AbstractLeastSquaresSolver, AbstractMinimiser)

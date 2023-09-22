@@ -23,7 +23,7 @@ from jaxtyping import PyTree, Scalar
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Aux, Fn, MaybeAuxFn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
-from ._misc import inexact_asarray, NoneAux
+from ._misc import inexact_asarray, NoneAux, OutAsArray
 from ._solution import Solution
 
 
@@ -95,6 +95,7 @@ def minimise(
     y0 = jtu.tree_map(inexact_asarray, y0)
     if not has_aux:
         fn = NoneAux(fn)  # pyright: ignore
+    fn = OutAsArray(fn)
     fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
     fn = cast(Fn[Y, Scalar, Aux], fn)
     f_struct, aux_struct = fn.out_struct

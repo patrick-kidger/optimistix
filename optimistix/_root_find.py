@@ -25,7 +25,7 @@ from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver, least_squares
 from ._minimise import AbstractMinimiser, minimise
-from ._misc import inexact_asarray, NoneAux, tree_full_like
+from ._misc import inexact_asarray, NoneAux, OutAsArray, tree_full_like
 from ._solution import Solution
 
 
@@ -85,6 +85,7 @@ class _ToRoot(AbstractIterativeSolver):
         return terminate & near_zero, result
 
     def postprocess(self, fn, y, aux, args, options, state, tags, result):
+        state, _ = state
         return self.solver.postprocess(fn, y, aux, args, options, state, tags, result)
 
 
@@ -154,6 +155,7 @@ def root_find(
 
     if not has_aux:
         fn = NoneAux(fn)  # pyright: ignore
+    fn = OutAsArray(fn)
 
     if isinstance(solver, AbstractMinimiser):
         del tags

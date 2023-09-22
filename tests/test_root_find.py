@@ -178,4 +178,4 @@ def test_bad_root_via_min():
 
     y0 = jnp.array(0.5), jnp.array([-0.3, 0.7])
     sol = optx.root_find(f, optx.BFGS(rtol=1e-8, atol=1e-8), y0, throw=False)
-    assert sol.result == optx.RESULTS.nonlinear_root_conversion_failed
+    assert sol.result == optx.RESULTS.nonlinear_max_steps_reached

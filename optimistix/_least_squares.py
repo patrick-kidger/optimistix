@@ -23,7 +23,7 @@ from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Args, Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._minimise import AbstractMinimiser, minimise
-from ._misc import inexact_asarray, NoneAux, sum_squares
+from ._misc import inexact_asarray, NoneAux, OutAsArray, sum_squares
 from ._solution import Solution
 
 
@@ -106,6 +106,7 @@ def least_squares(
 
     if not has_aux:
         fn = NoneAux(fn)  # pyright: ignore
+    fn = OutAsArray(fn)
 
     if isinstance(solver, AbstractMinimiser):
         del tags

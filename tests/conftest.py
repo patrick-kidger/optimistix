@@ -18,6 +18,7 @@ import random
 import jax
 import jax.random as jr
 import pytest
+from jaxtyping import PRNGKeyArray
 
 
 jax.config.update("jax_enable_x64", True)
@@ -31,7 +32,7 @@ jax.config.update("jax_enable_x64", True)
 class _GetKey:
     seed: int
     call: int
-    key: jr.PRNGKeyArray
+    key: PRNGKeyArray
 
     def __init__(self, seed: int):
         self.seed = seed

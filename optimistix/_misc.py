@@ -218,6 +218,20 @@ class NoneAux(eqx.Module):
         return self.fn(*args, **kwargs), None
 
 
+class OutAsArray(eqx.Module):
+    """Wrap a minimisation/root-find/etc. function so that its mathematical outputs are
+    all inexact arrays, and its auxiliary outputs are all arrays.
+    """
+
+    fn: Callable
+
+    def __call__(self, *args, **kwargs):
+        out, aux = self.fn(*args, **kwargs)
+        out = jtu.tree_map(inexact_asarray, out)
+        aux = jtu.tree_map(asarray, aux)
+        return out, aux
+
+
 def jacobian(fn, in_size, out_size, has_aux=False):
     """Compute the Jacobian of a function using forward or backward mode AD.
 
@@ -250,6 +264,11 @@ def _asarray_jvp(dtype, x, tx):
     (x,) = x
     (tx,) = tx
     return _asarray(dtype, x), _asarray(dtype, tx)
+
+
+def asarray(x):
+    dtype = jnp.result_type(x)
+    return _asarray(dtype, x)
 
 
 def inexact_asarray(x):

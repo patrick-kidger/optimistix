@@ -30,10 +30,6 @@ class RESULTS(lx.RESULTS):  # pyright: ignore
         "roots), or you may need to increase `max_steps`."
     )
     nonlinear_divergence = "Nonlinear solve diverged."
-    nonlinear_root_conversion_failed = (
-        "Could not solve root-finding problem using minimisation/least-squares "
-        "algorithm. The original problem might not have any roots."
-    )
 
 
 class Solution(eqx.Module, Generic[Y, Aux]):
