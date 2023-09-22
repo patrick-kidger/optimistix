@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.metadata
+
 from . import internal as internal
 from ._adjoint import (
     AbstractAdjoint as AbstractAdjoint,
@@ -86,4 +88,4 @@ from ._solver import (
 )
 
 
-__version__ = "0.0.1"
+__version__ = importlib.metadata.version("optimistix")
