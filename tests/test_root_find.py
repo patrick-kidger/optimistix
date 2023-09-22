@@ -148,7 +148,7 @@ def test_newton_bounded(solver):
     else:
         tol = 1e-2
 
-    lower_bound = (jnp.NINF, jnp.array([[0, jnp.NINF], [jnp.NINF, jnp.NINF]]))
+    lower_bound = (-jnp.inf, jnp.array([[0, -jnp.inf], [-jnp.inf, -jnp.inf]]))
     true_lower_root = (jnp.array(0.0), jnp.array([[1.0, 0.0], [0.0, -1.0]]))
     y0 = (jnp.array(0.1), jnp.array([[1.1, 0.1], [0.1, -1.1]]))
     lower_root = optx.root_find(f, solver, y0, options=dict(lower=lower_bound)).value
