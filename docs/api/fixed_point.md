@@ -1,4 +1,4 @@
-# Fixed point solvers
+# Fixed points
 
 ::: optimistix.fixed_point
 
