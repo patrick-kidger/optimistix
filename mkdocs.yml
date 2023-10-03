@@ -106,16 +106,18 @@ nav:
         - Optimise an ODE: 'examples/optimise_diffeq.ipynb'
         - Interactively step through a solve: 'examples/interactive.ipynb'
         - Custom solvers: 'examples/custom_solver.ipynb'
-    - API:
-        - 'api/minimise.md'
-        - 'api/least_squares.md'
-        - 'api/root_find.md'
-        - 'api/fixed_point.md'
+    - Basic API:
+        - Nonlinear problems:
+            - 'api/minimise.md'
+            - 'api/least_squares.md'
+            - 'api/root_find.md'
+            - 'api/fixed_point.md'
         - 'api/solution.md'
+    - Advanced API:
+        - 'api/norms.md'
+        - 'api/adjoints.md'
         - Searches and descents:
             - 'api/searches/introduction.md'
             - 'api/searches/searches.md'
             - 'api/searches/descents.md'
             - 'api/searches/function_info.md'
-        - 'api/norms.md'
-        - 'api/adjoints.md'
