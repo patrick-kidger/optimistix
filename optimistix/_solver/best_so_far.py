@@ -37,16 +37,16 @@ class _BestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
     def _to_loss(self, y: Y, f: Out) -> Scalar:
         ...
 
-    @property  # pyright: ignore
-    def rtol(self):
+    @property
+    def rtol(self):  # pyright: ignore
         return self.solver.rtol
 
-    @property  # pyright: ignore
-    def atol(self):
+    @property
+    def atol(self):  # pyright: ignore
         return self.solver.atol
 
-    @property  # pyright: ignore
-    def norm(self):
+    @property
+    def norm(self):  # pyright: ignore
         return self.solver.norm
 
     def init(
@@ -125,6 +125,10 @@ class BestSoFarMinimiser(  # pyright: ignore
 
     solver: AbstractMinimiser[Y, tuple[Scalar, Aux], Any]
 
+    # Explicit `__init__` to keep pyright happy.
+    def __init__(self, solver: AbstractMinimiser[Y, tuple[Scalar, Aux], Any]):
+        self.solver = solver  # pyright: ignore
+
     def _to_loss(self, y: Y, f: Scalar) -> Scalar:
         return f
 
@@ -145,6 +149,12 @@ class BestSoFarLeastSquares(  # pyright: ignore
 
     solver: AbstractLeastSquaresSolver[Y, Out, tuple[Out, Aux], Any]
 
+    # Explicit `__init__` to keep pyright happy.
+    def __init__(
+        self, solver: AbstractLeastSquaresSolver[Y, Out, tuple[Out, Aux], Any]
+    ):
+        self.solver = solver  # pyright: ignore
+
     def _to_loss(self, y: Y, f: Out) -> Scalar:
         return sum_squares(f)
 
@@ -164,6 +174,10 @@ class BestSoFarRootFinder(  # pyright: ignore
 
     solver: AbstractRootFinder[Y, Out, tuple[Out, Aux], Any]
 
+    # Explicit `__init__` to keep pyright happy.
+    def __init__(self, solver: AbstractRootFinder[Y, Out, tuple[Out, Aux], Any]):
+        self.solver = solver  # pyright: ignore
+
     def _to_loss(self, y: Y, f: Out) -> Scalar:
         return sum_squares(f)
 
@@ -182,6 +196,10 @@ class BestSoFarFixedPoint(  # pyright: ignore
     """
 
     solver: AbstractFixedPointSolver[Y, tuple[Y, Aux], Any]
+
+    # Explicit `__init__` to keep pyright happy.
+    def __init__(self, solver: AbstractFixedPointSolver[Y, tuple[Y, Aux], Any]):
+        self.solver = solver  # pyright: ignore
 
     def _to_loss(self, y: Y, f: Y) -> Scalar:
         return sum_squares((y**ω - f**ω).ω)

@@ -54,16 +54,16 @@ def _to_lstsq_fn(root_fn, y, args):
 class _ToRoot(AbstractIterativeSolver):
     solver: AbstractVar[AbstractIterativeSolver]
 
-    @property  # pyright: ignore
-    def rtol(self):
+    @property
+    def rtol(self):  # pyright: ignore
         return self.solver.rtol
 
-    @property  # pyright: ignore
-    def atol(self):
+    @property
+    def atol(self):  # pyright: ignore
         return self.solver.atol
 
-    @property  # pyright: ignore
-    def norm(self):
+    @property
+    def norm(self):  # pyright: ignore
         return self.solver.norm
 
     def init(self, fn, y, args, options, f_struct, aux_struct, tags):
@@ -92,9 +92,17 @@ class _ToRoot(AbstractIterativeSolver):
 class _MinimToRoot(AbstractMinimiser, _ToRoot):
     solver: AbstractMinimiser
 
+    # Explicit __init__ to keep pyright happy.
+    def __init__(self, solver: AbstractMinimiser):
+        self.solver = solver  # pyright: ignore
+
 
 class _LstsqToRoot(AbstractLeastSquaresSolver, _ToRoot):
     solver: AbstractLeastSquaresSolver
+
+    # Explicit __init__ to keep pyright happy.
+    def __init__(self, solver: AbstractLeastSquaresSolver):
+        self.solver = solver  # pyright: ignore
 
 
 @eqx.filter_jit
