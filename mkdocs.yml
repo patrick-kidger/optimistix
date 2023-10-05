@@ -36,8 +36,8 @@ site_description: The documentation for the Optimistix software library.
 site_author: Patrick Kidger
 site_url: https://docs.kidger.site/optimistix
 
-repo_url: https://github.com/google/optimistix
-repo_name: google/optimistix
+repo_url: https://github.com/patrick-kidger/optimistix
+repo_name: patrick-kidger/optimistix
 edit_uri: ""  # No edit button, as some of our pages are in /docs and some in /examples via symlink, so it's impossible for them all to be accurate
 
 strict: true  # Don't allow warnings during the build process
