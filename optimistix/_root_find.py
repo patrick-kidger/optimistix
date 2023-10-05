@@ -92,9 +92,37 @@ class _ToRoot(AbstractIterativeSolver):
 class _MinimToRoot(AbstractMinimiser, _ToRoot):
     solver: AbstractMinimiser
 
+    # Redeclare these three to work around the Equinox bug fixed here:
+    # https://github.com/patrick-kidger/equinox/pull/544
+    @property  # pyright: ignore
+    def rtol(self):
+        return self.solver.rtol
+
+    @property  # pyright: ignore
+    def atol(self):
+        return self.solver.atol
+
+    @property  # pyright: ignore
+    def norm(self):
+        return self.solver.norm
+
 
 class _LstsqToRoot(AbstractLeastSquaresSolver, _ToRoot):
     solver: AbstractLeastSquaresSolver
+
+    # Redeclare these three to work around the Equinox bug fixed here:
+    # https://github.com/patrick-kidger/equinox/pull/544
+    @property  # pyright: ignore
+    def rtol(self):
+        return self.solver.rtol
+
+    @property  # pyright: ignore
+    def atol(self):
+        return self.solver.atol
+
+    @property  # pyright: ignore
+    def norm(self):
+        return self.solver.norm
 
 
 @eqx.filter_jit
