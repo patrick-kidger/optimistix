@@ -161,7 +161,7 @@ def root_find(
         del tags
         sol = minimise(
             eqx.Partial(_to_minimise_fn, fn, solver.norm),
-            _MinimToRoot(solver),
+            _MinimToRoot(solver),  # pyright: ignore
             y0,
             args,
             options,
@@ -177,7 +177,7 @@ def root_find(
         del tags
         return least_squares(
             eqx.Partial(_to_lstsq_fn, fn),
-            _LstsqToRoot(solver),
+            _LstsqToRoot(solver),  # pyright: ignore
             y0,
             args,
             options,

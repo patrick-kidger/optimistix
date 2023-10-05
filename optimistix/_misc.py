@@ -97,7 +97,7 @@ def tree_dot(tree1: PyTree[ArrayLike], tree2: PyTree[ArrayLike]) -> Inexact[Arra
             jnp.dot(
                 jnp.reshape(leaf1, -1),
                 jnp.conj(leaf2).reshape(-1),
-                precision=jax.lax.Precision.HIGHEST,
+                precision=jax.lax.Precision.HIGHEST,  # pyright: ignore
             )
         )
     if len(dots) == 0:

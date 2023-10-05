@@ -125,6 +125,10 @@ class BestSoFarMinimiser(  # pyright: ignore
 
     solver: AbstractMinimiser[Y, tuple[Scalar, Aux], Any]
 
+    # Explicitly declare to keep pyright happy.
+    def __init__(self, solver: AbstractMinimiser[Y, tuple[Scalar, Aux], Any]):
+        self.solver = solver
+
     def _to_loss(self, y: Y, f: Scalar) -> Scalar:
         return f
 
@@ -145,6 +149,12 @@ class BestSoFarLeastSquares(  # pyright: ignore
 
     solver: AbstractLeastSquaresSolver[Y, Out, tuple[Out, Aux], Any]
 
+    # Explicitly declare to keep pyright happy.
+    def __init__(
+        self, solver: AbstractLeastSquaresSolver[Y, Out, tuple[Out, Aux], Any]
+    ):
+        self.solver = solver
+
     def _to_loss(self, y: Y, f: Out) -> Scalar:
         return sum_squares(f)
 
@@ -164,6 +174,10 @@ class BestSoFarRootFinder(  # pyright: ignore
 
     solver: AbstractRootFinder[Y, Out, tuple[Out, Aux], Any]
 
+    # Explicitly declare to keep pyright happy.
+    def __init__(self, solver: AbstractRootFinder[Y, Out, tuple[Out, Aux], Any]):
+        self.solver = solver
+
     def _to_loss(self, y: Y, f: Out) -> Scalar:
         return sum_squares(f)
 
@@ -182,6 +196,10 @@ class BestSoFarFixedPoint(  # pyright: ignore
     """
 
     solver: AbstractFixedPointSolver[Y, tuple[Y, Aux], Any]
+
+    # Explicitly declare to keep pyright happy.
+    def __init__(self, solver: AbstractFixedPointSolver[Y, tuple[Y, Aux], Any]):
+        self.solver = solver
 
     def _to_loss(self, y: Y, f: Y) -> Scalar:
         return sum_squares((y**ω - f**ω).ω)
