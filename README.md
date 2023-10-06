@@ -65,4 +65,4 @@ This is not an official Google product.
 
 ### Credit
 
-Optimistix was primarily built by Jason Rader: [Twitter](https://twitter.com/packquickly); [GitHub](https://github.com/packquickly); [Website](https://www.packquickly.com/).
+Optimistix was primarily built by Jason Rader (@packquickly): [Twitter](https://twitter.com/packquickly); [GitHub](https://github.com/packquickly); [Website](https://www.packquickly.com/).
