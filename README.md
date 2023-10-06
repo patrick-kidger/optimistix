@@ -43,6 +43,8 @@ y1 = sol.value  # satisfies y1 == fn(y1)
 
 ### JAX ecosystem
 
+[jaxtyping](https://github.com/google/jaxtyping): type annotations for shape/dtype of arrays.
+
 [Equinox](https://github.com/patrick-kidger/equinox): neural networks.
 
 [Optax](https://github.com/deepmind/optax): first-order gradient (SGD, Adam, ...) optimisers.
@@ -51,13 +53,15 @@ y1 = sol.value  # satisfies y1 == fn(y1)
 
 [Lineax](https://github.com/google/lineax): linear solvers.
 
-[jaxtyping](https://github.com/google/jaxtyping): type annotations for shape/dtype of arrays.
-
-[Eqxvision](https://github.com/paganpasta/eqxvision): computer vision models.
+[BlackJAX](https://github.com/blackjax-devs/blackjax): probabilistic+Bayesian sampling.
 
 [sympy2jax](https://github.com/google/sympy2jax): SymPy<->JAX conversion; train symbolic expressions via gradient descent.
 
+[Eqxvision](https://github.com/paganpasta/eqxvision): computer vision models.
+
 [Levanter](https://github.com/stanford-crfm/levanter): scalable+reliable training of foundation models (e.g. LLMs).
+
+[PySR](https://github.com/milesCranmer/PySR): symbolic regression. (Non-JAX honourable mention!)
 
 ### Disclaimer
 
