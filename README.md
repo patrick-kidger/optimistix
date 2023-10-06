@@ -55,6 +55,8 @@ y1 = sol.value  # satisfies y1 == fn(y1)
 
 [BlackJAX](https://github.com/blackjax-devs/blackjax): probabilistic+Bayesian sampling.
 
+[Orbax](https://github.com/google/orbax): checkpointing (async/multi-host/multi-device).
+
 [sympy2jax](https://github.com/google/sympy2jax): SymPy<->JAX conversion; train symbolic expressions via gradient descent.
 
 [Eqxvision](https://github.com/paganpasta/eqxvision): computer vision models.
