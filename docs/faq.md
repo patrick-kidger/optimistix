@@ -12,9 +12,9 @@ Optimistix doesn't try to reinvent the wheel! The Optax library is excellent. As
 
 **Reasons to use Optimistix:**
 
-- Optimistix is typically faster to compile, and faster to run.
+- Optimistix is much faster to compile, and faster to run.
 - Optimistix supports some solvers not found in JAXopt (e.g. [`optimistix.Newton`][] for root-finding problems).
-- Optimistix's APIs are designed to integrate more cleanly with the scientific ecosystem being built up around [Equinox](https://github.com/patrick-kidger/equinox).
+- Optimistix's APIs will integrate more cleanly with the scientific ecosystem being built up around [Equinox](https://github.com/patrick-kidger/equinox).
 - Optimistix is much more flexible for advanced use-cases, see e.g. the way we can [mix-and-match](./api/searches/introduction.md) different optimisers.
 
 **Reasons to use JAXopt:**
