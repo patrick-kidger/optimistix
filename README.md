@@ -19,6 +19,10 @@ pip install optimistix
 
 Requires Python 3.9+ and JAX 0.4.14+ and [Equinox](https://github.com/patrick-kidger/equinox) 0.11.0+.
 
+## Documentation
+
+Available at [https://docs.kidger.site/optimistix](https://docs.kidger.site/optimistix).
+
 ## Quick example
 
 ```python
