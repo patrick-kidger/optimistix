@@ -137,7 +137,7 @@ class ImplicitAdjoint(AbstractAdjoint):
     r"""Backpropagate via the [implicit function theorem](https://en.wikipedia.org/wiki/Implicit_function_theorem).
 
     For example, using the root-finding case by way of example: suppose we find the
-    root `y(θ)` for which `f(y(θ), θ) = θ`.
+    root `y(θ)` for which `f(y(θ), θ) = 0`.
     Then we can skip backpropagating through the solver by computing
     $\frac{\mathrm{d}y}{\mathrm{d}\theta} = - (\frac{\mathrm{d}f}{\mathrm{d}y})^{-1}\frac{\mathrm{d}f}{\mathrm{d}\theta}$
     via the implicit function theorem.
