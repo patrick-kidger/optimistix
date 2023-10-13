@@ -14,7 +14,7 @@
 
 import importlib.metadata
 
-from . import internal as internal
+from . import compat as compat, internal as internal
 from ._adjoint import (
     AbstractAdjoint as AbstractAdjoint,
     ImplicitAdjoint as ImplicitAdjoint,
