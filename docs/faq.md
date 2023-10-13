@@ -24,7 +24,9 @@ Optimistix doesn't try to reinvent the wheel! The Optax library is excellent. As
 
 #### ...`jax.scipy.optimize.minimize`?
 
-This is an API which is likely to be removed from JAX at some point, in favour of Optimistix and JAXopt. Don't use it. (Note that the core JAX API only supports minimisation, and only supports the BFGS algorithm.)
+This is an API which is being removed from JAX, in favour of Optimistix and JAXopt. Don't use it. (Note that the core JAX API only supports minimisation, and only supports the BFGS algorithm.)
+
+Optimistix supports [`optimistix.compat.minimize`][] as a drop-in replacement for this API.
 
 ## How to debug a solver that is failing to converge, or producing an error?
 

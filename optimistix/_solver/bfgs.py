@@ -22,7 +22,7 @@ import jax.tree_util as jtu
 import lineax as lx
 from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._custom_types import Aux, DescentState, Fn, SearchState, Y
 from .._minimise import AbstractMinimiser
@@ -152,6 +152,8 @@ class _BFGSState(eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian
     # Used for termination
     terminate: Bool[Array, ""]
     result: RESULTS
+    # Used in compat.py
+    num_accepted_steps: Int[Array, ""]
 
 
 class AbstractBFGS(AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessian]):
@@ -199,6 +201,7 @@ class AbstractBFGS(AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessi
             descent_state=self.descent.init(y, f_info_struct),
             terminate=jnp.array(False),
             result=RESULTS.successful,
+            num_accepted_steps=jnp.array(0),
         )
 
     def step(
@@ -265,6 +268,7 @@ class AbstractBFGS(AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessi
             descent_state=descent_state,
             terminate=terminate,
             result=result,
+            num_accepted_steps=state.num_accepted_steps + accept,
         )
         return y, state, aux
 

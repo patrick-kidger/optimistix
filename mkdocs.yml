@@ -100,7 +100,6 @@ nav:
     - 'index.md'
     - 'how-to-choose.md'
     - 'abstract.md'
-    - 'faq.md'
     - Examples:
         - Root Finding: 'examples/root_find.ipynb'
         - Optimise an ODE: 'examples/optimise_diffeq.ipynb'
@@ -121,3 +120,6 @@ nav:
             - 'api/searches/searches.md'
             - 'api/searches/descents.md'
             - 'api/searches/function_info.md'
+    - Misc:
+        - 'faq.md'
+        - 'api/compat.md'
