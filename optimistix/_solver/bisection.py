@@ -41,6 +41,9 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
     - `lower`: The lower bound on the interval which contains the root.
     - `upper`: The upper bound on the interval which contains the root.
 
+    Which are passed as, for example,
+    `optimistix.root_find(..., options=dict(lower=0, upper=1))`
+
     This algorithm works by considering the interval `[lower, upper]`, checking the
     sign of the evaluated function at the midpoint of the interval, and then keeping
     whichever half contains the root. This is then repeated. The iteration stops once
