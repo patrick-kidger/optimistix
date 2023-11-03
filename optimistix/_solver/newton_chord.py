@@ -61,6 +61,15 @@ class _NewtonChordState(eqx.Module, Generic[Y]):
     step: Scalar
 
 
+class _NoAux(eqx.Module):
+    fn: Callable
+
+    def __call__(self, y, args):
+        out, aux = self.fn(y, args)
+        del aux
+        return out
+
+
 class _NewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]):
     rtol: float
     atol: float
@@ -85,8 +94,7 @@ class _NewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]):
         if self._is_newton:
             linear_state = None
         else:
-            # TODO(kidger): evaluate on just the first step, to reduce compile time.
-            jac = lx.JacobianLinearOperator(fn, y, args, tags=tags, _has_aux=True)
+            jac = lx.JacobianLinearOperator(_NoAux(fn), y, args, tags=tags)
             jac = lx.linearise(jac)
             init_later_state = self.linear_solver.init(jac, options={})
             init_later_state = lax.stop_gradient(init_later_state)
