@@ -268,8 +268,7 @@ _init_doc = """**Arguments:**
 - `norm`: The norm used to determine the difference between two iterates in the 
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
-    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][]. Only used when
-    `cauchy_termination=True`.
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `kappa`: A tolerance for early convergence check when `cauchy_termination=False`.
 - `linear_solver`: The linear solver used to compute the Newton step.
 - `cauchy_termination`: When `True`, use the Cauchy termination condition, that
