@@ -14,7 +14,6 @@
 
 import jax
 import jax.numpy as jnp
-
 import optimistix._misc as optx_misc
 
 

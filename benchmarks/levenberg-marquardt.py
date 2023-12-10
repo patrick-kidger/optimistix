@@ -44,9 +44,8 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 import jaxopt  # pyright: ignore
 import lineax as lx
-from jaxtyping import Array, Float
-
 import optimistix as optx
+from jaxtyping import Array, Float
 
 
 def vector_field(

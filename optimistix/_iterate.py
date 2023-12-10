@@ -337,13 +337,16 @@ def iterative_solve(
     f_struct = jtu.tree_map(eqxi.Static, f_struct)
     aux_struct = jtu.tree_map(eqxi.Static, aux_struct)
     inputs = fn, solver, y0, args, options, max_steps, f_struct, aux_struct, tags
-    out, (
-        num_steps,
-        result,
-        dynamic_final_state,
-        static_state,
-        aux,
-        stats,
+    (
+        out,
+        (
+            num_steps,
+            result,
+            dynamic_final_state,
+            static_state,
+            aux,
+            stats,
+        ),
     ) = adjoint.apply(_iterate, rewrite_fn, inputs, tags)
     final_state = eqx.combine(dynamic_final_state, unwrap_jaxpr(static_state.value))
     stats = {"num_steps": num_steps, "max_steps": max_steps, **stats}

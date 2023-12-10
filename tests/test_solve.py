@@ -1,5 +1,4 @@
 import jax
-
 import optimistix as optx
 
 

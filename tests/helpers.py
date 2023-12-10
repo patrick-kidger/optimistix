@@ -26,10 +26,9 @@ import jax.tree_util as jtu
 import lineax as lx
 import numpy as np
 import optax
+import optimistix as optx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
-
-import optimistix as optx
 
 
 Y = TypeVar("Y")

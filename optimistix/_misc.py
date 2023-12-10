@@ -49,7 +49,6 @@ def tree_full_like(
 def tree_full_like(
     struct: PyTree, fill_value: ArrayLike, allow_static: Literal[True] = True
 ):
-
     ...
 
 

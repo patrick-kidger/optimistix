@@ -238,7 +238,9 @@ class AbstractBFGS(AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessi
                 f_eval, grad, state.f_info.grad, hessian, hessian_inv, y_diff
             )
             descent_state = self.descent.query(
-                state.y_eval, f_eval_info, descent_state  # pyright: ignore
+                state.y_eval,
+                f_eval_info,  # pyright: ignore
+                descent_state,
             )
             f_diff = (f_eval**ω - state.f_info.f**ω).ω
             terminate = cauchy_termination(
