@@ -13,8 +13,6 @@
 # limitations under the License.
 
 import functools as ft
-import operator
-import random
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -39,47 +37,8 @@ Out = TypeVar("Out")
 Aux = TypeVar("Aux")
 
 
-def getkey():
-    return jr.PRNGKey(random.randint(0, 2**31 - 1))
-
-
-def _tree_allclose(x, y, **kwargs):
-    if type(x) is not type(y):
-        return False
-    if isinstance(x, jnp.ndarray):  # pyright: ignore
-        if jnp.issubdtype(x.dtype, jnp.inexact):
-            return (
-                x.shape == y.shape
-                and x.dtype == y.dtype
-                and jnp.allclose(x, y, **kwargs)
-            )
-        else:
-            return x.shape == y.shape and x.dtype == y.dtype and jnp.all(x == y)
-    elif isinstance(x, np.ndarray):
-        if np.issubdtype(x.dtype, np.inexact):
-            return (
-                x.shape == y.shape
-                and x.dtype == y.dtype
-                and np.allclose(x, y, **kwargs)
-            )
-        else:
-            return x.shape == y.shape and x.dtype == y.dtype and np.all(x == y)
-    elif isinstance(x, jax.ShapeDtypeStruct):
-        assert x.shape == y.shape and x.dtype == y.dtype
-    else:
-        return x == y
-
-
-def tree_allclose(x, y, **kwargs):
-    """As `jnp.allclose`, except:
-    - It also supports PyTree arguments.
-    - It mandates that shapes match as well (no broadcasting)
-    """
-    same_structure = jtu.tree_structure(x) == jtu.tree_structure(y)
-    allclose = ft.partial(_tree_allclose, **kwargs)
-    return same_structure and jtu.tree_reduce(
-        operator.and_, jtu.tree_map(allclose, x, y), True
-    )
+def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
+    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
 
 
 def finite_difference_jvp(fn, primals, tangents, eps=None, **kwargs):
