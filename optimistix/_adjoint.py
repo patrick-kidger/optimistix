@@ -142,7 +142,7 @@ class ImplicitAdjoint(AbstractAdjoint):
     $\frac{\mathrm{d}y}{\mathrm{d}\theta} = - (\frac{\mathrm{d}f}{\mathrm{d}y})^{-1}\frac{\mathrm{d}f}{\mathrm{d}\theta}$
     via the implicit function theorem.
 
-    For most problems this is the preferred technique for backpropogating through
+    For most problems this is the preferred technique for backpropagating through
     a nonlinear solve.
     """  # noqa: E501
 
