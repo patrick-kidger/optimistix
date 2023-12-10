@@ -73,7 +73,7 @@ def fixed_point(
     max_steps: Optional[int] = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
-    tags: frozenset[object] = frozenset()
+    tags: frozenset[object] = frozenset(),
 ) -> Solution[Y, Aux]:
     """Find a fixed-point of a function.
 

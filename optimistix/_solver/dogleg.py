@@ -13,14 +13,14 @@
 # limitations under the License.
 
 from collections.abc import Callable
-from typing import Any, Generic, Union
+from typing import Any, cast, Generic, Union
 
 import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import PyTree, Scalar
+from jaxtyping import Array, PyTree, Scalar
 
 from .._custom_types import Aux, Out, Y
 from .._misc import (
@@ -102,6 +102,7 @@ class DoglegDescent(
         safe_denom = jnp.where(denom_nonzero, denom, 1)
         # Compute `grad^T grad / (grad^T Hess grad)`
         scaling = jnp.where(denom_nonzero, sum_squares(f_info.grad) / safe_denom, 0.0)
+        scaling = cast(Array, scaling)
 
         # Downhill towards the bottom of the quadratic basin.
         newton_sol, result = newton_step(f_info, self.linear_solver)

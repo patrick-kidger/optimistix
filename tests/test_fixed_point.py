@@ -4,10 +4,9 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import optimistix as optx
 import pytest
 from equinox.internal import ω
-
-import optimistix as optx
 
 from .helpers import (
     bisection_fn_init_options_args,

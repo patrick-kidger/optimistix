@@ -1,8 +1,7 @@
 import jax.numpy as jnp
 import jax.scipy.optimize as jsp_optimize
-import pytest
-
 import optimistix as optx
+import pytest
 
 from .helpers import beale, tree_allclose
 

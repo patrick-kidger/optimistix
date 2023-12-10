@@ -1,5 +1,4 @@
 import jax.numpy as jnp
-
 import optimistix as optx
 
 

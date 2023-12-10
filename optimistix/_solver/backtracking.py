@@ -79,7 +79,6 @@ class BacktrackingArmijo(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _BacktrackingSt
         f_eval_info: _FnEvalInfo,
         state: _BacktrackingState,
     ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _BacktrackingState]:
-
         if isinstance(
             f_info,
             (
