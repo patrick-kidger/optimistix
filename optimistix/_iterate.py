@@ -27,6 +27,7 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint
 from ._custom_types import Aux, Fn, Out, SolverState, Y
+from ._misc import unwrap_jaxpr, wrap_jaxpr
 from ._solution import RESULTS, Solution
 
 
@@ -255,18 +256,25 @@ def _iterate(inputs, while_loop):
         return solver.buffers(state)
 
     final_carry = while_loop(cond_fun, body_fun, init_carry, max_steps=max_steps)
-    final_y, num_steps, final_state, final_aux = final_carry
-    _final_state = eqx.combine(static_state, final_state)
-    terminate, result = solver.terminate(fn, final_y, args, options, _final_state, tags)
+    final_y, num_steps, dynamic_final_state, final_aux = final_carry
+    final_state = eqx.combine(static_state, dynamic_final_state)
+    terminate, result = solver.terminate(fn, final_y, args, options, final_state, tags)
     result = RESULTS.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
         RESULTS.nonlinear_max_steps_reached,
         result,
     )
     final_y, final_aux, stats = solver.postprocess(
-        fn, final_y, final_aux, args, options, _final_state, tags, result
+        fn, final_y, final_aux, args, options, final_state, tags, result
     )
-    return final_y, (num_steps, result, final_state, final_aux, stats)
+    return final_y, (
+        num_steps,
+        result,
+        dynamic_final_state,
+        eqxi.Static(wrap_jaxpr(static_state)),
+        final_aux,
+        stats,
+    )
 
 
 def iterative_solve(
@@ -329,9 +337,15 @@ def iterative_solve(
     f_struct = jtu.tree_map(eqxi.Static, f_struct)
     aux_struct = jtu.tree_map(eqxi.Static, aux_struct)
     inputs = fn, solver, y0, args, options, max_steps, f_struct, aux_struct, tags
-    out, (num_steps, result, final_state, aux, stats) = adjoint.apply(
-        _iterate, rewrite_fn, inputs, tags
-    )
+    out, (
+        num_steps,
+        result,
+        dynamic_final_state,
+        static_state,
+        aux,
+        stats,
+    ) = adjoint.apply(_iterate, rewrite_fn, inputs, tags)
+    final_state = eqx.combine(dynamic_final_state, unwrap_jaxpr(static_state.value))
     stats = {"num_steps": num_steps, "max_steps": max_steps, **stats}
     sol = Solution(value=out, result=result, state=final_state, aux=aux, stats=stats)
     if throw:

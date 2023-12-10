@@ -315,7 +315,7 @@ class _JaxprEqual:
         return type(self) is type(other)
 
 
-def _wrap_jaxpr_impl(leaf):
+def _wrap_jaxpr_leaf(leaf):
     # But not jax.core.ClosedJaxpr, which contains constants that should be handled in
     # pytree style.
     if isinstance(leaf, jax.core.Jaxpr):
@@ -324,19 +324,19 @@ def _wrap_jaxpr_impl(leaf):
         return leaf
 
 
-def _wrap_jaxpr(tree):
-    return jtu.tree_map(_wrap_jaxpr_impl, tree)
+def wrap_jaxpr(tree):
+    return jtu.tree_map(_wrap_jaxpr_leaf, tree)
 
 
-def _unwrap_jaxpr_impl(leaf):
+def _unwrap_jaxpr_leaf(leaf):
     if isinstance(leaf, _JaxprEqual):
         return leaf.jaxpr
     else:
         return leaf
 
 
-def _unwrap_jaxpr(tree):
-    return jtu.tree_map(_unwrap_jaxpr_impl, tree)
+def unwrap_jaxpr(tree):
+    return jtu.tree_map(_unwrap_jaxpr_leaf, tree)
 
 
 def filter_cond(pred, true_fun, false_fun, *operands):
@@ -346,18 +346,18 @@ def filter_cond(pred, true_fun, false_fun, *operands):
         _operands = eqx.combine(_dynamic, static)
         _out = true_fun(*_operands)
         _dynamic_out, _static_out = eqx.partition(_out, eqx.is_array)
-        _static_out = _wrap_jaxpr(_static_out)
+        _static_out = wrap_jaxpr(_static_out)
         return _dynamic_out, eqxi.Static(_static_out)
 
     def _false_fun(_dynamic):
         _operands = eqx.combine(_dynamic, static)
         _out = false_fun(*_operands)
         _dynamic_out, _static_out = eqx.partition(_out, eqx.is_array)
-        _static_out = _wrap_jaxpr(_static_out)
+        _static_out = wrap_jaxpr(_static_out)
         return _dynamic_out, eqxi.Static(_static_out)
 
     dynamic_out, static_out = lax.cond(pred, _true_fun, _false_fun, dynamic)
-    return eqx.combine(dynamic_out, _unwrap_jaxpr(static_out.value))
+    return eqx.combine(dynamic_out, unwrap_jaxpr(static_out.value))
 
 
 def verbose_print(*args: tuple[bool, str, Any]) -> None:
