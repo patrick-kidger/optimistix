@@ -179,3 +179,13 @@ def test_bad_root_via_min():
     y0 = jnp.array(0.5), jnp.array([-0.3, 0.7])
     sol = optx.root_find(f, optx.BFGS(rtol=1e-8, atol=1e-8), y0, throw=False)
     assert sol.result == optx.RESULTS.nonlinear_max_steps_reached
+
+
+@pytest.mark.parametrize("solver_cls", (optx.Newton, optx.Chord))
+def test_newton_chord_small_diff(solver_cls):
+    def f(y, _):
+        return y
+
+    solver = solver_cls(rtol=1e-5, atol=1e-5, cauchy_termination=False)
+    sol = optx.root_find(f, solver, 0.0, throw=False)
+    assert sol.result == optx.RESULTS.successful
