@@ -28,7 +28,7 @@ def test_minimize(method):
 def test_errors():
     fun, args, x0 = _setup()
     # remove test-time beartype wrapping
-    minimize = optx.compat.minimize.__wrapped__.__wrapped__
+    minimize = optx.compat.minimize.__wrapped__
     with pytest.raises(ValueError):
         minimize(fun, [2.0, 0.0], args, method="bfgs")  # pyright: ignore
 
