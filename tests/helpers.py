@@ -785,4 +785,4 @@ class PiggybackAdjoint(optx.AbstractAdjoint):
     def apply(self, primal_fn, rewrite_fn, inputs, tags):
         del rewrite_fn, tags
         while_loop = ft.partial(eqxi.while_loop, kind="lax")
-        return primal_fn(inputs, while_loop)
+        return primal_fn(inputs + (while_loop,))
