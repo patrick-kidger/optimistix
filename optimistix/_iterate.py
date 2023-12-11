@@ -216,8 +216,19 @@ def _zero(x):
         return x
 
 
-def _iterate(inputs, while_loop):
-    fn, solver, y0, args, options, max_steps, f_struct, aux_struct, tags = inputs
+def _iterate(inputs):
+    (
+        fn,
+        solver,
+        y0,
+        args,
+        options,
+        max_steps,
+        f_struct,
+        aux_struct,
+        tags,
+        while_loop,
+    ) = inputs
     del inputs
     static_leaf = lambda x: isinstance(x, eqxi.Static)
     f_struct = jtu.tree_map(lambda x: x.value, f_struct, is_leaf=static_leaf)

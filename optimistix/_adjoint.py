@@ -125,12 +125,7 @@ class RecursiveCheckpointAdjoint(AbstractAdjoint):
         while_loop = ft.partial(
             eqxi.while_loop, kind="checkpointed", checkpoints=self.checkpoints
         )
-        return primal_fn(inputs, while_loop)
-
-
-def _primal_fn(inputs):
-    primal_fn, inputs, while_loop = inputs
-    return primal_fn(inputs, while_loop)
+        return primal_fn(inputs + (while_loop,))
 
 
 class ImplicitAdjoint(AbstractAdjoint):
@@ -149,8 +144,8 @@ class ImplicitAdjoint(AbstractAdjoint):
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
     def apply(self, primal_fn, rewrite_fn, inputs, tags):
-        _inputs = (primal_fn, inputs, ft.partial(eqxi.while_loop, kind="lax"))
-        return implicit_jvp(_primal_fn, rewrite_fn, _inputs, tags, self.linear_solver)
+        inputs = inputs + (ft.partial(eqxi.while_loop, kind="lax"),)
+        return implicit_jvp(primal_fn, rewrite_fn, inputs, tags, self.linear_solver)
 
 
 RecursiveCheckpointAdjoint.__init__.__doc__ = """**Arguments:**

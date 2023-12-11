@@ -88,9 +88,7 @@ def _is_none(x):
 
 
 def _for_jac(root, args):
-    fn_rewrite, residual, _inputs = args
-    iterate, inputs, while_loop = _inputs
-    del iterate, while_loop
+    fn_rewrite, residual, inputs = args
     return fn_rewrite(root, residual, inputs)
 
 
@@ -114,9 +112,7 @@ def _implicit_impl_jvp(primals, tangents):
 
     def _for_jvp(_diff):
         _inputs = eqx.combine(_diff, nondiff)
-        iterate, inputs, while_loop = _inputs
-        del iterate, while_loop
-        return fn_rewrite(root, residual, inputs)
+        return fn_rewrite(root, residual, _inputs)
 
     operator = lx.JacobianLinearOperator(
         _for_jac, root, (fn_rewrite, residual, inputs), tags=tags
