@@ -14,7 +14,7 @@ For relatively "well-behaved" problems -- ones where the initial guess is likely
 
 then the best choice is usually an algorithm like [`optimistix.BFGS`][] or [`optimistix.NonlinearCG`][]. By assuming that your function is relatively well-behaved, then these try to take larger steps to get the minimum faster.
 
-For "messier" problems -- where the surface of the function is not so well-behaved -- then a first-order gradient algorithm often works well. These work by taking many small steps, and never moving too far away from the current best-so-far. The [Optax](https://github.com/deepmind/optax) library is dedicated to such algorithms; as such you should try e.g. `optimistix.OptaxMinimiser(optax.adabelief, learning_rate=1e-3, rtol=1e-8, atol=1e-8)`.
+For "messier" problems -- where the surface of the function is not so well-behaved -- then a first-order gradient algorithm often works well. These work by taking many small steps, and never moving too far away from the current best-so-far. The [Optax](https://github.com/deepmind/optax) library is dedicated to such algorithms; as such you should try e.g. `optimistix.OptaxMinimiser(optax.adabelief(learning_rate=1e-3), rtol=1e-8, atol=1e-8)`.
 
 ## Least-squares problems
 

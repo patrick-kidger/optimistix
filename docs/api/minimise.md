@@ -51,6 +51,8 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
         members:
             - __init__
 
+`optim` in [`optimistix.OptaxMinimiser`][] is an instance of an Optax minimiser. For example, correct usage is `optimistix.OptaxMinimiser(optax.adam(...), ...)`, not `optimistix.OptaxMinimiser(optax.adam, ...)`. 
+
 ---
 
 ::: optimistix.NonlinearCG
