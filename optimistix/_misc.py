@@ -231,18 +231,16 @@ def filter_cond(pred, true_fun, false_fun, *operands):
         _operands = eqx.combine(_dynamic, static)
         _out = true_fun(*_operands)
         _dynamic_out, _static_out = eqx.partition(_out, eqx.is_array)
-        _static_out = wrap_jaxpr(_static_out)
         return _dynamic_out, eqxi.Static(_static_out)
 
     def _false_fun(_dynamic):
         _operands = eqx.combine(_dynamic, static)
         _out = false_fun(*_operands)
         _dynamic_out, _static_out = eqx.partition(_out, eqx.is_array)
-        _static_out = wrap_jaxpr(_static_out)
         return _dynamic_out, eqxi.Static(_static_out)
 
     dynamic_out, static_out = lax.cond(pred, _true_fun, _false_fun, dynamic)
-    return eqx.combine(dynamic_out, unwrap_jaxpr(static_out.value))
+    return eqx.combine(dynamic_out, static_out.value)
 
 
 def verbose_print(*args: tuple[bool, str, Any]) -> None:
