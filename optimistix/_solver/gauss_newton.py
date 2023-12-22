@@ -188,14 +188,14 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
     This includes methods such as [`optimistix.GaussNewton`][],
     [`optimistix.LevenbergMarquardt`][], and [`optimistix.Dogleg`][].
 
-    Subclasses must provide the following abstract attributes, with the following types:
+    Subclasses must provide the following attributes, with the following types:
 
-    - `rtol: float`
-    - `atol: float`
-    - `norm: Callable[[PyTree], Scalar]`
-    - `descent: AbstractDescent`
-    - `search: AbstractSearch`
-    - `verbose: frozenset[str]
+    - `rtol`: `float`
+    - `atol`: `float`
+    - `norm`: `Callable[[PyTree], Scalar]`
+    - `descent`: `AbstractDescent`
+    - `search`: `AbstractSearch`
+    - `verbose`: `frozenset[str]`
     """
 
     rtol: AbstractVar[float]
@@ -243,6 +243,14 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         tags: frozenset[object],
     ) -> tuple[Y, _GaussNewtonState, Aux]:
         f_eval_info, aux_eval = _make_f_info(fn, state.y_eval, args, tags)
+        # We have a jaxpr in `f_info.jac`, which are compared by identity. Here we
+        # arrange to use the same one so that downstream equality checks (e.g. in the
+        # `filter_cond` below)
+        dynamic = eqx.filter(f_eval_info.jac, eqx.is_array)
+        static = eqx.filter(state.f_info.jac, eqx.is_array, inverse=True)
+        jac = eqx.combine(dynamic, static)
+        f_eval_info = eqx.tree_at(lambda f: f.jac, f_eval_info, jac)
+
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
             y,

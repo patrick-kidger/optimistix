@@ -37,20 +37,9 @@ else:
     _Node = eqxi.doc_repr(Any, "Node")
 
 
-def _is_jaxpr(x):
-    return isinstance(x, (jax.core.Jaxpr, jax.core.ClosedJaxpr))
-
-
-def _is_array_or_jaxpr(x):
-    return _is_jaxpr(x) or eqx.is_array(x)
-
-
 class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
     """Abstract base class for all iterative solvers."""
 
-    # Essentially every solver has an rtol+atol+norm. So for now we're just hardcoding
-    # that every solver must have these variables, as they're needed when using a
-    # minimiser or least-squares solver on a root-finding problem.
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
@@ -255,11 +244,7 @@ def _iterate(inputs):
         new_y, new_state, aux = solver.step(fn, y, args, options, state, tags)
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
 
-        new_static_state_no_jaxpr = eqx.filter(
-            new_static_state, _is_jaxpr, inverse=True
-        )
-        static_state_no_jaxpr = eqx.filter(state, _is_array_or_jaxpr, inverse=True)
-        assert eqx.tree_equal(static_state_no_jaxpr, new_static_state_no_jaxpr) is True
+        assert eqx.tree_equal(static_state, new_static_state) is True
         return new_y, num_steps + 1, new_dynamic_state, aux
 
     def buffers(carry):
