@@ -1,3 +1,4 @@
+import contextlib
 import random
 
 import equinox as eqx
@@ -33,9 +34,14 @@ def test_least_squares(solver, _fn, minimum, init, args):
     else:
         fn = _fn
 
-    optx_argmin = optx.least_squares(
-        fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
-    ).value
+    if isinstance(solver, optx.OptaxMinimiser):
+        context = jax.numpy_dtype_promotion("standard")
+    else:
+        context = contextlib.nullcontext()
+    with context:
+        optx_argmin = optx.least_squares(
+            fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
+        ).value
     out = fn(optx_argmin, args)
     if has_aux:
         residual, _ = out
@@ -66,16 +72,21 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
 
     def least_squares(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
-        return optx.least_squares(
-            fn,
-            solver,
-            x,
-            has_aux=has_aux,
-            args=args,
-            max_steps=10_000,
-            adjoint=adjoint,
-            throw=False,
-        ).value
+        if isinstance(solver, optx.OptaxMinimiser):
+            context = jax.numpy_dtype_promotion("standard")
+        else:
+            context = contextlib.nullcontext()
+        with context:
+            return optx.least_squares(
+                fn,
+                solver,
+                x,
+                has_aux=has_aux,
+                args=args,
+                max_steps=10_000,
+                adjoint=adjoint,
+                throw=False,
+            ).value
 
     if _fn is simple_nn:
         otd = optx.ImplicitAdjoint(linear_solver=lx.AutoLinearSolver(well_posed=False))

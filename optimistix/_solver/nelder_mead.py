@@ -255,7 +255,7 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
             # TODO(raderj): Calculate the centroid and search dir based upon
             # the prior one.
             search_direction = jtu.tree_map(
-                lambda _, x, y: x[...] - y, y, state.simplex, worst
+                lambda a, b: a - b[None], state.simplex, worst
             )
             search_direction = (
                 (ω(search_direction) / (n_vertices - 1))
@@ -362,9 +362,9 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
             # This is just `best + shrink_const * (simplex - best)` but returns
             # a buffer. `best` is passed t
             shrink_simplex = jtu.tree_map(
-                lambda b, a: a.at[...].set(b + shrink_const * (a[...] - b)),
-                best,
+                lambda a, b: a.at[...].set(b[None] + shrink_const * (a - b[None])),
                 simplex,
+                best,
             )
             # if it is the first pass and we just wanted to use shrink_simplex to
             # compute f_simplex, return simplex
@@ -435,10 +435,8 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
     ) -> tuple[Bool[Array, ""], RESULTS]:
         # TODO(raderj): only check terminate every k
         f_best, best, best_index = state.best
-        x_scale = (self.atol + self.rtol * ω(best).call(jnp.abs)).ω
-        x_diff = jtu.tree_map(
-            lambda _, a, b: jnp.abs(a[...] - b), best, state.simplex, best
-        )
+        x_scale = (self.atol + self.rtol * ω(best)[None].call(jnp.abs)).ω
+        x_diff = jtu.tree_map(lambda a, b: jnp.abs(a - b[None]), state.simplex, best)
         x_converged = self.norm((x_diff**ω / x_scale**ω).ω) < 1
         f_scale = (self.atol + self.rtol * ω(f_best).call(jnp.abs)).ω
         f_diff = (state.f_simplex**ω - f_best**ω).call(jnp.abs).ω

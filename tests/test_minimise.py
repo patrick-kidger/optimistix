@@ -1,7 +1,9 @@
+import contextlib
 import functools as ft
 import random
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
@@ -36,9 +38,20 @@ def test_minimise(solver, _fn, minimum, init, args):
         fn = lambda x, args: (_fn(x, args), smoke_aux)
     else:
         fn = _fn
-    optx_argmin = optx.minimise(
-        fn, solver, init, has_aux=has_aux, args=args, max_steps=max_steps, throw=False
-    ).value
+    if isinstance(solver, optx.OptaxMinimiser):
+        context = jax.numpy_dtype_promotion("standard")
+    else:
+        context = contextlib.nullcontext()
+    with context:
+        optx_argmin = optx.minimise(
+            fn,
+            solver,
+            init,
+            has_aux=has_aux,
+            args=args,
+            max_steps=max_steps,
+            throw=False,
+        ).value
     optx_min = _fn(optx_argmin, args)
     assert tree_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
@@ -64,16 +77,21 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
 
     def minimise(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
-        return optx.minimise(
-            fn,
-            solver,
-            x,
-            has_aux=has_aux,
-            args=args,
-            max_steps=max_steps,
-            adjoint=adjoint,
-            throw=False,
-        ).value
+        if isinstance(solver, optx.OptaxMinimiser):
+            context = jax.numpy_dtype_promotion("standard")
+        else:
+            context = contextlib.nullcontext()
+        with context:
+            return optx.minimise(
+                fn,
+                solver,
+                x,
+                has_aux=has_aux,
+                args=args,
+                max_steps=max_steps,
+                adjoint=adjoint,
+                throw=False,
+            ).value
 
     otd = optx.ImplicitAdjoint()
     out, t_out = eqx.filter_jit(ft.partial(eqx.filter_jvp, minimise))(
@@ -165,7 +183,8 @@ def test_optax_recompilation():
         num_called += 1
         return x**2
 
-    optx.minimise(f, solver1, 1.0)
-    num_called_so_far = num_called
-    optx.minimise(f, solver2, 1.0)
+    with jax.numpy_dtype_promotion("standard"):
+        optx.minimise(f, solver1, 1.0)
+        num_called_so_far = num_called
+        optx.minimise(f, solver2, 1.0)
     assert num_called_so_far == num_called

@@ -270,7 +270,7 @@ class AbstractBFGS(AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessi
             descent_state=descent_state,
             terminate=terminate,
             result=result,
-            num_accepted_steps=state.num_accepted_steps + accept,
+            num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
         )
         return y, state, aux
 
