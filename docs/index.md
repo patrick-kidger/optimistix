@@ -9,7 +9,7 @@ Features include:
 - using a PyTree as the state.
 - fast compilation and runtimes.
 - interoperability with [Optax](https://github.com/deepmind/optax).
-- all the benefits of working with JAX: autodiff, autoparallism, GPU/TPU support etc.
+- all the benefits of working with JAX: autodiff, autoparallelism, GPU/TPU support etc.
 
 ## Installation
 
