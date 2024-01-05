@@ -23,7 +23,7 @@ from ._custom_types import Aux, Y
 
 # Extend `lineax.RESULTS` as we want to be able to use their error messages too.
 class RESULTS(lx.RESULTS):  # pyright: ignore
-    successful = ""
+    successful = "Success."
     nonlinear_max_steps_reached = (
         "The maximum number of steps was reached in the nonlinear solver. "
         "The problem may not be solveable (e.g., a root-find on a function that has no "
