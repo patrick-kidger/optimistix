@@ -18,7 +18,7 @@ class RESULTS(lx.RESULTS):  # pyright: ignore
     nonlinear_divergence = "Nonlinear solve diverged."
 
 
-class Solution(eqx.Module, Generic[Y, Aux]):
+class Solution(eqx.Module, Generic[Y, Aux], strict=True):
     """The solution to a nonlinear solve.
 
     **Attributes:**

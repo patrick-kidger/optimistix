@@ -23,7 +23,9 @@ else:
     _Node = eqxi.doc_repr(Any, "Node")
 
 
-class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
+class AbstractIterativeSolver(
+    eqx.Module, Generic[Y, Out, Aux, SolverState], strict=True
+):
     """Abstract base class for all iterative solvers."""
 
     rtol: AbstractVar[float]

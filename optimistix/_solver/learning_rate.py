@@ -9,7 +9,7 @@ from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
 
-class LearningRate(AbstractSearch[Y, FunctionInfo, FunctionInfo, None]):
+class LearningRate(AbstractSearch[Y, FunctionInfo, FunctionInfo, None], strict=True):
     """Move downhill by taking a step of the fixed size `learning_rate`."""
 
     learning_rate: ScalarLike = eqx.field(converter=jnp.asarray)

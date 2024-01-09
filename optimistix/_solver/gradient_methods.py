@@ -27,7 +27,7 @@ from .._solution import RESULTS
 from .learning_rate import LearningRate
 
 
-class _SteepestDescentState(eqx.Module, Generic[Y]):
+class _SteepestDescentState(eqx.Module, Generic[Y], strict=True):
     grad: Y
 
 
@@ -39,7 +39,7 @@ _FnInfo: TypeAlias = Union[
 ]
 
 
-class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState]):
+class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState], strict=True):
     """The descent direction given by locally following the gradient."""
 
     norm: Optional[Callable[[PyTree], Scalar]] = None
@@ -88,7 +88,7 @@ SteepestDescent.__init__.__doc__ = """**Arguments:**
 
 
 class _GradientDescentState(
-    eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState]
+    eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState], strict=True
 ):
     # Updated every search step
     first_step: Bool[Array, ""]
@@ -103,7 +103,9 @@ class _GradientDescentState(
     result: RESULTS
 
 
-class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
+class AbstractGradientDescent(
+    AbstractMinimiser[Y, Aux, _GradientDescentState], strict=True
+):
     """The gradient descent method for unconstrained minimisation.
 
     At every step, this algorithm performs a line search along the steepest descent
@@ -232,7 +234,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         return y, aux, {}
 
 
-class GradientDescent(AbstractGradientDescent[Y, Aux]):
+class GradientDescent(AbstractGradientDescent[Y, Aux], strict=True):
     """Classic gradient descent with a learning rate `learning_rate`."""
 
     rtol: float

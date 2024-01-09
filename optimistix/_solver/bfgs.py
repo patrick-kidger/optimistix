@@ -126,7 +126,9 @@ _Hessian = TypeVar(
 )
 
 
-class _BFGSState(eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian]):
+class _BFGSState(
+    eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian], strict=True
+):
     # Updated every search step
     first_step: Bool[Array, ""]
     y_eval: Y
@@ -142,7 +144,9 @@ class _BFGSState(eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian
     num_accepted_steps: Int[Array, ""]
 
 
-class AbstractBFGS(AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessian]):
+class AbstractBFGS(
+    AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessian], strict=True
+):
     """Abstract BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
@@ -289,7 +293,7 @@ class AbstractBFGS(AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessi
         return y, aux, {}
 
 
-class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
+class BFGS(AbstractBFGS[Y, Aux, _Hessian], strict=True):
     """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way

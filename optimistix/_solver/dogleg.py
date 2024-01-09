@@ -25,7 +25,7 @@ from .gauss_newton import AbstractGaussNewton, newton_step
 from .trust_region import ClassicalTrustRegion
 
 
-class _DoglegDescentState(eqx.Module, Generic[Y]):
+class _DoglegDescentState(eqx.Module, Generic[Y], strict=True):
     newton: Y
     cauchy: Y
     newton_norm: Scalar
@@ -38,7 +38,8 @@ class DoglegDescent(
         Y,
         Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
         _DoglegDescentState,
-    ]
+    ],
+    strict=True,
 ):
     """The Dogleg descent step, which switches between the Cauchy and the Newton
     descent directions.
@@ -211,7 +212,7 @@ DoglegDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
+class Dogleg(AbstractGaussNewton[Y, Out, Aux], strict=True):
     """Dogleg algorithm. Used for nonlinear least squares problems.
 
     Given a quadratic bowl that locally approximates the function to be minimised, then

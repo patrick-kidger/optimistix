@@ -79,7 +79,7 @@ def newton_step(
     return newton, result
 
 
-class _NewtonDescentState(eqx.Module, Generic[Y]):
+class _NewtonDescentState(eqx.Module, Generic[Y], strict=True):
     newton: Y
     result: RESULTS
 
@@ -93,7 +93,8 @@ class NewtonDescent(
             FunctionInfo.ResidualJac,
         ],
         _NewtonDescentState,
-    ]
+    ],
+    strict=True,
 ):
     """Newton descent direction.
 
@@ -142,7 +143,9 @@ NewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class _GaussNewtonState(eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState]):
+class _GaussNewtonState(
+    eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState], strict=True
+):
     # Updated every search step
     first_step: Bool[Array, ""]
     y_eval: Y
@@ -168,7 +171,9 @@ def _make_f_info(
     return FunctionInfo.ResidualJac(f_eval, jac_eval), aux_eval
 
 
-class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState]):
+class AbstractGaussNewton(
+    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState], strict=True
+):
     """Abstract base class for all Gauss-Newton type methods.
 
     This includes methods such as [`optimistix.GaussNewton`][],
@@ -350,7 +355,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         return y, aux, {}
 
 
-class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
+class GaussNewton(AbstractGaussNewton[Y, Out, Aux], strict=True):
     """Gauss-Newton algorithm, for solving nonlinear least-squares problems.
 
     Note that regularised approaches like [`optimistix.LevenbergMarquardt`][] are

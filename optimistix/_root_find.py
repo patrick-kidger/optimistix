@@ -15,7 +15,9 @@ from ._misc import inexact_asarray, NoneAux, OutAsArray, tree_full_like
 from ._solution import Solution
 
 
-class AbstractRootFinder(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
+class AbstractRootFinder(
+    AbstractIterativeSolver[Y, Out, Aux, SolverState], strict=True
+):
     """Abstract base class for all root finders."""
 
 

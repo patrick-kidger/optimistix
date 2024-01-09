@@ -70,7 +70,7 @@ def dai_yuan(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     return jnp.where(pred, numerator / safe_denom, 0)
 
 
-class _NonlinearCGDescentState(eqx.Module, Generic[Y]):
+class _NonlinearCGDescentState(eqx.Module, Generic[Y], strict=True):
     y_diff: Y
     grad: Y
 
@@ -85,7 +85,8 @@ class NonlinearCGDescent(
             FunctionInfo.ResidualJac,
         ],
         _NonlinearCGDescentState,
-    ]
+    ],
+    strict=True,
 ):
     """The nonlinear conjugate gradient step."""
 
@@ -169,7 +170,7 @@ NonlinearCGDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class NonlinearCG(AbstractGradientDescent[Y, Aux]):
+class NonlinearCG(AbstractGradientDescent[Y, Aux], strict=True):
     """The nonlinear conjugate gradient method."""
 
     rtol: float

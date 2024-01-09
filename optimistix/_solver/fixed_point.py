@@ -13,11 +13,13 @@ from .._misc import max_norm
 from .._solution import RESULTS
 
 
-class _FixedPointState(eqx.Module):
+class _FixedPointState(eqx.Module, strict=True):
     relative_error: Scalar
 
 
-class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
+class FixedPointIteration(
+    AbstractFixedPointSolver[Y, Aux, _FixedPointState], strict=True
+):
     """Repeatedly calls a function in search of a fixed point.
 
     This is one of the simplest ways to find a fixed point `y` of `f`: simply
