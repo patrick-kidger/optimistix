@@ -27,14 +27,14 @@ from .._misc import cauchy_termination, max_norm, verbose_print
 from .._solution import RESULTS
 
 
-class _OptaxState(eqx.Module):
+class _OptaxState(eqx.Module, strict=True):
     step: Int[Array, ""]
     f: Scalar
     opt_state: Any
     terminate: Bool[Array, ""]
 
 
-class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
+class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState], strict=True):
     """A wrapper to use Optax first-order gradient-based optimisers with
     [`optimistix.minimise`][].
     """

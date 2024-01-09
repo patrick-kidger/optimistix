@@ -51,7 +51,7 @@ def _converged(factor: Scalar, tol: float) -> Bool[Array, " "]:
     return (factor > 0) & (factor < tol)
 
 
-class _NewtonChordState(eqx.Module, Generic[Y]):
+class _NewtonChordState(eqx.Module, Generic[Y], strict=True):
     f: PyTree[Array]
     linear_state: Optional[tuple[lx.AbstractLinearOperator, PyTree]]
     diff: Y
@@ -61,7 +61,7 @@ class _NewtonChordState(eqx.Module, Generic[Y]):
     step: Scalar
 
 
-class _NoAux(eqx.Module):
+class _NoAux(eqx.Module, strict=True):
     fn: Callable
 
     def __call__(self, y, args):
@@ -70,7 +70,9 @@ class _NoAux(eqx.Module):
         return out
 
 
-class _NewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]):
+class _AbstractNewtonChord(
+    AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]], strict=True
+):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm
@@ -221,7 +223,7 @@ class _NewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]):
         return y, aux, {}
 
 
-class Newton(_NewtonChord[Y, Out, Aux]):
+class Newton(_AbstractNewtonChord[Y, Out, Aux], strict=True):
     """Newton's method for root finding. Also sometimes known as Newton--Raphson.
 
     Unlike the SciPy implementation of Newton's method, the Optimistix version also
@@ -240,7 +242,7 @@ class Newton(_NewtonChord[Y, Out, Aux]):
     _is_newton = True
 
 
-class Chord(_NewtonChord[Y, Out, Aux]):
+class Chord(_AbstractNewtonChord[Y, Out, Aux], strict=True):
     """The Chord method of root finding.
 
     This is equivalent to the Newton method, except that the Jacobian is computed only

@@ -30,7 +30,7 @@ from .._misc import max_norm, tree_full_like, tree_where
 from .._solution import RESULTS
 
 
-class _NMStats(eqx.Module):
+class _NMStats(eqx.Module, strict=True):
     n_reflect: Scalar
     n_inner_contract: Scalar
     n_outer_contract: Scalar
@@ -38,7 +38,7 @@ class _NMStats(eqx.Module):
     n_shrink: Scalar
 
 
-class _NelderMeadState(eqx.Module, Generic[Y, Aux]):
+class _NelderMeadState(eqx.Module, Generic[Y, Aux], strict=True):
     """
     Information to update and store the simplex of the Nelder Mead update. If
     `dim` is the dimension of the problem, we expect there to be
@@ -102,7 +102,7 @@ def _update_stats(
     )
 
 
-class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
+class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], strict=True):
     """The Nelder-Mead minimisation algorithm. (Downhill simplex derivative-free
     method.)
 

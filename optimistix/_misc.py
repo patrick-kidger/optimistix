@@ -90,7 +90,7 @@ def resolve_rcond(rcond, n, m, dtype):
         return jnp.where(rcond < 0, jnp.finfo(dtype).eps, rcond)
 
 
-class NoneAux(eqx.Module):
+class NoneAux(eqx.Module, strict=True):
     """Wrap a function `fn` so it returns a dummy aux value `None`
 
     NoneAux is used to give a consistent API between functions which have an aux
@@ -103,7 +103,7 @@ class NoneAux(eqx.Module):
         return self.fn(*args, **kwargs), None
 
 
-class OutAsArray(eqx.Module):
+class OutAsArray(eqx.Module, strict=True):
     """Wrap a minimisation/root-find/etc. function so that its mathematical outputs are
     all inexact arrays, and its auxiliary outputs are all arrays.
     """

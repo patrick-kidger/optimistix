@@ -25,7 +25,7 @@ from jaxtyping import Array, PyTree
 from ._ad import implicit_jvp
 
 
-class AbstractAdjoint(eqx.Module):
+class AbstractAdjoint(eqx.Module, strict=True):
     """The abstract base class of all adjoints."""
 
     @abc.abstractmethod
@@ -42,7 +42,7 @@ class AbstractAdjoint(eqx.Module):
         """
 
 
-class RecursiveCheckpointAdjoint(AbstractAdjoint):
+class RecursiveCheckpointAdjoint(AbstractAdjoint, strict=True):
     """Backpropagate by differentiating through the iterates directly.
 
     Uses a binomial checkpointing scheme to keep memory usage low.
@@ -128,7 +128,7 @@ class RecursiveCheckpointAdjoint(AbstractAdjoint):
         return primal_fn(inputs + (while_loop,))
 
 
-class ImplicitAdjoint(AbstractAdjoint):
+class ImplicitAdjoint(AbstractAdjoint, strict=True):
     r"""Backpropagate via the [implicit function theorem](https://en.wikipedia.org/wiki/Implicit_function_theorem).
 
     For example, using the root-finding case by way of example: suppose we find the

@@ -28,7 +28,7 @@ from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
 
-class _BacktrackingState(eqx.Module):
+class _BacktrackingState(eqx.Module, strict=True):
     step_size: Scalar
 
 
@@ -41,7 +41,9 @@ _FnInfo: TypeAlias = Union[
 _FnEvalInfo: TypeAlias = FunctionInfo
 
 
-class BacktrackingArmijo(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _BacktrackingState]):
+class BacktrackingArmijo(
+    AbstractSearch[Y, _FnInfo, _FnEvalInfo, _BacktrackingState], strict=True
+):
     """Perform a backtracking Armijo line search."""
 
     decrease_factor: ScalarLike = 0.5

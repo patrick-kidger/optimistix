@@ -25,14 +25,14 @@ from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
 
 
-class _BisectionState(eqx.Module):
+class _BisectionState(eqx.Module, strict=True):
     lower: Scalar
     upper: Scalar
     flip: Bool[Array, ""]
     error: Float[Array, ""]
 
 
-class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
+class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState], strict=True):
     """The bisection method of root finding. This may only be used with functions
     `R->R`, i.e. functions with scalar input and scalar output.
 
