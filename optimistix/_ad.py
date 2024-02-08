@@ -5,6 +5,7 @@ from typing import TypeVar
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
+import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
@@ -62,7 +63,7 @@ def implicit_jvp(
 @eqx.filter_custom_jvp
 def _implicit_impl(fn_primal, fn_rewrite, inputs, tags, linear_solver):
     del fn_rewrite, tags, linear_solver
-    return fn_primal(inputs)
+    return jtu.tree_map(jnp.asarray, fn_primal(inputs))
 
 
 def _assert_false(x):
