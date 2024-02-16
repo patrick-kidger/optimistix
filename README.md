@@ -43,6 +43,19 @@ sol = optx.fixed_point(fn, solver, y0)
 y1 = sol.value  # satisfies y1 == fn(y1)
 ```
 
+## Citation
+
+If you found this library to be useful in academic work, then please cite: ([arXiv link](https://arxiv.org/abs/2402.09983))
+
+```bibtex
+@article{optimistix2024,
+    title={Optimistix: modular optimisation in JAX and Equinox},
+    author={Jason Rader and Terry Lyons and Patrick Kidger},
+    journal={arXiv:2402.09983},
+    year={2024},
+}
+```
+
 ## Finally
 
 ### JAX ecosystem
