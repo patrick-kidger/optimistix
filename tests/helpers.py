@@ -314,6 +314,11 @@ def simple_nn(model_dynamic: PyTree[Array], args: PyTree):
     return loss(model, x, y)
 
 
+def square_minus_one(x: Array, args: PyTree):
+    """A simple ||x||^2 - 1 function."""
+    return jnp.sum(jnp.square(x)) - 1.0
+
+
 #
 # The MLP can be difficult for some of the solvers to optimise. Rather than set
 # max_steps to a higher value and iterate for longer, we initialise the MLP
@@ -380,7 +385,6 @@ diagonal_bowl_args = treedef.unflatten(
 # neural net args
 ffn_data = jnp.linspace(0, 1, 100)[..., None]
 ffn_args = (ffn_static, ffn_data)
-
 
 least_squares_fn_minima_init_args = (
     (
@@ -456,6 +460,8 @@ minimisation_fn_minima_init_args = (
         [jnp.array(2.0), jnp.array(0.0)],
         (jnp.array(1.5), jnp.array(2.25), jnp.array(2.625)),
     ),
+    # Problems with initial value of 0
+    (square_minus_one, jnp.array(-1.0), jnp.array(1.0), None),
 )
 
 # ROOT FIND/FIXED POINT PROBLEMS
