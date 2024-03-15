@@ -236,6 +236,9 @@ class AbstractBFGS(
             terminate = cauchy_termination(
                 self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff
             )
+            terminate = jnp.where(
+                state.first_step, jnp.array(False), terminate
+            )  # Skip termination on first step
             return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
 
         def rejected(descent_state):
