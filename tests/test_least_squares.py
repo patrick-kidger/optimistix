@@ -127,3 +127,25 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
     # assert tree_allclose(out2, expected_out, atol=atol, rtol=rtol)
     # assert tree_allclose(t_expected_out2, t_expected_out, atol=atol, rtol=rtol)
     # assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)
+
+
+def test_gauss_newton_jacrev():
+    @jax.custom_vjp
+    def f(y, _):
+        return dict(bar=y["foo"] ** 2)
+
+    def f_fwd(y, _):
+        return f(y, None), jnp.sign(y["foo"])
+
+    def f_bwd(sign, g):
+        return dict(foo=sign * g["bar"]), None
+
+    f.defvjp(f_fwd, f_bwd)
+
+    solver = optx.LevenbergMarquardt(rtol=1e-8, atol=1e-8)
+    y0 = dict(foo=jnp.arange(3.0))
+    out = optx.least_squares(f, solver, y0, options=dict(jac="bwd"), max_steps=512)
+    assert tree_allclose(out.value, dict(foo=jnp.zeros(3)), rtol=1e-3, atol=1e-2)
+
+    with pytest.raises(TypeError, match="forward-mode autodiff"):
+        optx.least_squares(f, solver, y0, options=dict(jac="fwd"), max_steps=512)

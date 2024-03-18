@@ -264,6 +264,13 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux], strict=True):
     region around the current point.
 
     This is a good algorithm for many least squares problems.
+
+    Supports the following `options`:
+
+    - `jac`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
+        usually more efficient. Changing this can be useful when the target function has
+        a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
     rtol: float
@@ -316,6 +323,13 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux], strict=True):
     Generally speaking [`optimistix.LevenbergMarquardt`][] is preferred, as it performs
     nearly the same algorithm, without the computational overhead of an extra (scalar)
     nonlinear solve.
+
+    Supports the following `options`:
+
+    - `jac`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
+        usually more efficient. Changing this can be useful when the target function has
+        a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
     rtol: float

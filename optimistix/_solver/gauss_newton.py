@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Generic, Optional, Union
+from typing import Any, Generic, Literal, Optional, Union
 
 import equinox as eqx
 import jax
@@ -164,10 +164,28 @@ class _GaussNewtonState(
 
 
 def _make_f_info(
-    fn: Callable[[Y, Args], tuple[Any, Aux]], y: Y, args: Args, tags: frozenset
+    fn: Callable[[Y, Args], tuple[Any, Aux]],
+    y: Y,
+    args: Args,
+    tags: frozenset,
+    jac: Literal["fwd", "bwd"],
 ) -> tuple[FunctionInfo.ResidualJac, Aux]:
-    f_eval, lin_fn, aux_eval = jax.linearize(lambda _y: fn(_y, args), y, has_aux=True)
-    jac_eval = lx.FunctionLinearOperator(lin_fn, jax.eval_shape(lambda: y), tags)
+    if jac == "fwd":
+        f_eval, lin_fn, aux_eval = jax.linearize(
+            lambda _y: fn(_y, args), y, has_aux=True
+        )
+        jac_eval = lx.FunctionLinearOperator(lin_fn, jax.eval_shape(lambda: y), tags)
+    elif jac == "bwd":
+        # Materialise the Jacobian in this case.
+        def _for_jacrev(_y):
+            f_eval, aux_eval = fn(_y, args)
+            return f_eval, (f_eval, aux_eval)
+
+        jac_pytree, (f_eval, aux_eval) = jax.jacrev(_for_jacrev, has_aux=True)(y)
+        output_structure = jax.eval_shape(lambda: f_eval)
+        jac_eval = lx.PyTreeLinearOperator(jac_pytree, output_structure, tags)
+    else:
+        raise ValueError("Only `jac='fwd'` or `jac='bwd'` are valid.")
     return FunctionInfo.ResidualJac(f_eval, jac_eval), aux_eval
 
 
@@ -187,6 +205,13 @@ class AbstractGaussNewton(
     - `descent`: `AbstractDescent`
     - `search`: `AbstractSearch`
     - `verbose`: `frozenset[str]`
+
+    Supports the following `options`:
+
+    - `jac`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
+        usually more efficient. Changing this can be useful when the target function has
+        a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
     rtol: AbstractVar[float]
@@ -208,7 +233,8 @@ class AbstractGaussNewton(
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _GaussNewtonState:
-        f_info_struct, _ = eqx.filter_eval_shape(_make_f_info, fn, y, args, tags)
+        jac = options.get("jac", "fwd")
+        f_info_struct, _ = eqx.filter_eval_shape(_make_f_info, fn, y, args, tags, jac)
         f_info = tree_full_like(f_info_struct, 0, allow_static=True)
         return _GaussNewtonState(
             first_step=jnp.array(True),
@@ -233,7 +259,8 @@ class AbstractGaussNewton(
         state: _GaussNewtonState,
         tags: frozenset[object],
     ) -> tuple[Y, _GaussNewtonState, Aux]:
-        f_eval_info, aux_eval = _make_f_info(fn, state.y_eval, args, tags)
+        jac = options.get("jac", "fwd")
+        f_eval_info, aux_eval = _make_f_info(fn, state.y_eval, args, tags, jac)
         # We have a jaxpr in `f_info.jac`, which are compared by identity. Here we
         # arrange to use the same one so that downstream equality checks (e.g. in the
         # `filter_cond` below)
@@ -360,6 +387,13 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux], strict=True):
 
     Note that regularised approaches like [`optimistix.LevenbergMarquardt`][] are
     usually preferred instead.
+
+    Supports the following `options`:
+
+    - `jac`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
+        usually more efficient. Changing this can be useful when the target function has
+        a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
     rtol: float
