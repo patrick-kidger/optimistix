@@ -5,6 +5,7 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.core
+import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu

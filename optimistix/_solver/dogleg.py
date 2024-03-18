@@ -224,6 +224,13 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux], strict=True):
     The distinguishing feature of this algorithm is the "dog leg" shape of its descent
     path, in which it begins by moving in the steepest descent direction, and then
     switches to moving in the Newton direction.
+
+    Supports the following `options`:
+
+    - `jac`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
+        usually more efficient. Changing this can be useful when the target function has
+        a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
     rtol: float
