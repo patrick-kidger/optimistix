@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import cast, Generic, Union
 
 import equinox as eqx
+import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -25,7 +26,8 @@ class _Damped(eqx.Module, strict=True):
 
     def __call__(self, y: PyTree[Array]):
         residual = self.operator.mv(y)
-        damped = jtu.tree_map(lambda yi: jnp.sqrt(self.damping) * yi, y)
+        with jax.numpy_dtype_promotion("standard"):
+            damped = jtu.tree_map(lambda yi: jnp.sqrt(self.damping) * yi, y)
         return residual, damped
 
 
