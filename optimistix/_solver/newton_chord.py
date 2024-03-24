@@ -135,7 +135,8 @@ class _AbstractNewtonChord(
         if lower is not None or upper is not None:
             diff = (y**ω - new_y**ω).ω
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
-        diffsize = self.norm((diff**ω / scale**ω).ω)
+        with jax.numpy_dtype_promotion("standard"):
+            diffsize = self.norm((diff**ω / scale**ω).ω)
         if self.cauchy_termination:
             f_val = fx
         else:
