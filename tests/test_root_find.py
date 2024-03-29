@@ -52,7 +52,10 @@ def test_root_find(solver, _fn, init, args):
 
 @pytest.mark.parametrize("solver", _root_finders)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
-def test_root_find_jvp(getkey, solver, _fn, init, args):
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_root_find_jvp(getkey, solver, _fn, init, dtype, args):
+    args = jtu.tree_map(lambda x: x.astype(dtype), args)
+    init = jtu.tree_map(lambda x: x.astype(dtype), init)
     atol = rtol = 1e-3
     has_aux = random.choice([True, False])
 
@@ -65,8 +68,10 @@ def test_root_find_jvp(getkey, solver, _fn, init, args):
     else:
         fn = root_find_problem
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
-    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
-    t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
+    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape, dtype=dtype), init)
+    t_dynamic_args = jtu.tree_map(
+        lambda x: jr.normal(getkey(), x.shape, dtype=dtype), dynamic_args
+    )
 
     def root_find(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
