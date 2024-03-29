@@ -45,7 +45,10 @@ def test_fixed_point(solver, _fn, init, args):
 
 @pytest.mark.parametrize("solver", _fp_solvers)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
-def test_fixed_point_jvp(getkey, solver, _fn, init, args):
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_fixed_point_jvp(getkey, solver, _fn, init, dtype, args):
+    args = jtu.tree_map(lambda x: x.astype(dtype), args)
+    init = jtu.tree_map(lambda x: x.astype(dtype), init)
     atol = rtol = 1e-3
     has_aux = random.choice([True, False])
     if has_aux:
@@ -54,8 +57,10 @@ def test_fixed_point_jvp(getkey, solver, _fn, init, args):
         fn = _fn
 
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
-    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
-    t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
+    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape, dtype=dtype), init)
+    t_dynamic_args = jtu.tree_map(
+        lambda x: jr.normal(getkey(), x.shape, dtype=dtype), dynamic_args
+    )
 
     def fixed_point(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)

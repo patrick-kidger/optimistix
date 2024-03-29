@@ -57,8 +57,9 @@ class FixedPointIteration(
     ) -> tuple[Y, _FixedPointState, Aux]:
         new_y, aux = fn(y, args)
         error = (y**ω - new_y**ω).ω
-        scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
-        new_state = _FixedPointState(self.norm((error**ω / scale**ω).ω))
+        with jax.numpy_dtype_promotion("standard"):
+            scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
+            new_state = _FixedPointState(self.norm((error**ω / scale**ω).ω))
         return new_y, new_state, aux
 
     def terminate(

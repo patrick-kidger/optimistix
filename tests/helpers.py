@@ -40,9 +40,10 @@ def finite_difference_jvp(fn, primals, tangents, eps=None, **kwargs):
         # done to a tolerance of 1e-8 or so: the primal pass is already noisy at about
         # the scale of ε.
         ε = eps
-    primals_ε = (ω(primals) + ε * ω(tangents)).ω
-    out_ε = fn(*primals_ε, **kwargs)
-    tangents_out = jtu.tree_map(lambda x, y: (x - y) / ε, out_ε, out)
+    with jax.numpy_dtype_promotion("standard"):
+        primals_ε = (ω(primals) + ε * ω(tangents)).ω
+        out_ε = fn(*primals_ε, **kwargs)
+        tangents_out = jtu.tree_map(lambda x, y: (x - y) / ε, out_ε, out)
     # We actually return the perturbed primal.
     # This should still be within all tolerance checks, and means that we have aceesss
     # to both the true primal and the perturbed primal when debugging.
@@ -488,7 +489,8 @@ def _getsize(y: PyTree[Array]):
 def _laplacian(y: PyTree[Array], dx: Scalar):
     (y, unflatten) = jfu.ravel_pytree(y)
     laplacian = jnp.zeros_like(y)
-    laplacian = laplacian.at[1:-1].set((y[2:] + y[1:-1] + y[:-2]) / dx)
+    with jax.numpy_dtype_promotion("standard"):
+        laplacian = laplacian.at[1:-1].set((y[2:] + y[1:-1] + y[:-2]) / dx)
     return unflatten(y)
 
 
@@ -508,7 +510,8 @@ def _nonlinear_heat_pde_general(
     const = args
     stepsize = t1 - t0
     f_val = ((1 - y**ω) * _laplacian(y, dx) ** ω).ω
-    return const * (y0**ω + 0.5 * stepsize * (f_val**ω + f0**ω)).ω
+    with jax.numpy_dtype_promotion("standard"):
+        return const * (y0**ω + 0.5 * stepsize * (f_val**ω + f0**ω)).ω
 
 
 # Note that the midpoint methods below assume that `f` is autonomous.
