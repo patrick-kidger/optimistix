@@ -273,7 +273,7 @@ class LinearTrustRegion(
                 FunctionInfo.ResidualJac,
             ),
         ):
-            return tree_dot(f_info.grad, y_diff)
+            return f_info.compute_grad_dot(y_diff)
         else:
             raise ValueError(
                 "Cannot use `LinearTrustRegion` with this solver. This is because "

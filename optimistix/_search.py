@@ -26,7 +26,10 @@ import abc
 from typing import ClassVar, Generic, Type, TypeVar
 
 import equinox as eqx
+import jax.numpy as jnp
+import jax.tree_util as jtu
 import lineax as lx
+from equinox.internal import ω
 from jaxtyping import Array, Bool, Scalar
 
 from ._custom_types import (
@@ -35,7 +38,7 @@ from ._custom_types import (
     SearchState,
     Y,
 )
-from ._misc import sum_squares
+from ._misc import sum_squares, tree_dot
 from ._solution import RESULTS
 
 
@@ -89,6 +92,9 @@ class EvalGrad(FunctionInfo, Generic[Y], strict=True):
     def as_min(self):
         return self.f
 
+    def compute_grad_dot(self, y: Y):
+        return tree_dot(self.grad, y)
+
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
 class EvalGradHessian(FunctionInfo, Generic[Y], strict=True):
@@ -104,6 +110,9 @@ class EvalGradHessian(FunctionInfo, Generic[Y], strict=True):
     def as_min(self):
         return self.f
 
+    def compute_grad_dot(self, y: Y):
+        return tree_dot(self.grad, y)
+
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
 class EvalGradHessianInv(FunctionInfo, Generic[Y], strict=True):
@@ -117,6 +126,9 @@ class EvalGradHessianInv(FunctionInfo, Generic[Y], strict=True):
 
     def as_min(self):
         return self.f
+
+    def compute_grad_dot(self, y: Y):
+        return tree_dot(self.grad, y)
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
@@ -144,17 +156,47 @@ class ResidualJac(FunctionInfo, Generic[Y, Out], strict=True):
 
     residual: Out
     jac: lx.AbstractLinearOperator
-    grad: Y
-
-    def __init__(self, residual: Out, jac: lx.AbstractLinearOperator):
-        self.residual = residual
-        self.jac = jac
-        # The gradient is used ubiquitously, so compute it once here, so that it can be
-        # used without recomputation in both the descent and search.
-        self.grad = jac.transpose().mv(residual)
 
     def as_min(self):
         return 0.5 * sum_squares(self.residual)
+
+    def compute_grad(self):
+        # Not precomputed during `__init__` as this may hit reverse-mode autodiff which
+        # may not be valid.
+        if any(jnp.iscomplexobj(x) for x in jtu.tree_leaves(self.residual)):
+            conj_residual = jtu.tree_map(jnp.conj, self.residual)
+            conj_jac = lx.conj(self.jac)
+            return (
+                0.5
+                * (
+                    self.jac.transpose().mv(conj_residual) ** ω
+                    + conj_jac.transpose().mv(self.residual) ** ω
+                )
+            ).ω
+        else:
+            return self.jac.transpose().mv(self.residual)
+
+    def compute_grad_dot(self, y: Y):
+        # If `self.jac` is a `lx.JacobianLinearOperator` (or a
+        # `lx.FunctionLinearOperator` wrapping the result of `jax.linearize`), then
+        # `grad = jac^T residual`, so that what we want to compute is
+        # `residual^T jac y`. Doing the reduction in this order means we hit
+        # forward-mode rather than reverse-mode autodiff.
+        if any(jnp.iscomplexobj(x) for x in jtu.tree_leaves(self.residual)):
+            # In this case then actually
+            # `grad = 0.5 * (jac^T residual^bar + jac^Tbar residual)`.
+            # all of this.
+            conj_residual = jtu.tree_map(jnp.conj, self.residual)
+            conj_jac = lx.conj(self.jac)
+            return (
+                0.5
+                * (
+                    tree_dot(conj_residual, self.jac.mv(y)) ** ω
+                    + tree_dot(self.residual, conj_jac.mv(y)) ** ω
+                )
+            ).ω
+        else:
+            return tree_dot(self.residual, self.jac.mv(y))
 
 
 Eval.__qualname__ = "FunctionInfo.Eval"
