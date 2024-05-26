@@ -119,15 +119,19 @@ class NonlinearCGDescent(
         ],
         state: _NonlinearCGDescentState,
     ) -> _NonlinearCGDescentState:
-        if not isinstance(
+        del y
+        if isinstance(
             f_info,
             (
                 FunctionInfo.EvalGrad,
                 FunctionInfo.EvalGradHessian,
                 FunctionInfo.EvalGradHessianInv,
-                FunctionInfo.ResidualJac,
             ),
         ):
+            grad = f_info.grad
+        elif isinstance(f_info, FunctionInfo.ResidualJac):
+            grad = f_info.compute_grad()
+        else:
             raise ValueError(
                 "Cannot use `NonlinearCGDescent` with this solver. This is because "
                 "`NonlinearCGDescent` requires gradients of the target function, but "
@@ -140,16 +144,16 @@ class NonlinearCGDescent(
         # Furthermore, the same mechanism handles convergence: once
         # `state.{grad, y_diff} = 0`, i.e. our previous step hit a local minima, then
         # on this next step we'll again just use gradient descent, and stop.
-        beta = self.method(f_info.grad, state.grad, state.y_diff)
-        neg_grad = (-(f_info.grad**ω)).ω
+        beta = self.method(grad, state.grad, state.y_diff)
+        neg_grad = (-(grad**ω)).ω
         nonlinear_cg_direction = (neg_grad**ω + beta * state.y_diff**ω).ω
         # Check if this is a descent direction. Use gradient descent if it isn't.
         y_diff = tree_where(
-            tree_dot(f_info.grad, nonlinear_cg_direction) < 0,
+            tree_dot(grad, nonlinear_cg_direction) < 0,
             nonlinear_cg_direction,
             neg_grad,
         )
-        return _NonlinearCGDescentState(y_diff=y_diff, grad=f_info.grad)
+        return _NonlinearCGDescentState(y_diff=y_diff, grad=grad)
 
     def step(
         self, step_size: Scalar, state: _NonlinearCGDescentState

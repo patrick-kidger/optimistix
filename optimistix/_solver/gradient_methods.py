@@ -58,10 +58,11 @@ class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState], strict
                 FunctionInfo.EvalGrad,
                 FunctionInfo.EvalGradHessian,
                 FunctionInfo.EvalGradHessianInv,
-                FunctionInfo.ResidualJac,
             ),
         ):
             grad = f_info.grad
+        elif isinstance(f_info, FunctionInfo.ResidualJac):
+            grad = f_info.compute_grad()
         else:
             raise ValueError(
                 "Cannot use `SteepestDescent` with this solver. This is because "

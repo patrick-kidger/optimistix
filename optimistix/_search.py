@@ -26,6 +26,8 @@ import abc
 from typing import ClassVar, Generic, Type, TypeVar
 
 import equinox as eqx
+import jax.numpy as jnp
+import jax.tree_util as jtu
 import lineax as lx
 from jaxtyping import Array, Bool, Scalar
 
@@ -35,7 +37,7 @@ from ._custom_types import (
     SearchState,
     Y,
 )
-from ._misc import sum_squares
+from ._misc import sum_squares, tree_dot
 from ._solution import RESULTS
 
 
@@ -89,6 +91,9 @@ class EvalGrad(FunctionInfo, Generic[Y], strict=True):
     def as_min(self):
         return self.f
 
+    def compute_grad_dot(self, y: Y):
+        return tree_dot(self.grad, y)
+
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
 class EvalGradHessian(FunctionInfo, Generic[Y], strict=True):
@@ -104,6 +109,9 @@ class EvalGradHessian(FunctionInfo, Generic[Y], strict=True):
     def as_min(self):
         return self.f
 
+    def compute_grad_dot(self, y: Y):
+        return tree_dot(self.grad, y)
+
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
 class EvalGradHessianInv(FunctionInfo, Generic[Y], strict=True):
@@ -117,6 +125,9 @@ class EvalGradHessianInv(FunctionInfo, Generic[Y], strict=True):
 
     def as_min(self):
         return self.f
+
+    def compute_grad_dot(self, y: Y):
+        return tree_dot(self.grad, y)
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
@@ -134,27 +145,42 @@ class Residual(FunctionInfo, Generic[Out], strict=True):
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
 class ResidualJac(FunctionInfo, Generic[Y, Out], strict=True):
     """Records the Jacobian `d(fn)/dy` as a linear operator. Used for least squares
-    problems, for which `fn` returns residuals. Has `.residual` and `.jac` and `.grad`
-    attributes, where `residual = fn(y)`, `jac = d(fn)/dy` and
-    `grad = jac^T residual`.
-
-    Takes just `residual` and `jac` as `__init__`-time arguments, from which `grad` is
-    computed.
+    problems, for which `fn` returns residuals. Has `.residual` and `.jac` attributes,
+    where `residual = fn(y)`, `jac = d(fn)/dy`.
     """
 
     residual: Out
     jac: lx.AbstractLinearOperator
-    grad: Y
-
-    def __init__(self, residual: Out, jac: lx.AbstractLinearOperator):
-        self.residual = residual
-        self.jac = jac
-        # The gradient is used ubiquitously, so compute it once here, so that it can be
-        # used without recomputation in both the descent and search.
-        self.grad = jac.transpose().mv(residual)
 
     def as_min(self):
         return 0.5 * sum_squares(self.residual)
+
+    def compute_grad(self):
+        conj_residual = jtu.tree_map(jnp.conj, self.residual)
+        return self.jac.transpose().mv(conj_residual)
+
+    def compute_grad_dot(self, y: Y):
+        # If `self.jac` is a `lx.JacobianLinearOperator` (or a
+        # `lx.FunctionLinearOperator` wrapping the result of `jax.linearize`), then
+        # `min = 0.5 * residual^2`, so `grad = jac^T residual`, i.e. the gradient of
+        # this. So that what we want to compute is `residual^T jac y`. Doing the
+        # reduction in this order means we hit forward-mode rather than reverse-mode
+        # autodiff.
+        #
+        # For the complex case: in this case then actually
+        # `min = 0.5 * residual residual^bar`
+        # which implies
+        # `grad = jac^T residual^bar`
+        # and thus that we want
+        # `grad^T^bar y = residual^T jac^bar y = (jac y^bar)^T^bar residual`.
+        # Notes:
+        # (a) the `grad` derivation is not super obvious. Note that
+        # `grad(z -> 0.5 z z^bar)` is `z^bar` in JAX (yes, twice the Wirtinger
+        # derivative!) It uses a non-Wirtinger derivative for nonholomorphic functions:
+        # https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html#complex-numbers-and-differentiation
+        # (b) our convention is that the first term of a dot product gets the conjugate:
+        # https://github.com/patrick-kidger/diffrax/pull/454#issuecomment-2210296643
+        return tree_dot(self.jac.mv(jtu.tree_map(jnp.conj, y)), self.residual)
 
 
 Eval.__qualname__ = "FunctionInfo.Eval"

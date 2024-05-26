@@ -54,7 +54,7 @@ def damped_newton_step(
 
     pred = step_size > jnp.finfo(step_size.dtype).eps
     safe_step_size = jnp.where(pred, step_size, 1)
-    lm_param = jnp.where(pred, 1 / safe_step_size, jnp.finfo(step_size).max)
+    lm_param = jnp.where(pred, 1 / safe_step_size, jnp.finfo(step_size.dtype).max)
     lm_param = cast(Array, lm_param)
     if isinstance(f_info, FunctionInfo.EvalGradHessian):
         operator = f_info.hessian + lm_param * lx.IdentityLinearOperator(
