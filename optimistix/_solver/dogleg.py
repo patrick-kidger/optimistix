@@ -72,13 +72,15 @@ class DoglegDescent(
         f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
         state: _DoglegDescentState,
     ) -> _DoglegDescentState:
-        del state
+        del y, state
         # Compute `denom = grad^T Hess grad.`
         if isinstance(f_info, FunctionInfo.EvalGradHessian):
-            denom = tree_dot(f_info.grad, f_info.hessian.mv(f_info.grad))
+            grad = f_info.grad
+            denom = tree_dot(f_info.grad, f_info.hessian.mv(grad))
         elif isinstance(f_info, FunctionInfo.ResidualJac):
             # Use Gauss--Newton approximation `Hess ~ J^T J`
-            denom = sum_squares(f_info.jac.mv(f_info.grad))
+            grad = f_info.compute_grad()
+            denom = sum_squares(f_info.jac.mv(grad))
         else:
             raise ValueError(
                 "`DoglegDescent` can only be used with least-squares solvers, or "
@@ -88,7 +90,7 @@ class DoglegDescent(
         denom_nonzero = denom > jnp.finfo(denom.dtype).eps
         safe_denom = jnp.where(denom_nonzero, denom, 1)
         # Compute `grad^T grad / (grad^T Hess grad)`
-        scaling = jnp.where(denom_nonzero, sum_squares(f_info.grad) / safe_denom, 0.0)
+        scaling = jnp.where(denom_nonzero, sum_squares(grad) / safe_denom, 0.0)
         scaling = cast(Array, scaling)
 
         # Downhill towards the bottom of the quadratic basin.
@@ -97,7 +99,7 @@ class DoglegDescent(
         newton_norm = self.trust_region_norm(newton_sol)
 
         # Downhill steepest descent.
-        cauchy = (-scaling * f_info.grad**ω).ω
+        cauchy = (-scaling * grad**ω).ω
         cauchy_norm = self.trust_region_norm(cauchy)
 
         return _DoglegDescentState(

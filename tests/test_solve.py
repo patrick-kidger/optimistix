@@ -1,4 +1,6 @@
+import equinox.internal as eqxi
 import jax
+import jax.numpy as jnp
 import optimistix as optx
 
 
@@ -48,3 +50,16 @@ def test_fixed_point():
         return optx.fixed_point(fn, solver, 0.0).value
 
     f(0.0)
+
+
+def test_forward_mode():
+    def f(y, _):
+        return eqxi.nondifferentiable_backward(y)
+
+    sol = optx.least_squares(
+        f,
+        optx.LevenbergMarquardt(rtol=1e-4, atol=1e-4),
+        jnp.arange(3.0),
+        options=dict(jac="fwd"),
+    )
+    return sol.value

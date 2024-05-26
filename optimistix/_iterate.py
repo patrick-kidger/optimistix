@@ -1,4 +1,5 @@
 import abc
+import warnings
 from collections.abc import Callable
 from typing import Any, Generic, Optional, TYPE_CHECKING
 
@@ -322,6 +323,13 @@ def iterative_solve(
 
     An [`optimistix.Solution`][] object.
     """
+
+    if any(jnp.iscomplexobj(x) for x in jtu.tree_leaves((y0, f_struct))):
+        warnings.warn(
+            "Complex support in Optimistix is a work in progress, and may still return "
+            "incorrect results. You may prefer to split your problem into real and "
+            "imaginary parts, so that Optimistix sees only real numbers."
+        )
 
     f_struct = jtu.tree_map(eqxi.Static, f_struct)
     aux_struct = jtu.tree_map(eqxi.Static, aux_struct)
