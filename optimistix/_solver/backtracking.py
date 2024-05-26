@@ -7,9 +7,6 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, Scalar, ScalarLike
 
 from .._custom_types import Y
-from .._misc import (
-    tree_dot,
-)
 from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
@@ -55,7 +52,7 @@ class BacktrackingArmijo(
         )
 
     def init(self, y: Y, f_info_struct: _FnInfo) -> _BacktrackingState:
-        del f_info_struct
+        del y, f_info_struct
         return _BacktrackingState(step_size=jnp.array(self.step_init))
 
     def step(
@@ -67,7 +64,7 @@ class BacktrackingArmijo(
         f_eval_info: _FnEvalInfo,
         state: _BacktrackingState,
     ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _BacktrackingState]:
-        if isinstance(
+        if not isinstance(
             f_info,
             (
                 FunctionInfo.EvalGrad,
@@ -76,8 +73,6 @@ class BacktrackingArmijo(
                 FunctionInfo.ResidualJac,
             ),
         ):
-            grad = f_info.grad
-        else:
             raise ValueError(
                 "Cannot use `BacktrackingArmijo` with this solver. This is because "
                 "`BacktrackingArmijo` requires gradients of the target function, but "
@@ -85,7 +80,7 @@ class BacktrackingArmijo(
             )
 
         y_diff = (y_eval**ω - y**ω).ω
-        predicted_reduction = tree_dot(grad, y_diff)
+        predicted_reduction = f_info.compute_grad_dot(y_diff)
         # Terminate when the Armijo condition is satisfied. That is, `fn(y_eval)`
         # must do better than its linear approximation:
         # `fn(y_eval) < fn(y) + grad•y_diff`

@@ -149,3 +149,66 @@ def test_gauss_newton_jacrev():
 
     with pytest.raises(TypeError, match="forward-mode autodiff"):
         optx.least_squares(f, solver, y0, options=dict(jac="fwd"), max_steps=512)
+
+
+def test_residual_jac():
+    # First grab values as computed using the complex implementation. We compute the
+    # gradient both using the `.compute_grad` method (which uses a custom more-efficient
+    # approach using forward-mode-autodiff) and the simple way using `jax.grad`.
+
+    def residual1(y1):
+        return y1**2
+
+    def compute1(y1):
+        r = residual1(y1)
+        jac = lx.MatrixLinearOperator(jax.jacfwd(residual1, holomorphic=True)(y1))
+        f_info = optx.FunctionInfo.ResidualJac(r, jac)
+        return f_info.as_min(), (f_info.compute_grad(), f_info.compute_grad_dot(z))
+
+    y1 = jnp.array([2 + 3j, 4 + 1j])
+    z = jnp.array([-1 + 0j, 2 - 5j])
+    true_min = 0.5 * jnp.sum(y1**2 * jnp.conj(y1**2))
+    (min1, (grad1, grad_dot1)), true_grad1 = jax.value_and_grad(compute1, has_aux=True)(
+        y1
+    )
+    true_grad_dot1 = jnp.sum(true_grad1 * jnp.conj(z))
+
+    # Next compute the same quantities using just the real implementation.
+
+    def residual2(y2):
+        real, imag = y2
+        return real**2 - imag**2, 2 * real * imag
+
+    def compute2(y2):
+        r = residual2(y2)
+        jac = lx.PyTreeLinearOperator(
+            jax.jacfwd(residual2)(y2), jax.eval_shape(lambda: y2)
+        )
+        f_info = optx.FunctionInfo.ResidualJac(r, jac)
+        return f_info.as_min(), (
+            f_info.compute_grad(),
+            f_info.compute_grad_dot((z.real, z.imag)),
+        )
+
+    y2 = (y1.real, y1.imag)
+    (min2, (grad2, grad_dot2)), true_grad2 = jax.value_and_grad(compute2, has_aux=True)(
+        y2
+    )
+    true_grad2_real, true_grad2_imag = true_grad2
+    true_grad_dot2 = (
+        true_grad2_real * z.real + true_grad2_imag * z.imag,
+        true_grad2_imag * z.real - true_grad2_real * z.imag,
+    )
+
+    # Now check consistency.
+
+    assert tree_allclose(min1, min2)
+    assert tree_allclose(min1.astype(jnp.complex128), true_min)
+
+    assert tree_allclose(grad2, true_grad2)
+    assert tree_allclose((grad1.real, grad1.imag), grad2)
+    assert tree_allclose(grad1, true_grad1)
+
+    assert tree_allclose(grad_dot2, true_grad_dot2)
+    assert tree_allclose((grad_dot1.real, grad_dot1.imag), grad_dot2)
+    assert tree_allclose(grad_dot1, true_grad_dot1)
