@@ -119,6 +119,8 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], strict=Tru
     ) -> _NelderMeadState[Y, Aux]:
         aux = tree_full_like(aux_struct, 0)
         y0_simplex = options.get("y0_simplex", False)
+        lower = options.get("lower", None)
+        upper = options.get("upper", None)
 
         if y0_simplex:
             n_vertices = {x.shape[0] for x in jtu.tree_leaves(y)}
@@ -150,6 +152,10 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], strict=Tru
             size = jtu.tree_reduce(lambda x, y: x + y, jtu.tree_map(jnp.size, y))
             n_vertices = size + 1
             leaves, treedef = jtu.tree_flatten(y)
+            if lower is not None:
+                lower_bounds, treedef = jtu.tree_flatten(lower)
+            if upper is not None:
+                upper_bounds, treedef = jtu.tree_flatten(upper)
             running_size = 0
             new_leaves = []
 
@@ -171,6 +177,24 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], strict=Tru
                     + self.adelta
                     + self.rdelta * leaf[relative_indices]
                 )
+                if lower is not None:
+                    broadcast_leaves = jtu.tree_map(
+                        lambda a, b: jnp.clip(a, a_min=b),
+                        jnp.array(broadcast_leaves),
+                        jnp.broadcast_to(
+                            jnp.array(lower_bounds[index]),
+                            shape=jnp.array(broadcast_leaves).shape,
+                        ),
+                    )
+                if upper is not None:
+                    broadcast_leaves = jtu.tree_map(
+                        lambda a, b: jnp.clip(a, a_max=b),
+                        jnp.array(broadcast_leaves),
+                        jnp.broadcast_to(
+                            jnp.array(upper_bounds[index]),
+                            shape=jnp.array(broadcast_leaves).shape,
+                        ),
+                    )
                 running_size = running_size + leaf_size
                 new_leaves.append(broadcast_leaves)
             simplex = jtu.tree_unflatten(treedef, new_leaves)
@@ -224,6 +248,8 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], strict=Tru
         f_second_worst = state.second_worst_val
         stats = state.stats
         (n_vertices,) = state.f_simplex.shape
+        lower = options.get("lower", None)
+        upper = options.get("upper", None)
 
         def init_step(state):
             simplex = state.simplex
@@ -286,6 +312,24 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], strict=Tru
                         contracted,
                         new_vertex,
                     )
+                    if lower is not None:
+                        points, treedef = jtu.tree_flatten(new_vertex)
+                        lower_bounds, _ = jtu.tree_flatten(lower)
+                        new_points = jtu.tree_map(
+                            lambda a, b: jnp.clip(a, a_min=b),
+                            jnp.array(points),
+                            jnp.array(lower_bounds),
+                        )
+                        new_vertex = jtu.tree_unflatten(treedef, new_points)
+                    if upper is not None:
+                        points, treedef = jtu.tree_flatten(new_vertex)
+                        upper_bounds, _ = jtu.tree_flatten(upper)
+                        new_points = jtu.tree_map(
+                            lambda a, b: jnp.clip(a, a_max=b),
+                            jnp.array(points),
+                            jnp.array(upper_bounds),
+                        )
+                        new_vertex = jtu.tree_unflatten(treedef, new_points)
                     stats = _update_stats(
                         stats,
                         reflect,
