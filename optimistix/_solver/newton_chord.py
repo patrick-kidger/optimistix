@@ -129,9 +129,9 @@ class _AbstractNewtonChord(
         diff = sol.value
         new_y = (y**ω - diff**ω).ω
         if lower is not None:
-            new_y = jtu.tree_map(lambda a, b: jnp.clip(a, a_min=b), new_y, lower)
+            new_y = jtu.tree_map(lambda a, b: jnp.clip(a, min=b), new_y, lower)
         if upper is not None:
-            new_y = jtu.tree_map(lambda a, b: jnp.clip(a, a_max=b), new_y, upper)
+            new_y = jtu.tree_map(lambda a, b: jnp.clip(a, max=b), new_y, upper)
         if lower is not None or upper is not None:
             diff = (y**ω - new_y**ω).ω
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω

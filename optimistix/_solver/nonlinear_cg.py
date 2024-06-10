@@ -31,7 +31,7 @@ def polak_ribiere(grad_vector: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     # have a gradient. In either case we set β=0 to revert to just gradient descent.
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    out = jnp.where(pred, jnp.clip(numerator / safe_denom, a_min=0), 0)
+    out = jnp.where(pred, jnp.clip(numerator / safe_denom, min=0), 0)
     return cast(Scalar, out)
 
 
