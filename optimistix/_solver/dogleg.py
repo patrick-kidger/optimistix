@@ -156,10 +156,10 @@ class DoglegDescent(
                 b = 2 * (inner_prod - a)
                 c = state.cauchy_norm**2 - 2 * inner_prod + a - scaled_step_size**2
                 quadratic_1 = jnp.clip(
-                    0.5 * (-b + jnp.sqrt(b**2 - 4 * a * c)) / a, a_min=1, a_max=2
+                    0.5 * (-b + jnp.sqrt(b**2 - 4 * a * c)) / a, min=1, max=2
                 )
                 quadratic_2 = jnp.clip(
-                    ((2 * c) / (-b - jnp.sqrt(b**2 - 4 * a * c))), a_min=1, a_max=2
+                    ((2 * c) / (-b - jnp.sqrt(b**2 - 4 * a * c))), min=1, max=2
                 )
                 # The quadratic formula is not numerically stable, and it is best to
                 # use slightly different formulas when `b >=` and `b < 0`.
