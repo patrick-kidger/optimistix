@@ -28,6 +28,11 @@ def _rewrite_fn(root, _, inputs):
     return f_val
 
 
+# Keep `optx.implicit_jvp` is happy.
+if _rewrite_fn.__globals__["__name__"].startswith("jaxtyping"):
+    _rewrite_fn = _rewrite_fn.__wrapped__  # pyright: ignore[reportFunctionMemberAccess]
+
+
 def _to_minimise_fn(root_fn, norm, y, args):
     root, aux = root_fn(y, args)
     return norm(root), (root, aux)

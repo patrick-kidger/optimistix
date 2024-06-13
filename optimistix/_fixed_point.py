@@ -29,6 +29,11 @@ def _rewrite_fn(fixed_point, _, inputs):
     return (f_val**ω - fixed_point**ω).ω
 
 
+# Keep `optx.implicit_jvp` is happy.
+if _rewrite_fn.__globals__["__name__"].startswith("jaxtyping"):
+    _rewrite_fn = _rewrite_fn.__wrapped__  # pyright: ignore[reportFunctionMemberAccess]
+
+
 class _ToRootFn(eqx.Module, Generic[Y, Aux]):
     fixed_point_fn: Fn[Y, Y, Aux]
 

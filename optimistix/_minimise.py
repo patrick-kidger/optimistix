@@ -30,6 +30,11 @@ def _rewrite_fn(minimum, _, inputs):
     return jax.grad(min_no_aux)(minimum)
 
 
+# Keep `optx.implicit_jvp` is happy.
+if _rewrite_fn.__globals__["__name__"].startswith("jaxtyping"):
+    _rewrite_fn = _rewrite_fn.__wrapped__  # pyright: ignore[reportFunctionMemberAccess]
+
+
 @eqx.filter_jit
 def minimise(
     fn: MaybeAuxFn[Y, Scalar, Aux],
