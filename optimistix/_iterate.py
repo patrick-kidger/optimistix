@@ -261,6 +261,11 @@ def _iterate(inputs):
     )
 
 
+# Keep `optx.implicit_jvp` is happy.
+if _iterate.__globals__["__name__"].startswith("jaxtyping"):
+    _iterate = _iterate.__wrapped__  # pyright: ignore[reportFunctionMemberAccess]
+
+
 def iterative_solve(
     fn: Fn[Y, Out, Aux],
     # no type parameters, see https://github.com/microsoft/pyright/discussions/5599

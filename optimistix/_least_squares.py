@@ -30,6 +30,11 @@ def _rewrite_fn(optimum, _, inputs):
     return jax.grad(objective)(optimum)
 
 
+# Keep `optx.implicit_jvp` is happy.
+if _rewrite_fn.__globals__["__name__"].startswith("jaxtyping"):
+    _rewrite_fn = _rewrite_fn.__wrapped__  # pyright: ignore[reportFunctionMemberAccess]
+
+
 class _ToMinimiseFn(eqx.Module, Generic[Y, Out, Aux]):
     residual_fn: Fn[Y, Out, Aux]
 
