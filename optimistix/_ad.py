@@ -10,6 +10,8 @@ import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
 from jaxtyping import PyTree
+from jax.interpreters import ad
+from jax._src.ad_util import stop_gradient_p
 
 from ._misc import tree_full_like
 
@@ -110,3 +112,12 @@ def _implicit_impl_jvp(primals, tangents):
     t_residual = tree_full_like(residual, 0)
 
     return (root, residual), (t_root, t_residual)
+
+
+# Work arond JAX issue #22011,
+# as well as https://github.com/patrick-kidger/diffrax/pull/387#issuecomment-2174488365
+def stop_gradient_transpose(ct, x):
+    return ct,
+
+
+ad.primitive_transposes[stop_gradient_p] = stop_gradient_transpose
