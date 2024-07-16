@@ -10,7 +10,7 @@ Consider a function $f \colon \mathbb{R}^n \to \mathbb{R}$, that we would like t
 
 **Descents**
 
-Descents consume information about values+gradients+Hessians etc. of $f$, along with this scalar value, and give the size of the update to make. This corresponds to `-scalar * gradient` for gradient descent, `-scalar * (Hessian^{-1} gradient)` for (Gauss--)Newton algorithms, the distance along the dogleg path with Dogleg, `(Jacobian^T Jacobian + scalar * I)^{-1} gradient` for Levenberg--Marquardt (damped Newton), and so on. [Although `Jacobian^T Jacobian` isn't actually materialised -- the implementation does the smart thing and solves a least-squares problem using QR.]
+Descents consume information about values+gradients+Hessians etc. of $f$, along with this scalar value, and compute the update to make. This corresponds to `-scalar * gradient` for gradient descent, `-scalar * (Hessian^{-1} gradient)` for (Gauss--)Newton algorithms, the distance along the dogleg path with Dogleg, `(Jacobian^T Jacobian + scalar * I)^{-1} gradient` for Levenberg--Marquardt (damped Newton), and so on. [Although `Jacobian^T Jacobian` isn't actually materialised -- the implementation does the smart thing and solves a least-squares problem using QR.]
 
 **Examples**
 
