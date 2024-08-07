@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any, cast, Generic, Union
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
@@ -31,7 +32,9 @@ def polak_ribiere(grad_vector: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     # have a gradient. In either case we set β=0 to revert to just gradient descent.
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    out = jnp.where(pred, jnp.clip(numerator / safe_denom, min=0), 0)
+
+    with jax.numpy_dtype_promotion("standard"):
+        out = jnp.where(pred, jnp.clip(numerator / safe_denom, min=0), 0)
     return cast(Scalar, out)
 
 

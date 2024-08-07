@@ -85,7 +85,7 @@ class BacktrackingArmijo(
             )
 
         y_diff = (y_eval**ω - y**ω).ω
-        predicted_reduction = tree_dot(grad, y_diff)
+        predicted_reduction = tree_dot(grad, y_diff).real
         # Terminate when the Armijo condition is satisfied. That is, `fn(y_eval)`
         # must do better than its linear approximation:
         # `fn(y_eval) < fn(y) + grad•y_diff`
