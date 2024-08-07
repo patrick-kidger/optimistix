@@ -317,7 +317,7 @@ def simple_nn(model_dynamic: PyTree[Array], args: PyTree):
 
 def square_minus_one(x: Array, args: PyTree):
     """A simple ||x||^2 - 1 function."""
-    return jnp.sum(jnp.square(x)) - 1.0
+    return jnp.sum(jnp.square(jnp.abs(x))) - 1.0
 
 
 #
@@ -463,6 +463,12 @@ minimisation_fn_minima_init_args = (
     ),
     # Problems with initial value of 0
     (square_minus_one, jnp.array(-1.0), jnp.array(1.0), None),
+    (
+        square_minus_one,
+        jnp.array(-1.0, dtype=jnp.complex128),
+        jnp.array(1.0, dtype=jnp.complex128),
+        None,
+    ),
 )
 
 # ROOT FIND/FIXED POINT PROBLEMS
