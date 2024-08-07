@@ -55,7 +55,9 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
                     )
                 )
             else:
-                eye_leaves.append(jnp.zeros(jnp.shape(l1) + jnp.shape(l2)))
+                eye_leaves.append(
+                    jnp.zeros(jnp.shape(l1) + jnp.shape(l2), dtype=l1.dtype)
+                )
 
     # This has a Lineax positive_semidefinite tag. This is okay because the BFGS update
     # preserves positive-definiteness.

@@ -53,7 +53,7 @@ def test_minimise(solver, _fn, minimum, init, args):
             throw=False,
         ).value
     optx_min = _fn(optx_argmin, args)
-    assert tree_allclose(optx_min, minimum.real, atol=atol, rtol=rtol)
+    assert tree_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize("solver", minimisers)
