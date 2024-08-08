@@ -146,7 +146,8 @@ class NonlinearCGDescent(
         # on this next step we'll again just use gradient descent, and stop.
         beta = self.method(f_info.grad, state.grad, state.y_diff)
         neg_grad = (-(f_info.grad**ω)).ω
-        nonlinear_cg_direction = (neg_grad**ω + beta * state.y_diff**ω).ω
+        with jax.numpy_dtype_promotion("standard"):
+            nonlinear_cg_direction = (neg_grad**ω + beta * state.y_diff**ω).ω
         # Check if this is a descent direction. Use gradient descent if it isn't.
         y_diff = tree_where(
             tree_dot(f_info.grad, nonlinear_cg_direction) < 0,
