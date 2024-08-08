@@ -227,7 +227,7 @@ def bowl(tree: PyTree[Array], args: Array):
 def diagonal_quadratic_bowl(tree: PyTree[Array], args: PyTree[Array]):
     # A diagonal quadratic bowl smoke test for convergence.
     weight_vector = args
-    return (ω(tree).call(jnp.abs).call(jnp.square) * (0.1 + weight_vector**ω)).ω
+    return (ω(tree).call(jnp.square) * (0.1 + weight_vector**ω)).call(jnp.abs).ω
 
 
 def rosenbrock(tree: PyTree[Array], args: Scalar):
@@ -390,7 +390,7 @@ diagonal_bowl_init_complex = (
 leaves_complex, treedef_complex = jtu.tree_flatten(diagonal_bowl_init_complex)
 key = jr.PRNGKey(17)
 diagonal_bowl_args_complex = treedef.unflatten(
-    [jr.normal(key, leaf.shape, leaf.dtype) ** 2 for leaf in leaves]
+    [jr.normal(key, leaf.shape, leaf.dtype) ** 2 for leaf in leaves_complex]
 )
 
 # neural net args
@@ -481,7 +481,7 @@ minimisation_fn_minima_init_args = (
     (square_minus_one, jnp.array(-1.0), jnp.array(1.0), None),
     (
         square_minus_one,
-        jnp.array(-1.0, dtype=jnp.complex128),
+        jnp.array(-1.0),
         jnp.array(1.0, dtype=jnp.complex128),
         None,
     ),

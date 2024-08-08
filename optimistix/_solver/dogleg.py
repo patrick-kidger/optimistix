@@ -102,7 +102,8 @@ class DoglegDescent(
         newton_norm = self.trust_region_norm(newton_sol)
 
         # Downhill steepest descent.
-        cauchy = (-scaling * f_info.grad**ω).ω
+        with jax.numpy_dtype_promotion("standard"):
+            cauchy = (-scaling * f_info.grad**ω).ω
         cauchy_norm = self.trust_region_norm(cauchy)
 
         return _DoglegDescentState(
@@ -144,7 +145,8 @@ class DoglegDescent(
             """
 
             def interpolate(t):
-                return (cauchy**ω + (t - 1) * (newton**ω - cauchy**ω)).ω
+                with jax.numpy_dtype_promotion("standard"):
+                    return (cauchy**ω + (t - 1) * (newton**ω - cauchy**ω)).ω
 
             # The vast majority of the time we expect users to use `two_norm`,
             # ie. the classic, elliptical trust region radius. In this case, we
