@@ -168,7 +168,7 @@ class ClassicalTrustRegion(
             return tree_dot(
                 y_diff,
                 (f_info.grad**ω + 0.5 * f_info.hessian.mv(y_diff) ** ω).ω,
-            )
+            ).real
         elif isinstance(f_info, FunctionInfo.ResidualJac):
             # Least-squares algorithm. So instead of considering fn (which returns the
             # residuals), instead consider `0.5*fn(y)^2`, and then apply the logic as
@@ -190,7 +190,7 @@ class ClassicalTrustRegion(
             jacobian_term = sum_squares(
                 (f_info.jac.mv(y_diff) ** ω + f_info.residual**ω).ω
             )
-            return 0.5 * (jacobian_term - rtr)
+            return 0.5 * (jacobian_term - rtr).real
         else:
             raise ValueError(
                 "Cannot use `ClassicalTrustRegion` with this solver. This is because "
@@ -273,7 +273,7 @@ class LinearTrustRegion(
                 FunctionInfo.ResidualJac,
             ),
         ):
-            return tree_dot(f_info.grad, y_diff)
+            return tree_dot(f_info.grad, y_diff).real
         else:
             raise ValueError(
                 "Cannot use `LinearTrustRegion` with this solver. This is because "

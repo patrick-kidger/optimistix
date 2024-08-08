@@ -72,8 +72,10 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
         fn = _fn
 
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
-    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
-    t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
+    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape, dtype=x.dtype), init)
+    t_dynamic_args = jtu.tree_map(
+        lambda x: jr.normal(getkey(), x.shape, dtype=x.dtype), dynamic_args
+    )
 
     def minimise(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
@@ -138,18 +140,19 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
     # assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)
 
 
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
 @pytest.mark.parametrize(
     "method",
     [optx.polak_ribiere, optx.fletcher_reeves, optx.hestenes_stiefel, optx.dai_yuan],
 )
-def test_nonlinear_cg_methods(method):
+def test_nonlinear_cg_methods(method, dtype):
     solver = optx.NonlinearCG(rtol=1e-10, atol=1e-10, method=method)
 
     def f(y, _):
-        A = jnp.array([[2.0, -1.0], [-1.0, 3.0]])
-        b = jnp.array([-100.0, 5.0])
-        c = jnp.array(100.0)
-        return jnp.einsum("ij,i,j", A, y, y) + jnp.dot(b, y) + c
+        A = jnp.array([[2.0, -1.0], [-1.0, 3.0]], dtype=dtype)
+        b = jnp.array([-100.0, 5.0], dtype=dtype)
+        c = jnp.array(100.0, dtype=dtype)
+        return (jnp.einsum("ij,i,j", A, y, y) + jnp.dot(b, y) + c).real
 
     # Analytic minimum:
     # 0 = df/dyk
@@ -158,9 +161,11 @@ def test_nonlinear_cg_methods(method):
     # => y = -0.5 A^{-1} b
     #      = [[-0.3, 0.1], [0.1, 0.2]] [-100, 5]
     #      = [29.5, 9]
-    y0 = jnp.array([2.0, 3.0])
+    y0 = jnp.array([2.0, 3.0], dtype=dtype)
     sol = optx.minimise(f, solver, y0, max_steps=500)
-    assert tree_allclose(sol.value, jnp.array([29.5, 9.0]), rtol=1e-5, atol=1e-5)
+    assert tree_allclose(
+        sol.value, jnp.array([29.5, 9.0], dtype=dtype), rtol=1e-5, atol=1e-5
+    )
 
 
 def test_optax_recompilation():

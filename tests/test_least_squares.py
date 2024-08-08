@@ -67,8 +67,10 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
         fn = _fn
 
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
-    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
-    t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
+    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape, dtype=x.dtype), init)
+    t_dynamic_args = jtu.tree_map(
+        lambda x: jr.normal(getkey(), x.shape, dtype=x.dtype), dynamic_args
+    )
 
     def least_squares(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
