@@ -77,7 +77,7 @@ class DoglegDescent(
         conj_grad = jax.tree_map(jnp.conj, f_info.grad)
         # Compute `denom = grad^T Hess grad.`
         if isinstance(f_info, FunctionInfo.EvalGradHessian):
-            denom = tree_dot(conj_grad, f_info.hessian.mv(f_info.grad))
+            denom = tree_dot(f_info.grad, f_info.hessian.mv(f_info.grad))
         elif isinstance(f_info, FunctionInfo.ResidualJac):
             # Use Gauss--Newton approximation `Hess ~ J^T J`
             denom = sum_squares(f_info.jac.mv(conj_grad))
@@ -92,9 +92,7 @@ class DoglegDescent(
         # Compute `grad^T grad / (grad^T Hess grad)`
 
         with jax.numpy_dtype_promotion("standard"):
-            scaling = jnp.where(
-                denom_nonzero, sum_squares(f_info.grad) / safe_denom, 0.0
-            )
+            scaling = jnp.where(denom_nonzero, sum_squares(conj_grad) / safe_denom, 0.0)
         scaling = cast(Array, scaling)
 
         # Downhill towards the bottom of the quadratic basin.
@@ -104,7 +102,7 @@ class DoglegDescent(
 
         # Downhill steepest descent.
         with jax.numpy_dtype_promotion("standard"):
-            cauchy = (-scaling * f_info.grad**ω).ω
+            cauchy = (-scaling * conj_grad**ω).ω
         cauchy_norm = self.trust_region_norm(cauchy)
 
         return _DoglegDescentState(
