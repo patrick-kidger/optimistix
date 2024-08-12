@@ -384,8 +384,8 @@ diagonal_bowl_args = treedef.unflatten(
 )
 
 diagonal_bowl_init_complex = (
-    {"a": 0.05 * jnp.ones((2, 3, 3), dtype=jnp.complex128)},
-    (0.05j * jnp.ones(2, dtype=jnp.complex128)),
+    {"a": (0.05 + 0.01j) * jnp.ones((2, 3, 3), dtype=jnp.complex128)},
+    ((0.01 + 0.05j) * jnp.ones(2, dtype=jnp.complex128)),
 )
 leaves_complex, treedef_complex = jtu.tree_flatten(diagonal_bowl_init_complex)
 key = jr.PRNGKey(17)
@@ -482,7 +482,7 @@ minimisation_fn_minima_init_args = (
     (
         square_minus_one,
         jnp.array(-1.0),
-        jnp.array(1.0, dtype=jnp.complex128),
+        jnp.array(1.0 + 1.0j, dtype=jnp.complex128),
         None,
     ),
 )
