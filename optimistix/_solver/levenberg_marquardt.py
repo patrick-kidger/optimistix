@@ -78,7 +78,7 @@ def damped_newton_step(
             "provide (approximate) Hessian information."
         )
     linear_sol = lx.linear_solve(operator, vector, linear_solver, throw=False)
-    return linear_sol.value, RESULTS.promote(linear_sol.result)
+    return jax.tree_map(jnp.conj, linear_sol.value), RESULTS.promote(linear_sol.result)
 
 
 class _DampedNewtonDescentState(eqx.Module, strict=True):

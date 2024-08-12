@@ -74,12 +74,13 @@ class DoglegDescent(
         state: _DoglegDescentState,
     ) -> _DoglegDescentState:
         del state
+        conj_grad = jax.tree_map(jnp.conj, f_info.grad)
         # Compute `denom = grad^T Hess grad.`
         if isinstance(f_info, FunctionInfo.EvalGradHessian):
-            denom = tree_dot(f_info.grad, f_info.hessian.mv(f_info.grad))
+            denom = tree_dot(conj_grad, f_info.hessian.mv(f_info.grad))
         elif isinstance(f_info, FunctionInfo.ResidualJac):
             # Use Gauss--Newton approximation `Hess ~ J^T J`
-            denom = sum_squares(f_info.jac.mv(f_info.grad))
+            denom = sum_squares(f_info.jac.mv(conj_grad))
         else:
             raise ValueError(
                 "`DoglegDescent` can only be used with least-squares solvers, or "

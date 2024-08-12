@@ -145,7 +145,7 @@ class NonlinearCGDescent(
         # `state.{grad, y_diff} = 0`, i.e. our previous step hit a local minima, then
         # on this next step we'll again just use gradient descent, and stop.
         beta = self.method(f_info.grad, state.grad, state.y_diff)
-        neg_grad = (-(f_info.grad**ω)).ω
+        neg_grad = (-(jax.tree_map(jnp.conj, f_info.grad) ** ω)).ω
         with jax.numpy_dtype_promotion("standard"):
             nonlinear_cg_direction = (neg_grad**ω + beta * state.y_diff**ω).ω
         # Check if this is a descent direction. Use gradient descent if it isn't.
