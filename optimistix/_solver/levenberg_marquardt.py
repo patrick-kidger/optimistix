@@ -9,6 +9,7 @@ import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar, ScalarLike
+from lineax.internal import default_floating_dtype as default_floating_dtype
 
 from .._custom_types import Aux, Out, Y
 from .._misc import max_norm, tree_full_like, two_norm
@@ -57,7 +58,11 @@ def damped_newton_step(
     lm_param = jnp.where(pred, 1 / safe_step_size, jnp.finfo(step_size).max)
     lm_param = cast(Array, lm_param)
     if isinstance(f_info, FunctionInfo.EvalGradHessian):
-        operator = f_info.hessian + lm_param * lx.IdentityLinearOperator(
+        leaves = jtu.tree_leaves(f_info.hessian.in_structure())
+        dtype = (
+            default_floating_dtype() if len(leaves) == 0 else jnp.result_type(*leaves)
+        )
+        operator = f_info.hessian + lm_param.astype(dtype) * lx.IdentityLinearOperator(
             f_info.hessian.in_structure()
         )
         vector = f_info.grad
@@ -73,7 +78,7 @@ def damped_newton_step(
             "provide (approximate) Hessian information."
         )
     linear_sol = lx.linear_solve(operator, vector, linear_solver, throw=False)
-    return linear_sol.value, RESULTS.promote(linear_sol.result)
+    return jax.tree_map(jnp.conj, linear_sol.value), RESULTS.promote(linear_sol.result)
 
 
 class _DampedNewtonDescentState(eqx.Module, strict=True):

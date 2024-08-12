@@ -50,10 +50,14 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
         for i2, l2 in enumerate(leaves):
             if i1 == i2:
                 eye_leaves.append(
-                    jnp.eye(jnp.size(l1)).reshape(jnp.shape(l1) + jnp.shape(l2))
+                    jnp.eye(jnp.size(l1), dtype=l1.dtype).reshape(
+                        jnp.shape(l1) + jnp.shape(l2)
+                    )
                 )
             else:
-                eye_leaves.append(jnp.zeros(jnp.shape(l1) + jnp.shape(l2)))
+                eye_leaves.append(
+                    jnp.zeros(jnp.shape(l1) + jnp.shape(l2), dtype=l1.dtype)
+                )
 
     # This has a Lineax positive_semidefinite tag. This is okay because the BFGS update
     # preserves positive-definiteness.
@@ -111,7 +115,7 @@ def _bfgs_update(f_eval, grad, prev_grad, hessian, hessian_inv, y_diff):
     # this we jump straight to the line search.
     # Likewise we get inner <= eps on convergence, and so again we make no update
     # to avoid a division by zero.
-    inner_nonzero = inner > jnp.finfo(inner.dtype).eps
+    inner_nonzero = jnp.abs(inner) > jnp.finfo(inner.dtype).eps
     hessian, hessian_inv = filter_cond(
         inner_nonzero, bfgs_update, no_update, hessian, hessian_inv
     )

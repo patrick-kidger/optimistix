@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any, cast, Generic, Union
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
@@ -31,7 +32,9 @@ def polak_ribiere(grad_vector: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     # have a gradient. In either case we set β=0 to revert to just gradient descent.
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    out = jnp.where(pred, jnp.clip(numerator / safe_denom, min=0), 0)
+
+    with jax.numpy_dtype_promotion("standard"):
+        out = jnp.where(pred, jnp.clip(numerator / safe_denom, min=0), 0)
     return cast(Scalar, out)
 
 
@@ -67,7 +70,8 @@ def dai_yuan(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     # Triggers at initialisation and convergence, as above.
     pred = jnp.abs(denominator) > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    return jnp.where(pred, numerator / safe_denom, 0)
+    with jax.numpy_dtype_promotion("standard"):
+        return jnp.where(pred, numerator / safe_denom, 0)
 
 
 class _NonlinearCGDescentState(eqx.Module, Generic[Y], strict=True):
@@ -141,11 +145,13 @@ class NonlinearCGDescent(
         # `state.{grad, y_diff} = 0`, i.e. our previous step hit a local minima, then
         # on this next step we'll again just use gradient descent, and stop.
         beta = self.method(f_info.grad, state.grad, state.y_diff)
-        neg_grad = (-(f_info.grad**ω)).ω
-        nonlinear_cg_direction = (neg_grad**ω + beta * state.y_diff**ω).ω
+        conj_grad = jax.tree_map(jnp.conj, f_info.grad)
+        neg_grad = (-(conj_grad**ω)).ω
+        with jax.numpy_dtype_promotion("standard"):
+            nonlinear_cg_direction = (neg_grad**ω + beta * state.y_diff**ω).ω
         # Check if this is a descent direction. Use gradient descent if it isn't.
         y_diff = tree_where(
-            tree_dot(f_info.grad, nonlinear_cg_direction) < 0,
+            tree_dot(conj_grad, nonlinear_cg_direction).real < 0,
             nonlinear_cg_direction,
             neg_grad,
         )

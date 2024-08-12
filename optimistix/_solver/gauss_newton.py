@@ -59,7 +59,8 @@ def newton_step(
     value.)
     """
     if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
-        newton = f_info.hessian_inv.mv(f_info.grad)
+        conj_grad = jax.tree_map(jnp.conj, f_info.grad)
+        newton = f_info.hessian_inv.mv(conj_grad)
         result = RESULTS.successful
     else:
         if isinstance(f_info, FunctionInfo.EvalGradHessian):
@@ -73,7 +74,7 @@ def newton_step(
                 "Cannot use a Newton descent with a solver that only evaluates the "
                 "gradient, or only the function itself."
             )
-        out = lx.linear_solve(operator, vector, linear_solver)
+        out = lx.linear_solve(operator, jax.tree_map(jnp.conj, vector), linear_solver)
         newton = out.value
         result = RESULTS.promote(out.result)
     return newton, result

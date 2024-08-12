@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any, cast, Generic, Union
 
 import equinox as eqx
+import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import lineax as lx
@@ -73,22 +74,25 @@ class DoglegDescent(
         state: _DoglegDescentState,
     ) -> _DoglegDescentState:
         del state
+        conj_grad = jax.tree_map(jnp.conj, f_info.grad)
         # Compute `denom = grad^T Hess grad.`
         if isinstance(f_info, FunctionInfo.EvalGradHessian):
             denom = tree_dot(f_info.grad, f_info.hessian.mv(f_info.grad))
         elif isinstance(f_info, FunctionInfo.ResidualJac):
             # Use Gauss--Newton approximation `Hess ~ J^T J`
-            denom = sum_squares(f_info.jac.mv(f_info.grad))
+            denom = sum_squares(f_info.jac.mv(conj_grad))
         else:
             raise ValueError(
                 "`DoglegDescent` can only be used with least-squares solvers, or "
                 "quasi-Newton minimisers which make approximations to the Hessian "
                 "(like `optx.BFGS(use_inverse=False)`)"
             )
-        denom_nonzero = denom > jnp.finfo(denom.dtype).eps
+        denom_nonzero = jnp.abs(denom) > jnp.finfo(denom.dtype).eps
         safe_denom = jnp.where(denom_nonzero, denom, 1)
         # Compute `grad^T grad / (grad^T Hess grad)`
-        scaling = jnp.where(denom_nonzero, sum_squares(f_info.grad) / safe_denom, 0.0)
+
+        with jax.numpy_dtype_promotion("standard"):
+            scaling = jnp.where(denom_nonzero, sum_squares(conj_grad) / safe_denom, 0.0)
         scaling = cast(Array, scaling)
 
         # Downhill towards the bottom of the quadratic basin.
@@ -97,7 +101,8 @@ class DoglegDescent(
         newton_norm = self.trust_region_norm(newton_sol)
 
         # Downhill steepest descent.
-        cauchy = (-scaling * f_info.grad**ω).ω
+        with jax.numpy_dtype_promotion("standard"):
+            cauchy = (-scaling * conj_grad**ω).ω
         cauchy_norm = self.trust_region_norm(cauchy)
 
         return _DoglegDescentState(
@@ -139,7 +144,8 @@ class DoglegDescent(
             """
 
             def interpolate(t):
-                return (cauchy**ω + (t - 1) * (newton**ω - cauchy**ω)).ω
+                with jax.numpy_dtype_promotion("standard"):
+                    return (cauchy**ω + (t - 1) * (newton**ω - cauchy**ω)).ω
 
             # The vast majority of the time we expect users to use `two_norm`,
             # ie. the classic, elliptical trust region radius. In this case, we
@@ -152,7 +158,7 @@ class DoglegDescent(
             # find the value which hits the trust region radius.
             if self.trust_region_norm is two_norm:
                 a = sum_squares((newton**ω - cauchy**ω).ω)
-                inner_prod = tree_dot(cauchy, (newton**ω - cauchy**ω).ω)
+                inner_prod = tree_dot(cauchy, (newton**ω - cauchy**ω).ω).real
                 b = 2 * (inner_prod - a)
                 c = state.cauchy_norm**2 - 2 * inner_prod + a - scaled_step_size**2
                 quadratic_1 = jnp.clip(

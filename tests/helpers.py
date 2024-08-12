@@ -221,13 +221,13 @@ def bowl(tree: PyTree[Array], args: Array):
     # Trivial quadratic bowl smoke test for convergence.
     (y, _) = jfu.ravel_pytree(tree)
     matrix = args
-    return y.T @ matrix @ y
+    return y.T.conj() @ matrix @ y
 
 
 def diagonal_quadratic_bowl(tree: PyTree[Array], args: PyTree[Array]):
     # A diagonal quadratic bowl smoke test for convergence.
     weight_vector = args
-    return (ω(tree).call(jnp.square) * (0.1 + weight_vector**ω)).ω
+    return (ω(tree).call(jnp.square) * (0.1 + weight_vector**ω)).call(jnp.abs).ω
 
 
 def rosenbrock(tree: PyTree[Array], args: Scalar):
@@ -317,7 +317,7 @@ def simple_nn(model_dynamic: PyTree[Array], args: PyTree):
 
 def square_minus_one(x: Array, args: PyTree):
     """A simple ||x||^2 - 1 function."""
-    return jnp.sum(jnp.square(x)) - 1.0
+    return jnp.sum(jnp.square(jnp.abs(x))) - 1.0
 
 
 #
@@ -383,6 +383,16 @@ diagonal_bowl_args = treedef.unflatten(
     [jr.normal(key, leaf.shape, leaf.dtype) ** 2 for leaf in leaves]
 )
 
+diagonal_bowl_init_complex = (
+    {"a": (0.05 + 0.01j) * jnp.ones((2, 3, 3), dtype=jnp.complex128)},
+    ((0.01 + 0.05j) * jnp.ones(2, dtype=jnp.complex128)),
+)
+leaves_complex, treedef_complex = jtu.tree_flatten(diagonal_bowl_init_complex)
+key = jr.PRNGKey(17)
+diagonal_bowl_args_complex = treedef.unflatten(
+    [jr.normal(key, leaf.shape, leaf.dtype) ** 2 for leaf in leaves_complex]
+)
+
 # neural net args
 ffn_data = jnp.linspace(0, 1, 100)[..., None]
 ffn_args = (ffn_static, ffn_data)
@@ -393,6 +403,12 @@ least_squares_fn_minima_init_args = (
         jnp.array(0.0),
         diagonal_bowl_init,
         diagonal_bowl_args,
+    ),
+    (
+        diagonal_quadratic_bowl,
+        jnp.array(0.0),
+        diagonal_bowl_init_complex,
+        diagonal_bowl_args_complex,
     ),
     (
         rosenbrock,
@@ -463,6 +479,12 @@ minimisation_fn_minima_init_args = (
     ),
     # Problems with initial value of 0
     (square_minus_one, jnp.array(-1.0), jnp.array(1.0), None),
+    (
+        square_minus_one,
+        jnp.array(-1.0),
+        jnp.array(1.0 + 1.0j, dtype=jnp.complex128),
+        None,
+    ),
 )
 
 # ROOT FIND/FIXED POINT PROBLEMS
