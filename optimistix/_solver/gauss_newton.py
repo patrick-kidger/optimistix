@@ -76,6 +76,7 @@ def newton_step(
         out = lx.linear_solve(operator, vector, linear_solver)
         newton = out.value
         result = RESULTS.promote(out.result)
+    newton = jax.tree_map(jnp.conj, newton)
     return newton, result
 
 
