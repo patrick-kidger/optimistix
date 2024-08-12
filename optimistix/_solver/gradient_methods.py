@@ -70,7 +70,7 @@ class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState], strict
             )
         if self.norm is not None:
             grad = (grad**ω / self.norm(grad)).ω
-        return _SteepestDescentState(grad)
+        return _SteepestDescentState(jax.tree_map(jnp.conj, grad))
 
     def step(
         self, step_size: Scalar, state: _SteepestDescentState
