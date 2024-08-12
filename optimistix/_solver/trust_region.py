@@ -3,6 +3,7 @@ from typing import TypeVar, Union
 from typing_extensions import TypeAlias
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from equinox import AbstractVar
 from equinox.internal import ω
@@ -166,7 +167,7 @@ class ClassicalTrustRegion(
         if isinstance(f_info, FunctionInfo.EvalGradHessian):
             # Minimisation algorithm. Directly compute the quadratic approximation.
             return tree_dot(
-                y_diff,
+                jax.tree_map(jnp.conj, y_diff),
                 (f_info.grad**ω + 0.5 * f_info.hessian.mv(y_diff) ** ω).ω,
             ).real
         elif isinstance(f_info, FunctionInfo.ResidualJac):
@@ -273,7 +274,7 @@ class LinearTrustRegion(
                 FunctionInfo.ResidualJac,
             ),
         ):
-            return tree_dot(f_info.grad, y_diff).real
+            return tree_dot(jax.tree_map(jnp.conj, f_info.grad), y_diff).real
         else:
             raise ValueError(
                 "Cannot use `LinearTrustRegion` with this solver. This is because "
