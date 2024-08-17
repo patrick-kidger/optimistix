@@ -97,7 +97,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState], strict=True):
                 ("loss" in self.verbose, "Loss", f),
                 ("y" in self.verbose, "y", y),
             )
-        updates, new_opt_state = self.optim.update(grads, state.opt_state)
+        updates, new_opt_state = self.optim.update(grads, state.opt_state, y)
         new_y = eqx.apply_updates(y, updates)
         terminate = cauchy_termination(
             self.rtol,
