@@ -130,6 +130,24 @@ def test_bisection_flip():
 
 
 @pytest.mark.parametrize(
+    "fn", [lambda x, _: x, lambda x, _: -x], ids=["positive", "negative"]
+)
+@pytest.mark.parametrize(
+    ("lower", "upper"),
+    [(lower, upper) for lower in (-3, 3) for upper in (-4, -2, 2, 4)],
+)
+def test_bisection_expansion(fn, lower, upper):
+    options = {"lower": lower, "upper": upper}
+    sol = optx.root_find(
+        fn,
+        optx.Bisection(rtol=0.0, atol=1e-4, expand_if_necessary=True),
+        100.0,
+        options=options,
+    )
+    assert jnp.allclose(0, sol.value, atol=1e-3)
+
+
+@pytest.mark.parametrize(
     "solver", [optx.Newton(rtol=1e-5, atol=1e-5), optx.Chord(rtol=1e-5, atol=1e-5)]
 )
 def test_newton_bounded(solver):
