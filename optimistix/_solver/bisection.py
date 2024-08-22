@@ -93,9 +93,9 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState], strict
     whichever half contains the root. This is then repeated. The iteration stops once
     the interval is sufficiently small.
 
-    If expand_if_necessary and detect are true, the initial interval will be expanded
-    if it doesn't contain the the root.  This expansion assumes that the function is
-    monotonic.
+    If `expand_if_necessary` and `detect` are true, the initial interval will be
+    expanded if it doesn't contain the the root.  This expansion assumes that the
+    function is monotonic.
     """
 
     rtol: float
@@ -221,4 +221,8 @@ Bisection.__init__.__doc__ = """**Arguments:**
     - `True`: specify that `fn(lower, args) > 0 > fn(upper, args)`.
     - `"detect"`: automatically check `fn(lower, args)` and `fn(upper, args)`. Note that
         this option may increase both runtime and compilation time.
+- `expand_if_necessary`: If `True` then the `lower` and `upper` passed as options will
+    be made larger or smaller if the root is not found within the interval
+    `[lower, upper]`. To locate the root correctly then this assumes that the function
+    is monotonic.
 """
