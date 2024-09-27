@@ -267,10 +267,6 @@ class AbstractBFGS(
         )
         return y, state, aux
 
-        def make_f_info_on_accept(f_eval, lin_fn):
-            (grad,) = lin_to_grad(lin_fn, y)
-            return f_info
-
     def terminate(
         self,
         fn: Fn[Y, Scalar, Aux],
