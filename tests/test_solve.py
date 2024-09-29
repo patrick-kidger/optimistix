@@ -56,10 +56,9 @@ def test_forward_mode():
     def f(y, _):
         return eqxi.nondifferentiable_backward(y)
 
-    sol = optx.least_squares(
+    optx.least_squares(
         f,
         optx.LevenbergMarquardt(rtol=1e-4, atol=1e-4),
         jnp.arange(3.0),
         options=dict(jac="fwd"),
     )
-    return sol.value
