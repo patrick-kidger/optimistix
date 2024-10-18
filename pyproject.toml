@@ -1,6 +1,6 @@
 [project]
 name = "optimistix"
-version = "0.0.8"
+version = "0.0.9"
 description = "Nonlinear optimisation in JAX and Equinox."
 readme = "README.md"
 requires-python ="~=3.9"
