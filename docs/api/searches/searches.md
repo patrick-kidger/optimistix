@@ -32,3 +32,10 @@
     selection:
         members:
             - __init__
+
+---
+
+::: optimistix.FilteredLineSearch
+    selection: 
+        members:
+            - __init__

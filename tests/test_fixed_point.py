@@ -10,7 +10,7 @@ import pytest
 from equinox.internal import ω
 
 from .helpers import (
-    bisection_fn_init_options_args,
+    bisection_fn_init_bounds_args,
     finite_difference_jvp,
     fixed_point_fn_init_args,
     PiggybackAdjoint,
@@ -116,9 +116,9 @@ def test_fixed_point_jvp(getkey, solver, _fn, init, dtype, args):
 
 
 @pytest.mark.parametrize(
-    "_fn, init, bisection_options, args", bisection_fn_init_options_args
+    "_fn, init, bisection_bounds, args", bisection_fn_init_bounds_args
 )
-def test_bisection(_fn, init, bisection_options, args):
+def test_bisection(_fn, init, bisection_bounds, args):
     solver = optx.Bisection(rtol=1e-6, atol=1e-6)
     atol = rtol = 1e-4
     has_aux = random.choice([True, False])
@@ -142,7 +142,7 @@ def test_bisection(_fn, init, bisection_options, args):
         init,
         has_aux=has_aux,
         args=args,
-        options=bisection_options,
+        bounds=bisection_bounds,
         max_steps=10_000,
         throw=False,
     ).value

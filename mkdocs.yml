@@ -112,6 +112,8 @@ nav:
             - 'api/least_squares.md'
             - 'api/root_find.md'
             - 'api/fixed_point.md'
+            - 'api/quadratic.md'
+        - 'api/boundary_maps.md'
         - 'api/solution.md'
     - Advanced API:
         - 'api/norms.md'
