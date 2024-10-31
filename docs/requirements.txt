@@ -1,6 +1,7 @@
 # Latest versions at time of writing.
 mkdocs==1.3.0            # Main documentation generator.
 mkdocs-material==7.3.6   # Theme
+mkdocs-autorefs==1.0.1   # Specific version to avoid URL conflicts with mkdocstrings
 pymdown-extensions==9.4  # Markdown extensions e.g. to handle LaTeX.
 mkdocstrings==0.17.0     # Autogenerate documentation from docstrings.
 mknotebooks==0.7.1       # Turn Jupyter Lab notebooks into webpages.
