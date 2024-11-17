@@ -216,7 +216,7 @@ class AbstractBFGS(
         )
 
         def accepted(descent_state):
-            (grad,) = lin_to_grad(lin_fn, y)
+            (grad,) = lin_to_grad(lin_fn, state.y_eval)
             y_diff = (state.y_eval**ω - y**ω).ω
             if self.use_inverse:
                 hessian = None
