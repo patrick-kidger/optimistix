@@ -175,7 +175,7 @@ class AbstractGradientDescent(
         )
 
         def accepted(descent_state):
-            (grad,) = lin_to_grad(lin_fn, y)
+            (grad,) = lin_to_grad(lin_fn, state.y_eval)
             f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
             y_diff = (state.y_eval**ω - y**ω).ω
