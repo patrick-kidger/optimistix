@@ -119,9 +119,8 @@ def jacobian(fn, in_size, out_size, has_aux=False):
 
 
 def lin_to_grad(lin_fn, *primals):
-    # Only the shape and dtype of primals is evaluated, not the value itself. lin_fn
-    # already knows where it was computed, and 1.0 acts only as a scaling factor here.
-    # We compute lin_fn and grad separately because it helps us compile efficiently, see
+    # Only the shape and dtype of primals is evaluated, not the value itself. We convert
+    # to grad after linearising to avoid recompilation.
     # https://github.com/patrick-kidger/optimistix/issues/89#issuecomment-2447669714
     return jax.linear_transpose(lin_fn, *primals)(1.0)
 
