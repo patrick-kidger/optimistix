@@ -175,7 +175,11 @@ class AbstractGradientDescent(
         )
 
         def accepted(descent_state):
-            (grad,) = lin_to_grad(lin_fn, tree_full_like(y, 0))
+            # We have linearised the function (i.e. computed its Jacobian at y_eval)
+            # above, here we convert it to a gradient of the same shape as y. y_eval is
+            # actually a dummy value here, since lin_fn already has the required info.
+            (grad,) = lin_to_grad(lin_fn, state.y_eval)
+
             f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
             y_diff = (state.y_eval**ω - y**ω).ω
