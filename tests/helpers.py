@@ -120,6 +120,7 @@ class BFGSDampedNewton(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DampedNewtonDescent()
+    verbose: frozenset[str] = frozenset()
 
 
 class BFGSIndirectDampedNewton(optx.AbstractBFGS):
@@ -131,6 +132,7 @@ class BFGSIndirectDampedNewton(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.IndirectDampedNewtonDescent()
+    verbose: frozenset[str] = frozenset()
 
 
 class BFGSDogleg(optx.AbstractBFGS):
@@ -142,6 +144,7 @@ class BFGSDogleg(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DoglegDescent(linear_solver=lx.SVD())
+    verbose: frozenset[str] = frozenset()
 
 
 class BFGSBacktracking(optx.AbstractBFGS):
@@ -153,6 +156,7 @@ class BFGSBacktracking(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.BacktrackingArmijo()
     descent: optx.AbstractDescent = optx.NewtonDescent()
+    verbose: frozenset[str] = frozenset()
 
 
 class BFGSTrustRegion(optx.AbstractBFGS):
@@ -164,6 +168,7 @@ class BFGSTrustRegion(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.LinearTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
+    verbose: frozenset[str] = frozenset()
 
 
 atol = rtol = 1e-8
