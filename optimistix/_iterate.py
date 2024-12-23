@@ -6,7 +6,6 @@ from typing import Any, Generic, Optional, TYPE_CHECKING
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
-import jax.core
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox import AbstractVar

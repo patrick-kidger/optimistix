@@ -4,7 +4,7 @@ from typing import Any, Literal, overload, TypeVar, Union
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
-import jax.core
+import jax.extend as jex
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -178,7 +178,7 @@ def cauchy_termination(
 
 
 class _JaxprEqual:
-    def __init__(self, jaxpr: jax.core.Jaxpr):
+    def __init__(self, jaxpr: jex.core.Jaxpr):
         self.jaxpr = jaxpr
 
     def __hash__(self):
@@ -190,9 +190,9 @@ class _JaxprEqual:
 
 
 def _wrap_jaxpr_leaf(leaf):
-    # But not jax.core.ClosedJaxpr, which contains constants that should be handled in
+    # But not jex.core.ClosedJaxpr, which contains constants that should be handled in
     # pytree style.
-    if isinstance(leaf, jax.core.Jaxpr):
+    if isinstance(leaf, jex.core.Jaxpr):
         return _JaxprEqual(leaf)
     else:
         return leaf
