@@ -43,7 +43,7 @@ build-backend = "hatchling.build"
 include = ["optimistix/*"]
 
 [tool.pytest.ini_options]
-addopts = "--jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
+addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
 
 [tool.ruff]
 extend-include = ["*.ipynb"]
