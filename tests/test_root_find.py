@@ -1,3 +1,4 @@
+import contextlib
 import random
 
 import equinox as eqx
@@ -54,70 +55,75 @@ def test_root_find(solver, _fn, init, args):
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 @pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
 def test_root_find_jvp(getkey, solver, _fn, init, dtype, args):
-    args = jtu.tree_map(lambda x: x.astype(dtype), args)
-    init = jtu.tree_map(lambda x: x.astype(dtype), init)
-    atol = rtol = 1e-3
-    has_aux = random.choice([True, False])
-
-    def root_find_problem(y, args):
-        f_val = _fn(y, args)
-        return (f_val**ω - y**ω).ω
-
-    if has_aux:
-        fn = lambda x, args: (root_find_problem(x, args), smoke_aux)
+    if dtype == jnp.complex128:
+        context = pytest.warns(match="Complex support in Optimistix is a work in")
     else:
-        fn = root_find_problem
-    dynamic_args, static_args = eqx.partition(args, eqx.is_array)
-    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape, dtype=dtype), init)
-    t_dynamic_args = jtu.tree_map(
-        lambda x: jr.normal(getkey(), x.shape, dtype=dtype), dynamic_args
-    )
+        context = contextlib.nullcontext()
+    with context:
+        args = jtu.tree_map(lambda x: x.astype(dtype), args)
+        init = jtu.tree_map(lambda x: x.astype(dtype), init)
+        atol = rtol = 1e-3
+        has_aux = random.choice([True, False])
 
-    def root_find(x, dynamic_args, *, adjoint):
-        args = eqx.combine(dynamic_args, static_args)
-        return optx.root_find(
-            fn,
-            solver,
-            x,
-            has_aux=has_aux,
-            args=args,
-            max_steps=10_000,
-            adjoint=adjoint,
-            throw=False,
-        ).value
+        def root_find_problem(y, args):
+            f_val = _fn(y, args)
+            return (f_val**ω - y**ω).ω
 
-    otd = optx.ImplicitAdjoint()
-    expected_out, t_expected_out = finite_difference_jvp(
-        root_find,
-        (init, dynamic_args),
-        (t_init, t_dynamic_args),
-        adjoint=otd,
-    )
-    out, t_out = eqx.filter_jvp(
-        root_find,
-        (init, dynamic_args),
-        (t_init, t_dynamic_args),
-        adjoint=otd,
-    )
-    dto = PiggybackAdjoint()
-    expected_out2, t_expected_out2 = finite_difference_jvp(
-        root_find,
-        (init, dynamic_args),
-        (t_init, t_dynamic_args),
-        adjoint=dto,
-    )
-    out2, t_out2 = eqx.filter_jvp(
-        root_find,
-        (init, dynamic_args),
-        (t_init, t_dynamic_args),
-        adjoint=dto,
-    )
-    assert tree_allclose(expected_out2, expected_out, atol=atol, rtol=rtol)
-    assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
-    assert tree_allclose(out2, expected_out, atol=atol, rtol=rtol)
-    assert tree_allclose(t_expected_out2, t_expected_out, atol=atol, rtol=rtol)
-    assert tree_allclose(t_out, t_expected_out, atol=atol, rtol=rtol)
-    assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)
+        if has_aux:
+            fn = lambda x, args: (root_find_problem(x, args), smoke_aux)
+        else:
+            fn = root_find_problem
+        dynamic_args, static_args = eqx.partition(args, eqx.is_array)
+        t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape, dtype=dtype), init)
+        t_dynamic_args = jtu.tree_map(
+            lambda x: jr.normal(getkey(), x.shape, dtype=dtype), dynamic_args
+        )
+
+        def root_find(x, dynamic_args, *, adjoint):
+            args = eqx.combine(dynamic_args, static_args)
+            return optx.root_find(
+                fn,
+                solver,
+                x,
+                has_aux=has_aux,
+                args=args,
+                max_steps=10_000,
+                adjoint=adjoint,
+                throw=False,
+            ).value
+
+        otd = optx.ImplicitAdjoint()
+        expected_out, t_expected_out = finite_difference_jvp(
+            root_find,
+            (init, dynamic_args),
+            (t_init, t_dynamic_args),
+            adjoint=otd,
+        )
+        out, t_out = eqx.filter_jvp(
+            root_find,
+            (init, dynamic_args),
+            (t_init, t_dynamic_args),
+            adjoint=otd,
+        )
+        dto = PiggybackAdjoint()
+        expected_out2, t_expected_out2 = finite_difference_jvp(
+            root_find,
+            (init, dynamic_args),
+            (t_init, t_dynamic_args),
+            adjoint=dto,
+        )
+        out2, t_out2 = eqx.filter_jvp(
+            root_find,
+            (init, dynamic_args),
+            (t_init, t_dynamic_args),
+            adjoint=dto,
+        )
+        assert tree_allclose(expected_out2, expected_out, atol=atol, rtol=rtol)
+        assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
+        assert tree_allclose(out2, expected_out, atol=atol, rtol=rtol)
+        assert tree_allclose(t_expected_out2, t_expected_out, atol=atol, rtol=rtol)
+        assert tree_allclose(t_out, t_expected_out, atol=atol, rtol=rtol)
+        assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)
 
 
 def test_bisection_flip():
