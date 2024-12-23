@@ -207,9 +207,6 @@ def root_find(
             adjoint=adjoint,
             throw=throw,
         )
-        _, aux = sol.aux
-        sol = eqx.tree_at(lambda s: s.aux, sol, aux)
-        return sol
     else:
         y0 = jtu.tree_map(inexact_asarray, y0)
         fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
