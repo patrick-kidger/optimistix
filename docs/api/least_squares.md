@@ -55,7 +55,7 @@
 
 ---
 
-::: optimistix.BestSoFarRootFinder
+::: optimistix.BestSoFarLeastSquares
     selection:
         members:
             - __init__
