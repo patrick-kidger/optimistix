@@ -196,7 +196,7 @@ def root_find(
         return sol
     elif isinstance(solver, AbstractLeastSquaresSolver):
         del tags
-        return least_squares(
+        sol = least_squares(
             eqx.Partial(_to_lstsq_fn, fn),
             _LstsqToRoot(solver),  # pyright: ignore
             y0,
