@@ -87,7 +87,7 @@ def least_squares(
         an error. If `False` then the returned solution object will have a `result`
         field indicating whether any failures occured. (See [`optimistix.Solution`][].)
         Keyword only argument.
-    - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing the
+    - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing
         any structure of the Hessian of `y -> sum(fn(y, args)**2)` with respect to y.
         Used with [`optimistix.ImplicitAdjoint`][] to implement the implicit function
         theorem as efficiently as possible. Keyword only argument.
