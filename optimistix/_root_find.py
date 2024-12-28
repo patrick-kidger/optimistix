@@ -163,7 +163,7 @@ def root_find(
         an error. If `False` then the returned solution object will have a `result`
         field indicating whether any failures occured. (See [`optimistix.Solution`][].)
         Keyword only argument.
-    - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing the
+    - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing
         any structure of the Jacobian of `fn` with respect to `y`. Used with some
         solvers (e.g. [`optimistix.Newton`][]), and with some adjoint methods (e.g.
         [`optimistix.ImplicitAdjoint`][]) to improve the efficiency of linear solves.
