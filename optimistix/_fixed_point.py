@@ -101,7 +101,7 @@ def fixed_point(
         an error. If `False` then the returned solution object will have a `result`
         field indicating whether any failures occured. (See [`optimistix.Solution`][].)
         Keyword only argument.
-    - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing the
+    - `tags`: Lineax [tags](https://docs.kidger.site/lineax/api/tags/) describing
         any structure of the Jacobian of `y -> fn(y, args) - y` with respect to y. (That
         is, the structure of the matrix `dfn/dy - I`.) Used with
         [`optimistix.ImplicitAdjoint`][] to implement the implicit function theorem as
