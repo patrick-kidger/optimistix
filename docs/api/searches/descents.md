@@ -10,39 +10,39 @@
 ::: optimistix.SteepestDescent
     selection:
         members:
-            false
+            __init__
 
 ---
 
 ::: optimistix.NonlinearCGDescent
     selection:
         members:
-            false
+            __init__
 
 ---
 
 ::: optimistix.NewtonDescent
     selection:
         members:
-            false
+            __init__
 
 ---
 
 ::: optimistix.DampedNewtonDescent
     selection:
         members:
-            false
+            __init__
 
 ---
 
 ::: optimistix.IndirectDampedNewtonDescent
     selection:
         members:
-            false
+            __init__
 
 ---
 
 ::: optimistix.DoglegDescent
     selection:
         members:
-            false
+            __init__
