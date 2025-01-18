@@ -17,7 +17,7 @@ Features include:
 pip install optimistix
 ```
 
-Requires Python 3.9+ and JAX 0.4.14+ and [Equinox](https://github.com/patrick-kidger/equinox) 0.11.0+.
+Requires Python 3.10+ and JAX 0.4.38+ and [Equinox](https://github.com/patrick-kidger/equinox) 0.11.11+.
 
 ## Documentation
 
