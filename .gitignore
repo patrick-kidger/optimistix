@@ -9,3 +9,4 @@ examples/data
 .pymon
 .idea
 .venv
+.DS_Store
