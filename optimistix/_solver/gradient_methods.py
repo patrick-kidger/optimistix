@@ -120,6 +120,13 @@ class AbstractGradientDescent(
     - `norm: Callable[[PyTree], Scalar]`
     - `descent: AbstractDescent`
     - `search: AbstractSearch`
+
+    Supports the following `options`:
+
+    - `mode`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`, which is
+        usually more efficient. Changing this can be useful when the target function
+        does not support reverse-mode automatic differentiation.
     """
 
     rtol: AbstractVar[float]
@@ -162,6 +169,7 @@ class AbstractGradientDescent(
         state: _GradientDescentState,
         tags: frozenset[object],
     ) -> tuple[Y, _GradientDescentState, Aux]:
+        mode = options.get("mode", "bwd")
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
@@ -175,10 +183,7 @@ class AbstractGradientDescent(
         )
 
         def accepted(descent_state):
-            # We have linearised the function (i.e. computed its Jacobian at y_eval)
-            # above, here we convert it to a gradient of the same shape as y. y_eval is
-            # actually a dummy value here, since lin_fn already has the required info.
-            (grad,) = lin_to_grad(lin_fn, state.y_eval)
+            grad = lin_to_grad(lin_fn, state.y_eval, mode=mode)
 
             f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
@@ -243,7 +248,15 @@ class AbstractGradientDescent(
 
 
 class GradientDescent(AbstractGradientDescent[Y, Aux], strict=True):
-    """Classic gradient descent with a learning rate `learning_rate`."""
+    """Classic gradient descent with a learning rate `learning_rate`.
+
+    Supports the following `options`:
+
+    - `mode`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`, which is
+        usually more efficient. Changing this can be useful when the target function
+        does not support reverse-mode automatic differentiation.
+    """
 
     rtol: float
     atol: float

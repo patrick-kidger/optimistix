@@ -8,6 +8,7 @@ import jax.extend as jex
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 from lineax.internal import (
@@ -103,26 +104,43 @@ class OutAsArray(eqx.Module, strict=True):
         return out, aux
 
 
-def jacobian(fn, in_size, out_size, has_aux=False):
-    """Compute the Jacobian of a function using forward or backward mode AD.
-
-    `jacobian` chooses between forward and backwards autodiff depending on the input
-    and output dimension of `fn`, as specified in `in_size` and `out_size`.
+def _jacfwd(lin_fn, pytree):
+    """Custom version of jax.jacfwd that directly uses a linearized function.
+    Takes inspiration from jax.jacfwd, but simplifies some steps: we only ever treat
+    PyTrees of arrays, where all elements have the same dtype.
     """
+    leaves, treedef = jtu.tree_flatten(pytree)
+    static_sizes = [int(jnp.size(leaf)) for leaf in leaves]
+    indices = np.cumsum(static_sizes)[:-1]  # Define boundaries between elements
+    elements = sum(static_sizes)
+    dtype = jax.dtypes.result_type(*leaves)
 
-    # Heuristic for which is better in each case
-    # These could probably be tuned a lot more.
-    if (in_size < 100) or (in_size <= 1.5 * out_size):
-        return jax.jacfwd(fn, has_aux=has_aux)
-    else:
-        return jax.jacrev(fn, has_aux=has_aux)
+    def values_to_tree(values):
+        parts = jnp.split(values, indices)
+        reshaped = jtu.tree_map(lambda a, b: jnp.reshape(a, b.shape), parts, leaves)
+        return jtu.tree_unflatten(treedef, reshaped)
+
+    def unit_tree(index):
+        values = jnp.zeros(elements, dtype=dtype).at[index].set(1.0)
+        return values_to_tree(values)
+
+    unit_pytrees = [unit_tree(i) for i in range(elements)]
+    derivatives = jnp.stack([lin_fn(t) for t in unit_pytrees])
+    return values_to_tree(derivatives)
 
 
-def lin_to_grad(lin_fn, *primals):
-    # Only the shape and dtype of primals is evaluated, not the value itself. We convert
-    # to grad after linearising to avoid recompilation. (1.0 is a scaling factor.)
+def lin_to_grad(lin_fn, y_eval, mode=None):
+    # Only the shape and dtype of y_eval is evaluated, not the value itself. (lin_fn
+    # was linearized at y_eval, and the values were stored.)
+    # We convert to grad after linearising for efficiency:
     # https://github.com/patrick-kidger/optimistix/issues/89#issuecomment-2447669714
-    return jax.linear_transpose(lin_fn, *primals)(1.0)
+    if mode == "bwd":
+        (grad,) = jax.linear_transpose(lin_fn, y_eval)(1.0)  # (1.0 is a scaling factor)
+        return grad
+    if mode == "fwd":
+        return _jacfwd(lin_fn, y_eval)
+    else:
+        raise ValueError("Only `mode='fwd'` or `mode='bwd'` are valid.")
 
 
 def _asarray(dtype, x):
