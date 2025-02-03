@@ -123,12 +123,12 @@ def _jacfwd(lin_fn, pytree):
         reshaped = jtu.tree_map(lambda a, b: jnp.reshape(a, b.shape), parts, leaves)
         return jtu.tree_unflatten(treedef, reshaped)
 
-    def unit_tree(index):
+    def directional_derivative(index):
         values = jnp.zeros(elements, dtype=dtype).at[index].set(1.0)
-        return values_to_tree(values)
+        unit_tree = values_to_tree(values)
+        return lin_fn(unit_tree)
 
-    unit_pytrees = [unit_tree(i) for i in range(elements)]
-    derivatives = jnp.stack([lin_fn(t) for t in unit_pytrees])
+    derivatives = jax.vmap(directional_derivative)(jnp.arange(elements))
     return values_to_tree(derivatives)
 
 
