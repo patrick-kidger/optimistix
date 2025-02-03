@@ -25,9 +25,10 @@ from .helpers import (
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 
+@pytest.mark.parametrize("options", (dict(mode="fwd"), dict(mode="bwd")))
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
-def test_minimise(solver, _fn, minimum, init, args):
+def test_minimise(solver, _fn, minimum, init, args, options):
     if isinstance(solver, optx.GradientDescent):
         max_steps = 100_000
     else:
@@ -49,6 +50,7 @@ def test_minimise(solver, _fn, minimum, init, args):
             init,
             has_aux=has_aux,
             args=args,
+            options=options,
             max_steps=max_steps,
             throw=False,
         ).value
@@ -56,9 +58,10 @@ def test_minimise(solver, _fn, minimum, init, args):
     assert tree_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
 
+@pytest.mark.parametrize("options", (dict(mode="fwd"), dict(mode="bwd")))
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
-def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
+def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options):
     if isinstance(solver, (optx.GradientDescent, optx.NonlinearCG)):
         max_steps = 100_000
         atol = rtol = 1e-2
@@ -88,6 +91,7 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args):
                 x,
                 has_aux=has_aux,
                 args=args,
+                options=options,
                 max_steps=max_steps,
                 adjoint=adjoint,
                 throw=False,
