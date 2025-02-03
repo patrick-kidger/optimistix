@@ -105,9 +105,12 @@ class OutAsArray(eqx.Module, strict=True):
 
 
 def _jacfwd(lin_fn, pytree):
-    """Custom version of jax.jacfwd that directly uses a linearized function.
-    Takes inspiration from jax.jacfwd, but simplifies some steps: we only ever treat
-    PyTrees of arrays, where all elements have the same dtype.
+    """Custom version of jax.jacfwd that operates on a linearized function. Enables
+    obtaining a gradient without requiring transposition if the function that was
+    linearized returns a scalar, as in this case the Jacobian is equivalent to the
+    gradient. (Untested for other use cases.)
+    Tailored to the optimistix use-case, where all optimisation variables are pytrees of
+    arrays, sharing the same dtype.
     """
     leaves, treedef = jtu.tree_flatten(pytree)
     static_sizes = [int(jnp.size(leaf)) for leaf in leaves]
