@@ -155,6 +155,13 @@ class AbstractBFGS(
     information.
 
     This abstract version may be subclassed to choose alternative descent and searches.
+
+    Supports the following `options`:
+
+    - `mode`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`, which is
+        usually more efficient. Changing this can be useful when the target function
+        does not support reverse-mode automatic differentiation.
     """
 
     rtol: AbstractVar[float]
@@ -205,6 +212,7 @@ class AbstractBFGS(
         state: _BFGSState,
         tags: frozenset[object],
     ) -> tuple[Y, _BFGSState, Aux]:
+        mode = options.get("mode", "bwd")
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
@@ -218,10 +226,7 @@ class AbstractBFGS(
         )
 
         def accepted(descent_state):
-            # We have linearised the function (i.e. computed its Jacobian at y_eval)
-            # above, here we convert it to a gradient of the same shape as y. y_eval is
-            # actually a dummy value here, since lin_fn already has the required info.
-            (grad,) = lin_to_grad(lin_fn, state.y_eval)
+            grad = lin_to_grad(lin_fn, state.y_eval, mode=mode)
 
             y_diff = (state.y_eval**ω - y**ω).ω
             if self.use_inverse:
@@ -318,6 +323,13 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian], strict=True):
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
     it progressively builds up a Hessian approximation using multiple steps of gradient
     information.
+
+    Supports the following `options`:
+
+    - `mode`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`, which is
+        usually more efficient. Changing this can be useful when the target function
+        does not support reverse-mode automatic differentiation.
     """
 
     rtol: float
