@@ -8,7 +8,6 @@ import jax.extend as jex
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 from lineax.internal import (
@@ -104,34 +103,6 @@ class OutAsArray(eqx.Module, strict=True):
         return out, aux
 
 
-def _jacfwd(lin_fn, pytree):
-    """Custom version of jax.jacfwd that operates on a linearized function. Enables
-    obtaining a gradient without requiring transposition if the function that was
-    linearized returns a scalar, as in this case the Jacobian is equivalent to the
-    gradient. (Untested for other use cases.)
-    Tailored to the optimistix use-case, where all optimisation variables are pytrees of
-    arrays, sharing the same dtype.
-    """
-    leaves, treedef = jtu.tree_flatten(pytree)
-    static_sizes = [int(jnp.size(leaf)) for leaf in leaves]
-    indices = np.cumsum(static_sizes)[:-1]  # Define boundaries between elements
-    elements = sum(static_sizes)
-    dtype = jax.dtypes.result_type(*leaves)
-
-    def values_to_tree(values):
-        parts = jnp.split(values, indices)
-        reshaped = jtu.tree_map(lambda a, b: jnp.reshape(a, b.shape), parts, leaves)
-        return jtu.tree_unflatten(treedef, reshaped)
-
-    def directional_derivative(index):
-        values = jnp.zeros(elements, dtype=dtype).at[index].set(1.0)
-        unit_tree = values_to_tree(values)
-        return lin_fn(unit_tree)
-
-    derivatives = jax.vmap(directional_derivative)(jnp.arange(elements))
-    return values_to_tree(derivatives)
-
-
 def lin_to_grad(lin_fn, y_eval, mode=None):
     # Only the shape and dtype of y_eval is evaluated, not the value itself. (lin_fn
     # was linearized at y_eval, and the values were stored.)
@@ -141,7 +112,7 @@ def lin_to_grad(lin_fn, y_eval, mode=None):
         (grad,) = jax.linear_transpose(lin_fn, y_eval)(1.0)  # (1.0 is a scaling factor)
         return grad
     if mode == "fwd":
-        return _jacfwd(lin_fn, y_eval)
+        return eqx.filter_jacfwd(lin_fn)(y_eval)
     else:
         raise ValueError("Only `mode='fwd'` or `mode='bwd'` are valid.")
 
