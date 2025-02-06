@@ -112,7 +112,7 @@ def lin_to_grad(lin_fn, y_eval, mode=None):
         (grad,) = jax.linear_transpose(lin_fn, y_eval)(1.0)  # (1.0 is a scaling factor)
         return grad
     if mode == "fwd":
-        return eqx.filter_jacfwd(lin_fn)(y_eval)
+        return jax.jacfwd(lin_fn)(y_eval)
     else:
         raise ValueError("Only `mode='fwd'` or `mode='bwd'` are valid.")
 
