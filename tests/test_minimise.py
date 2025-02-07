@@ -15,6 +15,7 @@ from .helpers import (
     beale,
     bowl,
     finite_difference_jvp,
+    forward_only_fn_init_options_expected,
     matyas,
     minimisation_fn_minima_init_args,
     minimisers,
@@ -25,7 +26,9 @@ from .helpers import (
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 
-@pytest.mark.parametrize("options", (dict(mode="fwd"), dict(mode="bwd")))
+@pytest.mark.parametrize(
+    "options", (dict(autodiff_mode="fwd"), dict(autodiff_mode="bwd"))
+)
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
 def test_minimise(solver, _fn, minimum, init, args, options):
@@ -58,7 +61,9 @@ def test_minimise(solver, _fn, minimum, init, args, options):
     assert tree_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
 
-@pytest.mark.parametrize("options", (dict(mode="fwd"), dict(mode="bwd")))
+@pytest.mark.parametrize(
+    "options", (dict(autodiff_mode="fwd"), dict(autodiff_mode="bwd"))
+)
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
 def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options):
@@ -192,3 +197,17 @@ def test_optax_recompilation():
         num_called_so_far = num_called
         optx.minimise(f, solver2, 1.0)
     assert num_called_so_far == num_called
+
+
+@pytest.mark.parametrize("solver", minimisers)
+@pytest.mark.parametrize(
+    "fn, y0, options, expected", forward_only_fn_init_options_expected
+)
+def test_forward_minimisation(fn, y0, options, expected, solver):
+    if isinstance(solver, optx.OptaxMinimiser):  # No support for forward option
+        return
+    else:
+        # Many steps because gradient descent takes ridiculously long
+        sol = optx.minimise(fn, solver, y0, options=options, max_steps=2**10)
+        assert sol.result == optx.RESULTS.successful
+        assert tree_allclose(sol.value, expected, atol=1e-4, rtol=1e-4)

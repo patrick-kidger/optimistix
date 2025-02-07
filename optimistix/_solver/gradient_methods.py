@@ -123,10 +123,10 @@ class AbstractGradientDescent(
 
     Supports the following `options`:
 
-    - `mode`: whether to use forward- or reverse-mode autodifferentiation to compute the
-        gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`, which is
-        usually more efficient. Changing this can be useful when the target function
-        does not support reverse-mode automatic differentiation.
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
     """
 
     rtol: AbstractVar[float]
@@ -169,7 +169,7 @@ class AbstractGradientDescent(
         state: _GradientDescentState,
         tags: frozenset[object],
     ) -> tuple[Y, _GradientDescentState, Aux]:
-        mode = options.get("mode", "bwd")
+        autodiff_mode = options.get("autodiff_mode", "bwd")
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
@@ -183,7 +183,7 @@ class AbstractGradientDescent(
         )
 
         def accepted(descent_state):
-            grad = lin_to_grad(lin_fn, state.y_eval, mode=mode)
+            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
             f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
@@ -252,10 +252,10 @@ class GradientDescent(AbstractGradientDescent[Y, Aux], strict=True):
 
     Supports the following `options`:
 
-    - `mode`: whether to use forward- or reverse-mode autodifferentiation to compute the
-        gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`, which is
-        usually more efficient. Changing this can be useful when the target function
-        does not support reverse-mode automatic differentiation.
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
     """
 
     rtol: float

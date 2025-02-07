@@ -5,3 +5,4 @@ optax
 pytest
 pytest-xdist
 jaxlib
+diffrax

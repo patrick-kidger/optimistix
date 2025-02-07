@@ -179,10 +179,10 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux], strict=True):
 
     Supports the following `options`:
 
-    - `mode`: whether to use forward- or reverse-mode autodifferentiation to compute the
-        gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`, which is
-        usually more efficient. Changing this can be useful when the target function
-        does not support reverse-mode automatic differentiation.
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
     """
 
     rtol: float

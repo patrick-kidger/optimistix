@@ -158,10 +158,10 @@ class AbstractBFGS(
 
     Supports the following `options`:
 
-    - `mode`: whether to use forward- or reverse-mode autodifferentiation to compute the
-        gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`, which is
-        usually more efficient. Changing this can be useful when the target function
-        does not support reverse-mode automatic differentiation.
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
     """
 
     rtol: AbstractVar[float]
@@ -212,7 +212,7 @@ class AbstractBFGS(
         state: _BFGSState,
         tags: frozenset[object],
     ) -> tuple[Y, _BFGSState, Aux]:
-        mode = options.get("mode", "bwd")
+        autodiff_mode = options.get("autodiff_mode", "bwd")
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
@@ -226,7 +226,7 @@ class AbstractBFGS(
         )
 
         def accepted(descent_state):
-            grad = lin_to_grad(lin_fn, state.y_eval, mode=mode)
+            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
             y_diff = (state.y_eval**ω - y**ω).ω
             if self.use_inverse:
@@ -326,10 +326,10 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian], strict=True):
 
     Supports the following `options`:
 
-    - `mode`: whether to use forward- or reverse-mode autodifferentiation to compute the
-        gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`, which is
-        usually more efficient. Changing this can be useful when the target function
-        does not support reverse-mode automatic differentiation.
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
     """
 
     rtol: float
