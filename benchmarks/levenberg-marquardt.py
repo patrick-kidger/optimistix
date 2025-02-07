@@ -81,7 +81,7 @@ def solve(
         # support forward-mode autodiff, which is used by Levenberg--Marquardt
         adjoint=dfx.DirectAdjoint(),
     )
-    return sol.ys
+    return sol.ys  # pyright: ignore
 
 
 def get_data() -> tuple[Float[Array, "3 2"], Float[Array, "3 50"]]:
