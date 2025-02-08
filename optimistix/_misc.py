@@ -103,26 +103,20 @@ class OutAsArray(eqx.Module, strict=True):
         return out, aux
 
 
-def jacobian(fn, in_size, out_size, has_aux=False):
-    """Compute the Jacobian of a function using forward or backward mode AD.
-
-    `jacobian` chooses between forward and backwards autodiff depending on the input
-    and output dimension of `fn`, as specified in `in_size` and `out_size`.
-    """
-
-    # Heuristic for which is better in each case
-    # These could probably be tuned a lot more.
-    if (in_size < 100) or (in_size <= 1.5 * out_size):
-        return jax.jacfwd(fn, has_aux=has_aux)
-    else:
-        return jax.jacrev(fn, has_aux=has_aux)
-
-
-def lin_to_grad(lin_fn, *primals):
-    # Only the shape and dtype of primals is evaluated, not the value itself. We convert
-    # to grad after linearising to avoid recompilation. (1.0 is a scaling factor.)
+def lin_to_grad(lin_fn, y_eval, autodiff_mode=None):
+    # Only the shape and dtype of y_eval is evaluated, not the value itself. (lin_fn
+    # was linearized at y_eval, and the values were stored.)
+    # We convert to grad after linearising for efficiency:
     # https://github.com/patrick-kidger/optimistix/issues/89#issuecomment-2447669714
-    return jax.linear_transpose(lin_fn, *primals)(1.0)
+    if autodiff_mode == "bwd":
+        (grad,) = jax.linear_transpose(lin_fn, y_eval)(1.0)  # (1.0 is a scaling factor)
+        return grad
+    if autodiff_mode == "fwd":
+        return jax.jacfwd(lin_fn)(y_eval)
+    else:
+        raise ValueError(
+            "Only `autodiff_mode='fwd'` or `autodiff_mode='bwd'` are valid."
+        )
 
 
 def _asarray(dtype, x):
