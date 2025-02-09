@@ -9,10 +9,14 @@ from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
 
+def _typed_asarray(x: ScalarLike) -> Array:
+    return jnp.asarray(x)
+
+
 class LearningRate(AbstractSearch[Y, FunctionInfo, FunctionInfo, None], strict=True):
     """Move downhill by taking a step of the fixed size `learning_rate`."""
 
-    learning_rate: ScalarLike = eqx.field(converter=jnp.asarray)
+    learning_rate: ScalarLike = eqx.field(converter=_typed_asarray)
 
     def init(self, y: Y, f_info_struct: FunctionInfo) -> None:
         return None
