@@ -148,18 +148,6 @@ class BFGSDogleg(optx.AbstractBFGS):
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSBacktracking(optx.AbstractBFGS):
-    """Standard BFGS + backtracking line search."""
-
-    rtol: float
-    atol: float
-    norm: Callable = optx.max_norm
-    use_inverse: bool = False
-    search: optx.AbstractSearch = optx.BacktrackingArmijo()
-    descent: optx.AbstractDescent = optx.NewtonDescent()
-    verbose: frozenset[str] = frozenset()
-
-
 class BFGSTrustRegion(optx.AbstractBFGS):
     """Standard BFGS + classical trust region update."""
 
@@ -191,8 +179,6 @@ minimisers = (
     BFGSIndirectDampedNewton(rtol, atol),
     # Tighter tolerance needed to have bfgs_dogleg pass the JVP test.
     BFGSDogleg(1e-10, 1e-10),
-    BFGSBacktracking(rtol, atol, use_inverse=False),
-    BFGSBacktracking(rtol, atol, use_inverse=True),
     BFGSTrustRegion(rtol, atol, use_inverse=False),
     BFGSTrustRegion(rtol, atol, use_inverse=True),
     optx.GradientDescent(1.5e-2, rtol, atol),
