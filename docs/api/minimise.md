@@ -72,6 +72,13 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 
 ---
 
+::: optimistix.NelderMead
+    selection:
+        members:
+            - __init__
+
+---
+
 ::: optimistix.BestSoFarMinimiser
     selection:
         members:

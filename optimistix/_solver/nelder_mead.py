@@ -96,7 +96,7 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]], strict=Tru
     need gradient evaluations.
 
     This is usually an "algorithm of last resort". Gradient-based algorithms are usually
-    much faster, and be more likely to converge to a minima.
+    much faster, and are more likely to converge to a minima.
 
     Comparable to `scipy.optimize.minimize(method="Nelder-Mead")`.
     """
