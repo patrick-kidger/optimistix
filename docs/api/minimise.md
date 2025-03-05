@@ -70,9 +70,38 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 
 ::: optimistix.dai_yuan
 
+
 ---
 
 ::: optimistix.NelderMead
+    selection:
+        members:
+            - __init__
+
+---
+
+::: optimistix.IPOPTLike
+    selection:
+        members:
+            - __init__
+
+---
+
+::: optimistix.SLSQP
+    selection:
+        members:
+            - __init__
+
+---
+
+::: optimistix.ColemanLi
+    selection:
+        members:
+            - __init__
+
+---
+
+::: optimistix.ProjectedGradientDescent
     selection:
         members:
             - __init__

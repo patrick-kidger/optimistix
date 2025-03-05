@@ -1,13 +1,13 @@
 from collections.abc import Callable
-from typing import Any, Generic, Optional, Union
-from typing_extensions import TypeAlias
+from typing import Any, Generic, TypeVar, Union
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import lineax as lx
 from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._custom_types import (
     Aux,
@@ -15,7 +15,6 @@ from .._custom_types import (
     ConstraintOut,
     DescentState,
     Fn,
-    Out,
     SearchState,
     Y,
 )
@@ -34,102 +33,44 @@ from .._search import (
     FunctionInfo,
 )
 from .._solution import RESULTS
-from .learning_rate import LearningRate
+from .bfgs import BFGS, bfgs_update, identity_pytree
+from .boundary_maps import ClosestFeasiblePoint
+from .filtered import FilteredLineSearch
+from .interior_point import InteriorDescent
 
 
-class _SteepestDescentState(eqx.Module, Generic[Y], strict=True):
-    grad: Y
+_Hessian = TypeVar(
+    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv
+)
 
 
-_FnInfo: TypeAlias = Union[
-    FunctionInfo.EvalGrad,
-    FunctionInfo.EvalGradHessian,
-    FunctionInfo.EvalGradHessianInv,
-    FunctionInfo.ResidualJac,
-]
-
-
-class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState], strict=True):
-    """The descent direction given by locally following the gradient."""
-
-    norm: Optional[Callable[[PyTree], Scalar]] = None
-
-    def init(self, y: Y, f_info_struct: _FnInfo) -> _SteepestDescentState:
-        del f_info_struct
-        # Dummy; unused
-        return _SteepestDescentState(y)
-
-    def query(
-        self, y: Y, f_info: _FnInfo, state: _SteepestDescentState
-    ) -> _SteepestDescentState:
-        if isinstance(
-            f_info,
-            (
-                FunctionInfo.EvalGrad,
-                FunctionInfo.EvalGradHessian,
-                FunctionInfo.EvalGradHessianInv,
-            ),
-        ):
-            grad = f_info.grad
-        elif isinstance(f_info, FunctionInfo.ResidualJac):
-            grad = f_info.compute_grad()
-        else:
-            raise ValueError(
-                "Cannot use `SteepestDescent` with this solver. This is because "
-                "`SteepestDescent` requires gradients of the target function, but "
-                "this solver does not evaluate such gradients."
-            )
-        if self.norm is not None:
-            grad = (grad**ω / self.norm(grad)).ω
-        return _SteepestDescentState(grad)
-
-    def step(
-        self, step_size: Scalar, state: _SteepestDescentState
-    ) -> tuple[Y, RESULTS]:
-        return (-step_size * state.grad**ω).ω, RESULTS.successful
-
-
-SteepestDescent.__init__.__doc__ = """**Arguments:**
-
-- `norm`: If passed, then normalise the gradient using this norm. (The returned step
-    will have length `step_size` with respect to this norm.) Optimistix includes three
-    built-in norms: [`optimistix.max_norm`][], [`optimistix.rms_norm`][], and
-    [`optimistix.two_norm`][].
-"""
-
-
-class _GradientDescentState(
-    eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState], strict=True
+class _IPOPTLikeState(
+    eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian], strict=True
 ):
     # Updated every search step
     first_step: Bool[Array, ""]
     y_eval: Y
     search_state: SearchState
     # Updated after each descent step
-    f_info: FunctionInfo.EvalGrad
+    f_info: _Hessian
     aux: Aux
     descent_state: DescentState
     # Used for termination
     terminate: Bool[Array, ""]
     result: RESULTS
+    # Used in compat.py
+    num_accepted_steps: Int[Array, ""]
 
 
-class AbstractGradientDescent(
-    AbstractMinimiser[Y, Aux, _GradientDescentState], strict=True
+# TODO documentation
+class AbstractIPOPTLike(
+    AbstractMinimiser[Y, Aux, _IPOPTLikeState], Generic[Y, Aux, _Hessian], strict=True
 ):
-    """The gradient descent method for unconstrained minimisation.
+    """Abstract IPOPT-like solver. Uses a filtered line search and an interior descent,
+    and restores feasibility by solving a nonlinear subproblem if required. Approximates
+    the Hessian using BFGS updates, as in [`optimistix.BFGS`][].
 
-    At every step, this algorithm performs a line search along the steepest descent
-    direction. You should subclass this to provide it with a particular choice of line
-    search. (E.g. [`optimistix.GradientDescent`][] uses a simple learning rate step.)
-
-    Subclasses must provide the following abstract attributes, with the following types:
-
-    - `rtol: float`
-    - `atol: float`
-    - `norm: Callable[[PyTree], Scalar]`
-    - `descent: AbstractDescent`
-    - `search: AbstractSearch`
+    This abstract version may be subclassed to choose alternative descent and searches.
 
     Supports the following `options`:
 
@@ -142,10 +83,8 @@ class AbstractGradientDescent(
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
-    descent: AbstractVar[AbstractDescent[Y, FunctionInfo.EvalGrad, Any]]
-    search: AbstractVar[
-        AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
-    ]
+    descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
+    search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
     verbose: AbstractVar[frozenset[str]]
 
     def init(
@@ -159,18 +98,33 @@ class AbstractGradientDescent(
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _GradientDescentState:
-        del constraint  # TODO jhaffner: these are not handled. Currently writing None
-        # into FunctionInfo.Eval. This should be handled properly - raising errors, and
-        # making things explicit in the documentation.
-        # Currently, Eval requests constraint residual information, but EvalGrad does
-        # not. I have sprinkled TODO notes liberally, so I should be able to find all
-        # the places that need to be updated.
-        f_info = FunctionInfo.EvalGrad(
-            jnp.zeros(f_struct.shape, f_struct.dtype), y, bounds
+    ) -> _IPOPTLikeState:
+        if constraint is not None:
+            constraint_residual = constraint(y)
+            constraint_bound = constraint(tree_full_like(y, 0))
+            jac = jax.jacfwd(constraint)(y)  # TODO: options fwd, bwd
+            out_structure = jax.eval_shape(lambda: constraint_residual)
+            constraint_jac = lx.PyTreeLinearOperator(jac, out_structure)
+        else:
+            constraint_residual = None
+            constraint_bound = None
+            constraint_jac = None
+
+        f = tree_full_like(f_struct, 0)
+        grad = tree_full_like(y, 0)
+        hessian = identity_pytree(y)
+        f_info = FunctionInfo.EvalGradHessian(
+            f,
+            grad,
+            hessian,
+            y,
+            bounds,
+            constraint_residual,
+            constraint_bound,
+            constraint_jac,
         )
-        f_info_struct = jax.eval_shape(lambda: f_info)
-        return _GradientDescentState(
+        f_info_struct = eqx.filter_eval_shape(lambda: f_info)
+        return _IPOPTLikeState(
             first_step=jnp.array(True),
             y_eval=y,
             search_state=self.search.init(y, f_info_struct),
@@ -179,6 +133,7 @@ class AbstractGradientDescent(
             descent_state=self.descent.init(y, f_info_struct),
             terminate=jnp.array(False),
             result=RESULTS.successful,
+            num_accepted_steps=jnp.array(0),
         )
 
     def step(
@@ -189,32 +144,65 @@ class AbstractGradientDescent(
         options: dict[str, Any],
         constraint: Union[Constraint[Y, ConstraintOut], None],
         bounds: Union[tuple[Y, Y], None],
-        state: _GradientDescentState,
+        state: _IPOPTLikeState,
         tags: frozenset[object],
-    ) -> tuple[Y, _GradientDescentState, Aux]:
+    ) -> tuple[Y, _IPOPTLikeState, Aux]:
         autodiff_mode = options.get("autodiff_mode", "bwd")
+
+        if bounds is not None:
+            lower, upper = bounds
+
+        if constraint is not None:
+            constraint_residual = constraint(state.y_eval)
+            constraint_bound = constraint(tree_full_like(y, 0))
+            jac = jax.jacfwd(constraint)(state.y_eval)  # TODO: options fwd, bwd
+            out_structure = jax.eval_shape(lambda: constraint_residual)
+            constraint_jac = lx.PyTreeLinearOperator(jac, out_structure)
+        else:
+            constraint_residual = None
+            constraint_bound = None
+            constraint_jac = None
+
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
+
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
             y,
             state.y_eval,
             state.f_info,
-            # TODO: constraint_residual! FunctionInfo.Eval now requires constraint
-            # information. This solver should specify to what extent, if any, it handles
-            # constraints. If gradient methods do not deal with constraints, then this
-            # should be added here as a comment.
-            FunctionInfo.Eval(f_eval, bounds, None),
+            FunctionInfo.Eval(f_eval, bounds, constraint_residual),
             state.search_state,
         )
 
         def accepted(descent_state):
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
-            f_eval_info = FunctionInfo.EvalGrad(f_eval, grad, bounds)
-            descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
             y_diff = (state.y_eval**ω - y**ω).ω
+
+            hessian = state.f_info.hessian
+            hessian_inv = None
+
+            f_eval_info = bfgs_update(
+                f_eval,
+                grad,
+                state.f_info.grad,
+                hessian,
+                hessian_inv,
+                state.y_eval,
+                y_diff,
+                bounds,
+                constraint_residual,
+                constraint_bound,
+                constraint_jac,
+            )
+
+            descent_state = self.descent.query(
+                state.y_eval,
+                f_eval_info,  # pyright: ignore
+                descent_state,
+            )
             f_diff = f_eval - state.f_info.f
             terminate = cauchy_termination(
                 self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff
@@ -246,12 +234,39 @@ class AbstractGradientDescent(
             )
 
         y_descent, descent_result = self.descent.step(step_size, descent_state)
-        y_eval = (y**ω + y_descent**ω).ω
-        result = RESULTS.where(
-            search_result == RESULTS.successful, descent_result, search_result
+        requires_restoration = (
+            search_result == RESULTS.feasibility_restoration_required
+        ) | (descent_result == RESULTS.feasibility_restoration_required)
+
+        def restore(args):
+            del args
+
+            # TODO: make attribute and figure out how to update penalty parameter
+            boundary_map = ClosestFeasiblePoint(
+                1e-4, BFGS(rtol=1e-3, atol=1e-6, use_inverse=False)
+            )
+            recovered_y, restoration_result = boundary_map(
+                state.y_eval, constraint, bounds
+            )
+            # TODO: what happens if the restoration requires a rescue itself?
+            # TODO: Allow feasibility restoration to raise a certificate of
+            # infeasibility and error out.
+            return recovered_y, restoration_result
+
+        def regular_update(args):
+            search_result, descent_result = args
+            result = RESULTS.where(
+                search_result == RESULTS.successful, descent_result, search_result
+            )
+            y_eval = (y**ω + y_descent**ω).ω
+            return y_eval, result
+
+        args = (search_result, descent_result)
+        y_eval, result = filter_cond(
+            requires_restoration, restore, regular_update, args
         )
 
-        state = _GradientDescentState(
+        state = _IPOPTLikeState(
             first_step=jnp.array(False),
             y_eval=y_eval,
             search_state=search_state,
@@ -260,6 +275,7 @@ class AbstractGradientDescent(
             descent_state=descent_state,
             terminate=terminate,
             result=result,
+            num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
         )
         return y, state, aux
 
@@ -271,7 +287,7 @@ class AbstractGradientDescent(
         options: dict[str, Any],
         constraint: Union[Constraint[Y, ConstraintOut], None],
         bounds: Union[tuple[Y, Y], None],
-        state: _GradientDescentState,
+        state: _IPOPTLikeState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         return state.terminate, state.result
@@ -285,15 +301,19 @@ class AbstractGradientDescent(
         options: dict[str, Any],
         constraint: Union[Constraint[Y, ConstraintOut], None],
         bounds: Union[tuple[Y, Y], None],
-        state: _GradientDescentState,
+        state: _IPOPTLikeState,
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
         return y, aux, {}
 
 
-class GradientDescent(AbstractGradientDescent[Y, Aux], strict=True):
-    """Classic gradient descent with a learning rate `learning_rate`.
+# TODO: Edit docstring - this needs to be expanded quite a bit
+class IPOPTLike(AbstractIPOPTLike[Y, Aux, _Hessian], strict=True):
+    """An IPOPT-like solver. Uses a filtered line search and an interior descent, and
+    restores infeasible steps by solving a nonlinear subproblem if required.
+
+    Approximates the Hessian using BFGS updates, as in [`optimistix.BFGS`][].
 
     Supports the following `options`:
 
@@ -306,13 +326,12 @@ class GradientDescent(AbstractGradientDescent[Y, Aux], strict=True):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    descent: SteepestDescent[Y]
-    search: LearningRate[Y]
+    descent: InteriorDescent
+    search: FilteredLineSearch
     verbose: frozenset[str]
 
     def __init__(
         self,
-        learning_rate: float,
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
@@ -321,22 +340,21 @@ class GradientDescent(AbstractGradientDescent[Y, Aux], strict=True):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.descent = SteepestDescent()
-        self.search = LearningRate(learning_rate)
+        self.descent = InteriorDescent()
+        self.search = FilteredLineSearch()
         self.verbose = verbose
 
 
-GradientDescent.__init__.__doc__ = """**Arguments:**
+IPOPTLike.__init__.__doc__ = """**Arguments:**
 
-- `learning_rate`: Specifies a constant learning rate to use at each step.
 - `rtol`: Relative tolerance for terminating the solve.
 - `atol`: Absolute tolerance for terminating the solve.
-- `norm`: The norm used to determine the difference between two iterates in the
+- `norm`: The norm used to determine the difference between two iterates in the 
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
-    Valid entries are `loss`, `step_size` and `y`. For example 
-    `verbose=frozenset({"loss"})`.
+    Valid entries are `step_size`, `loss`, `y`. For example 
+    `verbose=frozenset({"step_size", "loss"})`.
 """

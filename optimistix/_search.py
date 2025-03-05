@@ -23,15 +23,18 @@ For an in-depth discussion of how these pieces fit together, see the documentati
 """
 
 import abc
-from typing import ClassVar, Generic, Type, TypeVar
+from collections.abc import Callable
+from typing import Any, ClassVar, Generic, Type, TypeVar, Union
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
+from equinox.internal import ω
 from jaxtyping import Array, Bool, Scalar
 
 from ._custom_types import (
+    ConstraintOut,
     DescentState,
     Out,
     SearchState,
@@ -39,6 +42,13 @@ from ._custom_types import (
 )
 from ._misc import sum_squares, tree_dot
 from ._solution import RESULTS
+
+
+# TODO(jhaffner): FunctionInfo actually has its own section in the documentation, which
+# should mention which flavors of FunctionInfo will carry information about constraints.
+# (And bounds.)
+# TODO(jhaffner): For now I'm adding constraint information where I need it. This will
+# need to be systematised later.
 
 
 class FunctionInfo(eqx.Module, strict=eqx.StrictConfig(allow_abstract_name=True)):
@@ -67,12 +77,14 @@ class FunctionInfo(eqx.Module, strict=eqx.StrictConfig(allow_abstract_name=True)
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class Eval(FunctionInfo, strict=True):
+class Eval(FunctionInfo, Generic[Y, ConstraintOut], strict=True):
     """Has a `.f` attribute describing `fn(y)`. Used when no gradient information is
     available.
     """
 
     f: Scalar
+    bounds: Union[tuple[Y, Y], None]
+    constraint_residual: Union[ConstraintOut, None]
 
     def as_min(self):
         return self.f
@@ -87,6 +99,7 @@ class EvalGrad(FunctionInfo, Generic[Y], strict=True):
 
     f: Scalar
     grad: Y
+    bounds: Union[tuple[Y, Y], None]
 
     def as_min(self):
         return self.f
@@ -96,7 +109,7 @@ class EvalGrad(FunctionInfo, Generic[Y], strict=True):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGradHessian(FunctionInfo, Generic[Y], strict=True):
+class EvalGradHessian(FunctionInfo, Generic[Y, ConstraintOut], strict=True):
     """Has `.f` and `.grad` attributes as with [`optimistix.FunctionInfo.EvalGrad`][].
     Also has a `.hessian` attribute describing (an approximation to) the Hessian of
     `fn` at `y`. Used with quasi-Newton minimisation algorithms, like BFGS.
@@ -105,6 +118,12 @@ class EvalGradHessian(FunctionInfo, Generic[Y], strict=True):
     f: Scalar
     grad: Y
     hessian: lx.AbstractLinearOperator
+    at: Y
+    bounds: Union[tuple[Y, Y], None]
+
+    constraint_residual: Union[ConstraintOut, None]
+    constraint_bounds: Union[ConstraintOut, None]
+    constraint_jac: Union[lx.AbstractLinearOperator, None]
 
     def as_min(self):
         return self.f
@@ -112,9 +131,58 @@ class EvalGradHessian(FunctionInfo, Generic[Y], strict=True):
     def compute_grad_dot(self, y: Y):
         return tree_dot(self.grad, y)
 
+    def to_quadratic(self) -> Callable[[Y, Any], Scalar]:
+        # With the Hessian and gradient, we have created a quadratic approximation to
+        # the target function. In unconstrained optimisation, we only need to take a
+        # single step, computed using a linear solve. In constrained optimisation, we
+        # often need to solve the quadratic subproblem iteratively. This function allows
+        # us to pass the quadratic approximation to optx.quadratic_solve, which will
+        # solve the problem for the current quadratic approximation to the target
+        # function and the current linear approximation of the constraints.
+
+        # Note: since the quadratic approximation can be ASSUMED to only ever be called
+        # inside a sequential quadratic program descent, we could also pass `self.at` as
+        # y instead. However, this makes to many assumptions about the usage of this API
+        # for my taste, which is why I opted to write this information into the function
+        # information itself.
+
+        def quadratic(_y, args):
+            del args
+            ydiff = (_y**ω - self.at**ω).ω
+            quadratic_term = 0.5 * tree_dot(ydiff, self.hessian.mv(ydiff))
+            linear_term = tree_dot(self.grad, ydiff)
+            return quadratic_term + linear_term + self.f
+
+        return quadratic
+
+    def to_linear_constraints(self) -> Union[Callable[[Y], ConstraintOut], None]:
+        # Creates a linear approximation to the constraints that can be used as the
+        # constraint function in a quadratic subproblem. For a more detailed
+        # explanation, see `.to_quadratic()`.
+
+        # TODO: design - currently the sequential descent (imaginatively named
+        # QuadraticSubproblemDescent) accepts quadratic solvers that only handle bounds.
+        # We might get rid of this problem if/when we decide to remove CauchyNewton as a
+        # solver, since it is terrible anyway. Until then we have this ugly workaround.
+        # TODO why do I need to flag this with pyright: ignore below after gating None?
+        if self.constraint_jac is None:
+            return None
+            # raise ValueError(
+            #     "Cannot linearise constraints without constraint Jacobian information,
+            #     "which this solver does not provide."
+            # )
+        else:
+
+            def linear_constraints(_y):
+                ydiff = (_y**ω - self.at**ω).ω
+                ydiff_constraints = self.constraint_jac.mv(ydiff)  # pyright: ignore
+                return (self.constraint_residual**ω - ydiff_constraints**ω).ω
+
+            return linear_constraints
+
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGradHessianInv(FunctionInfo, Generic[Y], strict=True):
+class EvalGradHessianInv(FunctionInfo, Generic[Y, ConstraintOut], strict=True):
     """As [`optimistix.FunctionInfo.EvalGradHessian`][], but records the (approximate)
     inverse-Hessian instead. Has `.f` and `.grad` and `.hessian_inv` attributes.
     """

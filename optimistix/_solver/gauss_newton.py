@@ -9,7 +9,17 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
-from .._custom_types import Args, Aux, DescentState, Fn, Out, SearchState, Y
+from .._custom_types import (
+    Args,
+    Aux,
+    Constraint,
+    ConstraintOut,
+    DescentState,
+    Fn,
+    Out,
+    SearchState,
+    Y,
+)
 from .._least_squares import AbstractLeastSquaresSolver
 from .._misc import (
     cauchy_termination,
@@ -189,6 +199,9 @@ def _make_f_info(
     return FunctionInfo.ResidualJac(f_eval, jac_eval), aux_eval
 
 
+# TODO(jhaffner): Should this continue to just support clipping, same as the root
+# finders do, or do we want to support more general boundary maps in the Gauss-Newton
+# solvers?
 class AbstractGaussNewton(
     AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState], strict=True
 ):
@@ -212,6 +225,9 @@ class AbstractGaussNewton(
         Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
         usually more efficient. Changing this can be useful when the target function has
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
+    - `clip`: A boolean indicating whether to clip the solution to the bounds after each
+        step. If `True`, then bounds must be passed in the `bounds` argument.
+        Defaults to `False`.
     """
 
     rtol: AbstractVar[float]
@@ -229,10 +245,18 @@ class AbstractGaussNewton(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, ConstraintOut], None],
+        bounds: Union[tuple[Y, Y], None],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _GaussNewtonState:
+        del constraint
+
+        clip = options.get("clip", False)
+        if clip and bounds is None:
+            raise ValueError("Option `'clip'=True` requires bounds to be passed.")
+
         jac = options.get("jac", "fwd")
         f_info_struct, _ = eqx.filter_eval_shape(_make_f_info, fn, y, args, tags, jac)
         f_info = tree_full_like(f_info_struct, 0, allow_static=True)
@@ -256,9 +280,17 @@ class AbstractGaussNewton(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, ConstraintOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _GaussNewtonState,
         tags: frozenset[object],
     ) -> tuple[Y, _GaussNewtonState, Aux]:
+        del constraint
+
+        clip = options.get("clip", False)
+        if bounds is not None:
+            lower, upper = bounds
+
         jac = options.get("jac", "fwd")
         f_eval_info, aux_eval = _make_f_info(fn, state.y_eval, args, tags, jac)
         # We have a jaxpr in `f_info.jac`, which are compared by identity. Here we
@@ -338,6 +370,8 @@ class AbstractGaussNewton(
 
         y_descent, descent_result = self.descent.step(step_size, descent_state)
         y_eval = (y**ω + y_descent**ω).ω
+        if clip:
+            y_eval = jnp.clip(y_eval, lower, upper)  # pyright: ignore
         result = RESULTS.where(
             search_result == RESULTS.successful, descent_result, search_result
         )
@@ -363,6 +397,8 @@ class AbstractGaussNewton(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, ConstraintOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _GaussNewtonState,
         tags: frozenset[object],
     ):
@@ -375,6 +411,8 @@ class AbstractGaussNewton(
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, ConstraintOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _GaussNewtonState,
         tags: frozenset[object],
         result: RESULTS,
@@ -394,6 +432,9 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux], strict=True):
         Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
         usually more efficient. Changing this can be useful when the target function has
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
+    - `clip`: A boolean indicating whether to clip the solution to the bounds after each
+        step. If `True`, then bounds must be passed in the `bounds` argument.
+        Defaults to `False`.
     """
 
     rtol: float

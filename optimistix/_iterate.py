@@ -1,7 +1,7 @@
 import abc
 import warnings
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TYPE_CHECKING
+from typing import Any, Generic, Optional, TYPE_CHECKING, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -12,7 +12,7 @@ from equinox import AbstractVar
 from jaxtyping import Array, Bool, PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint
-from ._custom_types import Aux, Fn, Out, SolverState, Y
+from ._custom_types import Aux, Constraint, ConstraintOut, Fn, Out, SolverState, Y
 from ._misc import unwrap_jaxpr, wrap_jaxpr
 from ._solution import RESULTS, Solution
 
@@ -39,6 +39,8 @@ class AbstractIterativeSolver(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, ConstraintOut], None],
+        bounds: Union[tuple[Y, Y], None],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
@@ -58,6 +60,16 @@ class AbstractIterativeSolver(
         - `args`: Passed as the `args` of `fn(y, args)`.
         - `options`: Individual solvers may accept additional runtime arguments.
             See each individual solver's documentation for more details.
+        - `constraint`: Individual solvers may accept a constraint function
+            `constraint(y)`. This must return a PyTree of scalars, one for each
+            constraint, such that `constraint(y) >= 0` if the constraint is satisfied.
+            Keyword only argument.
+        - `bounds`: Individual solvers may accept bounds. This should be a pair of
+            pytrees of the same structure as `y`, where the first element is the lower
+            bound and the second is the upper bound. Unbounded leaves can be indicated
+            with +/- inf for the upper and lower bounds, respectively (float('inf'),
+            np.inf or jnp.inf, as needed to match the data types in `y`). For finite
+            bounds, it is checked whether `y` is in the closed interval`[lower, upper]`.
         - `f_struct`: A pytree of `jax.ShapeDtypeStruct`s of the same shape as the
             output of `fn`. This is used to initialise any information in the state
             which may rely on the pytree structure, array shapes, or dtype of the
@@ -79,6 +91,8 @@ class AbstractIterativeSolver(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, ConstraintOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: SolverState,
         tags: frozenset[object],
     ) -> tuple[Y, SolverState, Aux]:
@@ -93,6 +107,15 @@ class AbstractIterativeSolver(
         - `args`: Passed as the `args` of `fn(y, args)`.
         - `options`: Individual solvers may accept additional runtime arguments.
             See each individual solver's documentation for more details.
+        - `constraint`: Individual solvers may accept a constraint function
+            `constraint(y)`. This must return a PyTree of scalars, one for each
+            constraint, such that `constraint(y) >= 0` if the constraint is satisfied.
+        - `bounds`: Individual solvers may accept bounds. This should be a pair of
+            pytrees of the same structure as `y`, where the first element is the lower
+            bound and the second is the upper bound. Unbounded leaves can be indicated
+            with +/- inf for the upper and lower bounds, respectively (float('inf'),
+            np.inf or jnp.inf, as needed to match the data types in `y`). For finite
+            bounds, it is checked whether `y` is in the closed interval`[lower, upper]`.
         - `state`: A pytree representing the state of a solver. The shape of this
             pytree is solver-dependent.
         - `tags`: exact meaning depends on whether this is a fixed point, root find,
@@ -112,6 +135,8 @@ class AbstractIterativeSolver(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, ConstraintOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: SolverState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -126,6 +151,15 @@ class AbstractIterativeSolver(
         - `args`: Passed as the `args` of `fn(y, args)`.
         - `options`: Individual solvers may accept additional runtime arguments.
             See each individual solver's documentation for more details.
+        - `constraint`: Individual solvers may accept a constraint function
+            `constraint(y)`. This must return a PyTree of scalars, one for each
+            constraint, such that `constraint(y) >= 0` if the constraint is satisfied.
+        - `bounds`: Individual solvers may accept bounds. This should be a pair of
+            pytrees of the same structure as `y`, where the first element is the lower
+            bound and the second is the upper bound. Unbounded leaves can be indicated
+            with +/- inf for the upper and lower bounds, respectively (float('inf'),
+            np.inf or jnp.inf, as needed to match the data types in `y`). For finite
+            bounds, it is checked whether `y` is in the closed interval`[lower, upper]`.
         - `state`: A pytree representing the state of a solver. The shape of this
             pytree is solver-dependent.
         - `tags`: exact meaning depends on whether this is a fixed point, root find,
@@ -145,6 +179,8 @@ class AbstractIterativeSolver(
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, ConstraintOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: SolverState,
         tags: frozenset[object],
         result: RESULTS,
@@ -161,6 +197,16 @@ class AbstractIterativeSolver(
         - `args`: Passed as the `args` of `fn(y, args)`.
         - `options`: Individual solvers may accept additional runtime arguments.
             See each individual solver's documentation for more details.
+        - `constraint`: Individual solvers may accept a constraint function
+            `constraint(y)`. This must return a PyTree of scalars, one for each
+            constraint, such that `constraint(y) >= 0` if the constraint is satisfied.
+            Keyword only argument.
+        - `bounds`: Individual solvers may accept bounds. This should be a pair of
+            pytrees of the same structure as `y`, where the first element is the lower
+            bound and the second is the upper bound. Unbounded leaves can be indicated
+            with +/- inf for the upper and lower bounds, respectively (float('inf'),
+            np.inf or jnp.inf, as needed to match the data types in `y`). For finite
+            bounds, it is checked whether `y` is in the closed interval`[lower, upper]`.
         - `state`: A pytree representing the final state of a solver. The shape of this
             pytree is solver-dependent.
         - `tags`: exact meaning depends on whether this is a fixed point, root find,
@@ -200,6 +246,8 @@ def _iterate(inputs):
         y0,
         args,
         options,
+        constraint,
+        bounds,
         max_steps,
         f_struct,
         aux_struct,
@@ -211,7 +259,9 @@ def _iterate(inputs):
     f_struct = jtu.tree_map(lambda x: x.value, f_struct, is_leaf=static_leaf)
     aux_struct = jtu.tree_map(lambda x: x.value, aux_struct, is_leaf=static_leaf)
     init_aux = jtu.tree_map(_zero, aux_struct)
-    init_state = solver.init(fn, y0, args, options, f_struct, aux_struct, tags)
+    init_state = solver.init(
+        fn, y0, args, options, constraint, bounds, f_struct, aux_struct, tags
+    )
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
     init_carry = (
         y0,
@@ -223,13 +273,17 @@ def _iterate(inputs):
     def cond_fun(carry):
         y, _, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        terminate, _ = solver.terminate(fn, y, args, options, state, tags)
+        terminate, _ = solver.terminate(
+            fn, y, args, options, constraint, bounds, state, tags
+        )
         return jnp.invert(terminate)
 
     def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        new_y, new_state, aux = solver.step(fn, y, args, options, state, tags)
+        new_y, new_state, aux = solver.step(
+            fn, y, args, options, constraint, bounds, state, tags
+        )
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
 
         assert eqx.tree_equal(static_state, new_static_state) is True
@@ -242,14 +296,25 @@ def _iterate(inputs):
     final_carry = while_loop(cond_fun, body_fun, init_carry, max_steps=max_steps)
     final_y, num_steps, dynamic_final_state, final_aux = final_carry
     final_state = eqx.combine(static_state, dynamic_final_state)
-    terminate, result = solver.terminate(fn, final_y, args, options, final_state, tags)
+    terminate, result = solver.terminate(
+        fn, final_y, args, options, constraint, bounds, final_state, tags
+    )
     result = RESULTS.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
         RESULTS.nonlinear_max_steps_reached,
         result,
     )
     final_y, final_aux, stats = solver.postprocess(
-        fn, final_y, final_aux, args, options, final_state, tags, result
+        fn,
+        final_y,
+        final_aux,
+        args,
+        options,
+        constraint,
+        bounds,
+        final_state,
+        tags,
+        result,
     )
     return final_y, (
         num_steps,
@@ -274,6 +339,8 @@ def iterative_solve(
     args: PyTree = None,
     options: Optional[dict[str, Any]] = None,
     *,
+    constraint: Union[Constraint[Y, ConstraintOut], None],
+    bounds: Union[tuple[Y, Y], None],
     max_steps: Optional[int],
     adjoint: AbstractAdjoint,
     throw: bool,
@@ -300,6 +367,15 @@ def iterative_solve(
     - `args`: Passed as the `args` of `fn(y, args)`.
     - `options`: Individual solvers may accept additional runtime arguments.
         See each individual solver's documentation for more details.
+    - `constraint`: Individual solvers may accept a constraint function `constraint(y)`.
+        This must return a PyTree of scalars, one for each constraint, such that
+        `constraint(y) >= 0` if the constraint is satisfied. Keyword only argument.
+    - `bounds`: Individual solvers may accept bounds. This should be a pair of pytrees
+        of the same structure as `y`, where the first element is the lower bound, and
+        the second is the upper bound. Unbounded leaves can be indicated with +/- inf
+        for the upper and lower bounds, respectively (float('inf'), np.inf or jnp.inf,
+        as needed to match the data types in `y`). For finite bounds, it is checked
+        whether `y` is in the closed interval`[lower, upper]`. Keyword only argument.
     - `max_steps`: The maximum number of steps the solver can take. Keyword only
         argument.
     - `adjoint`: The adjoint method used to compute gradients through an iterative
@@ -322,6 +398,8 @@ def iterative_solve(
 
     An [`optimistix.Solution`][] object.
     """
+    if options is None:
+        options = {}
 
     if any(jnp.iscomplexobj(x) for x in jtu.tree_leaves((y0, f_struct))):
         warnings.warn(
@@ -332,7 +410,19 @@ def iterative_solve(
 
     f_struct = jtu.tree_map(eqxi.Static, f_struct)
     aux_struct = jtu.tree_map(eqxi.Static, aux_struct)
-    inputs = fn, solver, y0, args, options, max_steps, f_struct, aux_struct, tags
+    inputs = (
+        fn,
+        solver,
+        y0,
+        args,
+        options,
+        constraint,
+        bounds,
+        max_steps,
+        f_struct,
+        aux_struct,
+        tags,
+    )
     (
         out,
         (

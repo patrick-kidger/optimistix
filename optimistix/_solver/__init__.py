@@ -7,7 +7,22 @@ from .best_so_far import (
 )
 from .bfgs import AbstractBFGS as AbstractBFGS, BFGS as BFGS
 from .bisection import Bisection as Bisection
+from .boundary_maps import (
+    AbstractBoundaryMap as AbstractBoundaryMap,
+    BoxProjection as BoxProjection,
+    ClosestFeasiblePoint as ClosestFeasiblePoint,
+)
+from .cauchy_point import (
+    cauchy_point as cauchy_point,
+    CauchyNewton as CauchyNewton,
+    CauchyNewtonDescent as CauchyNewtonDescent,
+)
+from .coleman_li import (
+    ColemanLi as ColemanLi,
+    ColemanLiDescent as ColemanLiDescent,
+)
 from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
+from .filtered import FilteredLineSearch as FilteredLineSearch
 from .fixed_point import FixedPointIteration as FixedPointIteration
 from .gauss_newton import (
     AbstractGaussNewton as AbstractGaussNewton,
@@ -19,6 +34,11 @@ from .gradient_methods import (
     GradientDescent as GradientDescent,
     SteepestDescent as SteepestDescent,
 )
+from .interior_point import (
+    InteriorDescent as InteriorDescent,
+    InteriorPoint as InteriorPoint,
+)
+from .ipoptlike import IPOPTLike as IPOPTLike
 from .learning_rate import LearningRate as LearningRate
 from .levenberg_marquardt import (
     DampedNewtonDescent as DampedNewtonDescent,
@@ -37,6 +57,11 @@ from .nonlinear_cg import (
     polak_ribiere as polak_ribiere,
 )
 from .optax import OptaxMinimiser as OptaxMinimiser
+from .proximal_projected import ProjectedGradientDescent as ProjectedGradientDescent
+from .sequential import (
+    QuadraticSubproblemDescent as QuadraticSubproblemDescent,
+    SLSQP as SLSQP,
+)
 from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,
     LinearTrustRegion as LinearTrustRegion,
