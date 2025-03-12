@@ -97,7 +97,14 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
                 ("loss" in self.verbose, "Loss", f),
                 ("y" in self.verbose, "y", y),
             )
-        updates, new_opt_state = self.optim.update(grads, state.opt_state, y)
+
+        # fix args and discard aux
+        _fn_for_optax = lambda y: fn(y, args)[0]
+        _fn_for_optax = eqx.filter_closure_convert(_fn_for_optax, y)
+
+        updates, new_opt_state = self.optim.update(
+            grads, state.opt_state, y, value=f, grad=grads, value_fn=_fn_for_optax
+        )
         new_y = eqx.apply_updates(y, updates)
         terminate = cauchy_termination(
             self.rtol,
