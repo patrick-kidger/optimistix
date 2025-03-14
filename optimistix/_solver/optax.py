@@ -100,7 +100,6 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
 
         # fix args and discard aux
         _fn_for_optax = lambda y: fn(y, args)[0]
-        _fn_for_optax = eqx.filter_closure_convert(_fn_for_optax, y)
 
         updates, new_opt_state = self.optim.update(
             grads, state.opt_state, y, value=f, grad=grads, value_fn=_fn_for_optax
