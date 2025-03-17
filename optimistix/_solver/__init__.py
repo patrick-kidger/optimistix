@@ -5,7 +5,6 @@ from .best_so_far import (
     BestSoFarMinimiser as BestSoFarMinimiser,
     BestSoFarRootFinder as BestSoFarRootFinder,
 )
-from .bfgs import AbstractBFGS as AbstractBFGS, BFGS as BFGS
 from .bisection import Bisection as Bisection
 from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
 from .fixed_point import FixedPointIteration as FixedPointIteration
@@ -37,6 +36,14 @@ from .nonlinear_cg import (
     polak_ribiere as polak_ribiere,
 )
 from .optax import OptaxMinimiser as OptaxMinimiser
+from .quasi_newton import (
+    AbstractQuasiNewton as AbstractQuasiNewton,
+    AbstractQuasiNewtonUpdate as AbstractQuasiNewtonUpdate,
+    BFGS as BFGS,
+    BFGSUpdate as BFGSUpdate,
+    DFP as DFP,
+    DFPUpdate as DFPUpdate,
+)
 from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,
     LinearTrustRegion as LinearTrustRegion,
