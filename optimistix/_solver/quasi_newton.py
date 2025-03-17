@@ -78,7 +78,6 @@ def no_update(inner, grad_diff, y_diff, hessian, hessian_inv):
 
 def dfp_update(inner, grad_diff, y_diff, hessian, hessian_inv):
     """https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula"""
-    inner = tree_dot(grad_diff, y_diff)
     if hessian is None:
         # Inverse Hessian
         assert hessian_inv is not None
