@@ -33,7 +33,7 @@ Thus, we refer to "accepted" steps as being those at which we re-evaluate the de
 
 - _Minimisation_
 
-    For a minimisation problem "minimise $f \colon \mathbb{R}^n -> \mathbb{R}$", then the quantities that might be evaluated are typically evaluations $f(y)$, gradients $\nabla f(y)$, and (approximations to) the Hessian $\nabla^2 f(y)$. 
+    For a minimisation problem "minimise $f \colon \mathbb{R}^n -> \mathbb{R}$", then the quantities that might be evaluated are typically evaluations $f(y)$, gradients $\nabla f(y)$, and (approximations to) the Hessian $\nabla^2 f(y)$.
 
 - _Least squares_
 
@@ -54,12 +54,12 @@ Finally, the really cool thing about these abstractions is how these can now be 
 from collections.abc import Callable
 import optimistix as optx
 
-class HybridSolver(optx.AbstractBFGS):
+class HybridSolver(optx.AbstractQuasiNewton):
     rtol: float
     atol: float
     norm: Callable
-    use_inverse: bool = True
     descent: optx.AbstractDescent = optx.DoglegDescent()
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=True)
     search: optx.AbstractSearch = optx.LearningRate(0.1)
 ```
 will at each step:
