@@ -72,54 +72,72 @@ def _outer(tree1, tree2):
     return jtu.tree_map(leaf_fn, tree1)
 
 
-def _bfgs_update(f_eval, grad, prev_grad, hessian, hessian_inv, y_diff):
-    grad_diff = (grad**ω - prev_grad**ω).ω
+def no_update(inner, grad_diff, y_diff, hessian, hessian_inv):
+    return hessian, hessian_inv
+
+
+def dfp_update(inner, grad_diff, y_diff, hessian, hessian_inv):
+    """https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula"""
     inner = tree_dot(grad_diff, y_diff)
-
-    def bfgs_update(hessian, hessian_inv):
-        if hessian is None:
-            assert hessian_inv is not None
-            # Use Woodbury identity for rank-1 update of approximate Hessian.
-            inv_mvp = hessian_inv.mv(grad_diff)
-            mvp_inner = tree_dot(grad_diff, inv_mvp)
-            diff_outer = _outer(y_diff, y_diff)
-            mvp_outer = _outer(y_diff, inv_mvp)
-            term1 = (((inner + mvp_inner) * (diff_outer**ω)) / (inner**2)).ω
-            term2 = ((_outer(inv_mvp, y_diff) ** ω + mvp_outer**ω) / inner).ω
-            new_hessian_inv = lx.PyTreeLinearOperator(
-                (hessian_inv.pytree**ω + term1**ω - term2**ω).ω,
-                output_structure=jax.eval_shape(lambda: prev_grad),
-                tags=lx.positive_semidefinite_tag,
-            )
-            return None, new_hessian_inv
-        else:
-            assert hessian_inv is None
-            # BFGS update to the operator directly
-            mvp = hessian.mv(y_diff)
-            term1 = (_outer(grad_diff, grad_diff) ** ω / inner).ω
-            term2 = (_outer(mvp, mvp) ** ω / tree_dot(y_diff, mvp)).ω
-            hessian = lx.PyTreeLinearOperator(
-                (hessian.pytree**ω + term1**ω - term2**ω).ω,
-                output_structure=jax.eval_shape(lambda: prev_grad),
-                tags=lx.positive_semidefinite_tag,
-            )
-            return hessian, None
-
-    def no_update(hessian, hessian_inv):
-        return hessian, hessian_inv
-
-    # In particular inner = 0 on the first step (as then state.grad=0), and so for
-    # this we jump straight to the line search.
-    # Likewise we get inner <= eps on convergence, and so again we make no update
-    # to avoid a division by zero.
-    inner_nonzero = inner > jnp.finfo(inner.dtype).eps
-    hessian, hessian_inv = filter_cond(
-        inner_nonzero, bfgs_update, no_update, hessian, hessian_inv
-    )
     if hessian is None:
-        return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian_inv)
+        # Inverse Hessian
+        assert hessian_inv is not None
+        # DFP update to the operator directly
+        inv_mvp = hessian_inv.mv(grad_diff)
+        term1 = (_outer(y_diff, y_diff) ** ω / inner).ω
+        term2 = (_outer(inv_mvp, inv_mvp) ** ω / tree_dot(grad_diff, inv_mvp)).ω
+        hessian_inv = lx.PyTreeLinearOperator(
+            (hessian_inv.pytree**ω + term1**ω - term2**ω).ω,
+            output_structure=jax.eval_shape(lambda: grad_diff),
+            tags=lx.positive_semidefinite_tag,
+        )
+        return None, hessian_inv
     else:
-        return FunctionInfo.EvalGradHessian(f_eval, grad, hessian)
+        # Hessian
+        assert hessian_inv is None
+        mvp = hessian.mv(y_diff)
+        mvp_inner = tree_dot(y_diff, mvp)
+        diff_outer = _outer(grad_diff, grad_diff)
+        mvp_outer = _outer(grad_diff, mvp)
+        term1 = (((inner + mvp_inner) * (diff_outer**ω)) / (inner**2)).ω
+        term2 = ((_outer(mvp, grad_diff) ** ω + mvp_outer**ω) / inner).ω
+        new_hessian = lx.PyTreeLinearOperator(
+            (hessian.pytree**ω + term1**ω - term2**ω).ω,
+            output_structure=jax.eval_shape(lambda: grad_diff),
+            tags=lx.positive_semidefinite_tag,
+        )
+        return new_hessian, None
+
+
+def bfgs_update(inner, grad_diff, y_diff, hessian, hessian_inv):
+    """https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm"""
+    if hessian is None:
+        assert hessian_inv is not None
+        # Use Woodbury identity for rank-1 update of approximate Hessian.
+        inv_mvp = hessian_inv.mv(grad_diff)
+        mvp_inner = tree_dot(grad_diff, inv_mvp)
+        diff_outer = _outer(y_diff, y_diff)
+        mvp_outer = _outer(y_diff, inv_mvp)
+        term1 = (((inner + mvp_inner) * (diff_outer**ω)) / (inner**2)).ω
+        term2 = ((_outer(inv_mvp, y_diff) ** ω + mvp_outer**ω) / inner).ω
+        new_hessian_inv = lx.PyTreeLinearOperator(
+            (hessian_inv.pytree**ω + term1**ω - term2**ω).ω,
+            output_structure=jax.eval_shape(lambda: grad_diff),
+            tags=lx.positive_semidefinite_tag,
+        )
+        return None, new_hessian_inv
+    else:
+        assert hessian_inv is None
+        # BFGS update to the operator directly
+        mvp = hessian.mv(y_diff)
+        term1 = (_outer(grad_diff, grad_diff) ** ω / inner).ω
+        term2 = (_outer(mvp, mvp) ** ω / tree_dot(y_diff, mvp)).ω
+        hessian = lx.PyTreeLinearOperator(
+            (hessian.pytree**ω + term1**ω - term2**ω).ω,
+            output_structure=jax.eval_shape(lambda: grad_diff),
+            tags=lx.positive_semidefinite_tag,
+        )
+        return hessian, None
 
 
 _Hessian = TypeVar(
@@ -127,7 +145,25 @@ _Hessian = TypeVar(
 )
 
 
-class _BFGSState(
+def _update_hessian(update_formula, f_eval, grad, prev_grad, y_diff, hessian, hessian_inv) -> _Hessian:
+    grad_diff = (grad**ω - prev_grad**ω).ω
+    inner = tree_dot(grad_diff, y_diff)
+
+    # In particular inner = 0 on the first step (as then state.grad=0), and so for
+    # this we jump straight to the line search.
+    # Likewise we get inner <= eps on convergence, and so again we make no update
+    # to avoid a division by zero.
+    inner_nonzero = inner > jnp.finfo(inner.dtype).eps
+    hessian, hessian_inv = filter_cond(
+        inner_nonzero, update_formula, no_update, inner, grad_diff, y_diff, hessian, hessian_inv
+    )
+    if hessian is None:
+        return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian_inv)
+    else:
+        return FunctionInfo.EvalGradHessian(f_eval, grad, hessian)
+
+
+class _QuasiNewtonState(
     eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian], strict=True
 ):
     # Updated every search step
@@ -145,10 +181,10 @@ class _BFGSState(
     num_accepted_steps: Int[Array, ""]
 
 
-class AbstractBFGS(
-    AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessian], strict=True
+class AbstractQuasiNewton(
+    AbstractMinimiser[Y, Aux, _QuasiNewtonState], Generic[Y, Aux, _Hessian], strict=True
 ):
-    """Abstract BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
+    """Abstract quasi-Newton minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
     it progressively builds up a Hessian approximation using multiple steps of gradient
@@ -170,6 +206,7 @@ class AbstractBFGS(
     use_inverse: AbstractVar[bool]
     descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
     search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
+    update_formula: AbstractVar[Callable]
     verbose: AbstractVar[frozenset[str]]
 
     def init(
@@ -181,7 +218,7 @@ class AbstractBFGS(
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _BFGSState:
+    ) -> _QuasiNewtonState:
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
         if self.use_inverse:
@@ -191,7 +228,7 @@ class AbstractBFGS(
             hessian = _identity_pytree(y)
             f_info = FunctionInfo.EvalGradHessian(f, grad, hessian)
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
-        return _BFGSState(
+        return _QuasiNewtonState(
             first_step=jnp.array(True),
             y_eval=y,
             search_state=self.search.init(y, f_info_struct),
@@ -209,9 +246,9 @@ class AbstractBFGS(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _BFGSState,
+        state: _QuasiNewtonState,
         tags: frozenset[object],
-    ) -> tuple[Y, _BFGSState, Aux]:
+    ) -> tuple[Y, _QuasiNewtonState, Aux]:
         autodiff_mode = options.get("autodiff_mode", "bwd")
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
@@ -235,8 +272,8 @@ class AbstractBFGS(
             else:
                 hessian = state.f_info.hessian
                 hessian_inv = None
-            f_eval_info = _bfgs_update(
-                f_eval, grad, state.f_info.grad, hessian, hessian_inv, y_diff
+            f_eval_info = _update_hessian(
+                self.update_formula, f_eval, grad, state.f_info.grad, y_diff, hessian, hessian_inv
             )
             descent_state = self.descent.query(
                 state.y_eval,
@@ -279,7 +316,7 @@ class AbstractBFGS(
             search_result == RESULTS.successful, descent_result, search_result
         )
 
-        state = _BFGSState(
+        state = _QuasiNewtonState(
             first_step=jnp.array(False),
             y_eval=y_eval,
             search_state=search_state,
@@ -298,7 +335,7 @@ class AbstractBFGS(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        state: _BFGSState,
+        state: _QuasiNewtonState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         return state.terminate, state.result
@@ -310,14 +347,14 @@ class AbstractBFGS(
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
-        state: _BFGSState,
+        state: _QuasiNewtonState,
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
         return y, aux, {}
 
 
-class BFGS(AbstractBFGS[Y, Aux, _Hessian], strict=True):
+class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
@@ -338,6 +375,7 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian], strict=True):
     use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
+    update_formula: Callable
     verbose: frozenset[str]
 
     def __init__(
@@ -355,6 +393,7 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian], strict=True):
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
+        self.update_formula = bfgs_update
         self.verbose = verbose
 
 
@@ -362,7 +401,7 @@ BFGS.__init__.__doc__ = """**Arguments:**
 
 - `rtol`: Relative tolerance for terminating the solve.
 - `atol`: Absolute tolerance for terminating the solve.
-- `norm`: The norm used to determine the difference between two iterates in the 
+- `norm`: The norm used to determine the difference between two iterates in the
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
@@ -376,8 +415,78 @@ BFGS.__init__.__doc__ = """**Arguments:**
     default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
     line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
     Hessian approximation `B` as part of their own computations.
+- `update_formula`: The update formula to build up the Hessian approximation.
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
-    Valid entries are `step_size`, `loss`, `y`. For example 
+    Valid entries are `step_size`, `loss`, `y`. For example
+    `verbose=frozenset({"step_size", "loss"})`.
+"""
+
+
+class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
+    """DFP (Davidon--Fletcher--Powell) minimisation algorithm.
+
+    This is a quasi-Newton optimisation algorithm, whose defining feature is the way
+    it progressively builds up a Hessian approximation using multiple steps of gradient
+    information.
+
+    Supports the following `options`:
+
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    use_inverse: bool
+    descent: NewtonDescent
+    search: BacktrackingArmijo
+    update_formula: Callable
+    verbose: frozenset[str]
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        use_inverse: bool = True,
+        verbose: frozenset[str] = frozenset(),
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.use_inverse = use_inverse
+        self.descent = NewtonDescent(linear_solver=lx.Cholesky())
+        # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
+        self.search = BacktrackingArmijo()
+        self.update_formula = dfp_update
+        self.verbose = verbose
+
+
+DFP.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `use_inverse`: The DFP algorithm involves computing matrix-vector products of the
+    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
+    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
+    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
+    and do a matrix-vector product on every step. Option (a) is generally cheaper for
+    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
+    dense Hessians (as matrix-vector products are cheaper than linear solves). The
+    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
+    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
+    Hessian approximation `B` as part of their own computations.
+- `update_formula`: The update formula to build up the Hessian approximation.
+- `verbose`: Whether to print out extra information about how the solve is
+    proceeding. Should be a frozenset of strings, specifying what information to print.
+    Valid entries are `step_size`, `loss`, `y`. For example
     `verbose=frozenset({"step_size", "loss"})`.
 """

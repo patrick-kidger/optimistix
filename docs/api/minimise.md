@@ -32,14 +32,19 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 
 ---
 
-??? abstract "`optimistix.AbstractBFGS`"
+??? abstract "`optimistix.AbstractQuasiNewton`"
 
-    ::: optimistix.AbstractBFGS
+    ::: optimistix.AbstractQuasiNewton
         selection:
             members:
                 false
 
 ::: optimistix.BFGS
+    selection:
+        members:
+            - __init__
+
+::: optimistix.DFP
     selection:
         members:
             - __init__
@@ -51,7 +56,7 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
         members:
             - __init__
 
-`optim` in [`optimistix.OptaxMinimiser`][] is an instance of an Optax minimiser. For example, correct usage is `optimistix.OptaxMinimiser(optax.adam(...), ...)`, not `optimistix.OptaxMinimiser(optax.adam, ...)`. 
+`optim` in [`optimistix.OptaxMinimiser`][] is an instance of an Optax minimiser. For example, correct usage is `optimistix.OptaxMinimiser(optax.adam(...), ...)`, not `optimistix.OptaxMinimiser(optax.adam, ...)`.
 
 ---
 

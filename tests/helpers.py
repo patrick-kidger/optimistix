@@ -112,7 +112,7 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
         self.verbose = frozenset()
 
 
-class BFGSDampedNewton(optx.AbstractBFGS):
+class BFGSDampedNewton(optx.AbstractQuasiNewton):
     """BFGS Hessian + direct Levenberg Marquardt update."""
 
     rtol: float
@@ -121,10 +121,11 @@ class BFGSDampedNewton(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DampedNewtonDescent()
+    update_formula: Callable = optx.bfgs_update
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSIndirectDampedNewton(optx.AbstractBFGS):
+class BFGSIndirectDampedNewton(optx.AbstractQuasiNewton):
     """BFGS Hessian + indirect Levenberg Marquardt update."""
 
     rtol: float
@@ -133,10 +134,11 @@ class BFGSIndirectDampedNewton(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.IndirectDampedNewtonDescent()
+    update_formula: Callable = optx.bfgs_update
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSDogleg(optx.AbstractBFGS):
+class BFGSDogleg(optx.AbstractQuasiNewton):
     """BFGS Hessian + dogleg update."""
 
     rtol: float
@@ -145,10 +147,11 @@ class BFGSDogleg(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DoglegDescent(linear_solver=lx.SVD())
+    update_formula: Callable = optx.bfgs_update
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSTrustRegion(optx.AbstractBFGS):
+class BFGSTrustRegion(optx.AbstractQuasiNewton):
     """Standard BFGS + classical trust region update."""
 
     rtol: float
@@ -157,6 +160,7 @@ class BFGSTrustRegion(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.LinearTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
+    update_formula: Callable = optx.bfgs_update
     verbose: frozenset[str] = frozenset()
 
 
@@ -181,6 +185,8 @@ minimisers = (
     BFGSDogleg(1e-10, 1e-10),
     BFGSTrustRegion(rtol, atol, use_inverse=False),
     BFGSTrustRegion(rtol, atol, use_inverse=True),
+    optx.DFP(rtol, atol, use_inverse=False),
+    optx.DFP(rtol, atol, use_inverse=True),
     optx.GradientDescent(1.5e-2, rtol, atol),
     # Tighter tolerance needed to have NonlinearCG pass the JVP test.
     optx.NonlinearCG(1e-10, 1e-10),
