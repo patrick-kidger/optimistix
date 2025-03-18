@@ -58,9 +58,8 @@ class HybridSolver(optx.AbstractQuasiNewton):
     rtol: float
     atol: float
     norm: Callable
-    use_inverse: bool = True
     descent: optx.AbstractDescent = optx.DoglegDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate()
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=True)
     search: optx.AbstractSearch = optx.LearningRate(0.1)
 ```
 will at each step:
