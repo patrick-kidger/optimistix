@@ -1,5 +1,6 @@
+import abc
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar
+from typing import Any, cast, Generic, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -72,94 +73,138 @@ def _outer(tree1, tree2):
     return jtu.tree_map(leaf_fn, tree1)
 
 
-def no_update(inner, grad_diff, y_diff, hessian, hessian_inv):
-    return hessian, hessian_inv
-
-
-def dfp_update(inner, grad_diff, y_diff, hessian, hessian_inv):
-    """https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula"""
-    if hessian is None:
-        # Inverse Hessian
-        assert hessian_inv is not None
-        # DFP update to the operator directly
-        inv_mvp = hessian_inv.mv(grad_diff)
-        term1 = (_outer(y_diff, y_diff) ** ω / inner).ω
-        term2 = (_outer(inv_mvp, inv_mvp) ** ω / tree_dot(grad_diff, inv_mvp)).ω
-        hessian_inv = lx.PyTreeLinearOperator(
-            (hessian_inv.pytree**ω + term1**ω - term2**ω).ω,
-            output_structure=jax.eval_shape(lambda: grad_diff),
-            tags=lx.positive_semidefinite_tag,
-        )
-        return None, hessian_inv
-    else:
-        # Hessian
-        assert hessian_inv is None
-        mvp = hessian.mv(y_diff)
-        mvp_inner = tree_dot(y_diff, mvp)
-        diff_outer = _outer(grad_diff, grad_diff)
-        mvp_outer = _outer(grad_diff, mvp)
-        term1 = (((inner + mvp_inner) * (diff_outer**ω)) / (inner**2)).ω
-        term2 = ((_outer(mvp, grad_diff) ** ω + mvp_outer**ω) / inner).ω
-        new_hessian = lx.PyTreeLinearOperator(
-            (hessian.pytree**ω + term1**ω - term2**ω).ω,
-            output_structure=jax.eval_shape(lambda: grad_diff),
-            tags=lx.positive_semidefinite_tag,
-        )
-        return new_hessian, None
-
-
-def bfgs_update(inner, grad_diff, y_diff, hessian, hessian_inv):
-    """https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm"""
-    if hessian is None:
-        assert hessian_inv is not None
-        # Use Woodbury identity for rank-1 update of approximate Hessian.
-        inv_mvp = hessian_inv.mv(grad_diff)
-        mvp_inner = tree_dot(grad_diff, inv_mvp)
-        diff_outer = _outer(y_diff, y_diff)
-        mvp_outer = _outer(y_diff, inv_mvp)
-        term1 = (((inner + mvp_inner) * (diff_outer**ω)) / (inner**2)).ω
-        term2 = ((_outer(inv_mvp, y_diff) ** ω + mvp_outer**ω) / inner).ω
-        new_hessian_inv = lx.PyTreeLinearOperator(
-            (hessian_inv.pytree**ω + term1**ω - term2**ω).ω,
-            output_structure=jax.eval_shape(lambda: grad_diff),
-            tags=lx.positive_semidefinite_tag,
-        )
-        return None, new_hessian_inv
-    else:
-        assert hessian_inv is None
-        # BFGS update to the operator directly
-        mvp = hessian.mv(y_diff)
-        term1 = (_outer(grad_diff, grad_diff) ** ω / inner).ω
-        term2 = (_outer(mvp, mvp) ** ω / tree_dot(y_diff, mvp)).ω
-        hessian = lx.PyTreeLinearOperator(
-            (hessian.pytree**ω + term1**ω - term2**ω).ω,
-            output_structure=jax.eval_shape(lambda: grad_diff),
-            tags=lx.positive_semidefinite_tag,
-        )
-        return hessian, None
-
-
 _Hessian = TypeVar(
     "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv
 )
 
 
-def _update_hessian(hessian_update, f_eval, grad, prev_grad, y_diff, hessian, hessian_inv) -> _Hessian:
-    grad_diff = (grad**ω - prev_grad**ω).ω
-    inner = tree_dot(grad_diff, y_diff)
+class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
+    """Abstract class for updating the approx. Hessian in a quasi-Newton method."""
 
-    # In particular inner = 0 on the first step (as then state.grad=0), and so for
-    # this we jump straight to the line search.
-    # Likewise we get inner <= eps on convergence, and so again we make no update
-    # to avoid a division by zero.
-    inner_nonzero = inner > jnp.finfo(inner.dtype).eps
-    hessian, hessian_inv = filter_cond(
-        inner_nonzero, hessian_update, no_update, inner, grad_diff, y_diff, hessian, hessian_inv
-    )
-    if hessian is None:
-        return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian_inv)
-    else:
-        return FunctionInfo.EvalGradHessian(f_eval, grad, hessian)
+    def no_update(self, use_inverse, inner, grad_diff, y_diff, f_info):
+        if use_inverse:
+            return f_info.hessian_inv
+        return f_info.hessian
+
+    @abc.abstractmethod
+    def update(
+        self,
+        use_inverse: bool,
+        inner: PyTree,
+        grad_diff: PyTree,
+        y_diff: PyTree,
+        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
+    ) -> lx.PyTreeLinearOperator:
+        ...
+
+    def __call__(
+        self,
+        use_inverse: bool,
+        f_eval: PyTree,
+        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
+        y: PyTree,
+        y_eval: PyTree,
+        grad: PyTree,
+    ) -> Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv]:
+        y_diff = (y_eval**ω - y**ω).ω
+        grad_diff = (grad**ω - f_info.grad**ω).ω
+        inner = tree_dot(grad_diff, y_diff)
+
+        # In particular inner = 0 on the first step (as then state.grad=0), and so for
+        # this we jump straight to the line search.
+        # Likewise we get inner <= eps on convergence, and so again we make no update
+        # to avoid a division by zero.
+        inner_nonzero = inner > jnp.finfo(inner.dtype).eps
+
+        hessian = filter_cond(
+            inner_nonzero,
+            self.update,
+            self.no_update,
+            use_inverse,
+            inner,
+            grad_diff,
+            y_diff,
+            f_info,
+        )
+        if use_inverse:
+            # in this case `hessian` is the new inverse hessian
+            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian)
+        else:
+            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian)
+
+
+class DFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
+    def update(self, use_inverse, inner, grad_diff, y_diff, f_info):
+        """https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula"""
+        if use_inverse:
+            # Inverse Hessian
+            # pyright doesn't get it
+            f_info = cast(FunctionInfo.EvalGradHessianInv, f_info)
+            hessian_inv = f_info.hessian_inv
+            inv_mvp = hessian_inv.mv(grad_diff)
+            term1 = (_outer(y_diff, y_diff) ** ω / inner).ω
+            term2 = (_outer(inv_mvp, inv_mvp) ** ω / tree_dot(grad_diff, inv_mvp)).ω
+            new_hessian_inv = lx.PyTreeLinearOperator(
+                (hessian_inv.pytree**ω + term1**ω - term2**ω).ω,  # pyright: ignore
+                output_structure=jax.eval_shape(lambda: grad_diff),
+                tags=lx.positive_semidefinite_tag,
+            )
+            return new_hessian_inv
+        else:
+            # Hessian
+            # pyright doesn't get it
+            f_info = cast(FunctionInfo.EvalGradHessian, f_info)
+            hessian = f_info.hessian
+            mvp = hessian.mv(y_diff)
+            mvp_inner = tree_dot(y_diff, mvp)
+            diff_outer = _outer(grad_diff, grad_diff)
+            mvp_outer = _outer(grad_diff, mvp)
+            term1 = (((inner + mvp_inner) * (diff_outer**ω)) / (inner**2)).ω
+            term2 = ((_outer(mvp, grad_diff) ** ω + mvp_outer**ω) / inner).ω
+            new_hessian = lx.PyTreeLinearOperator(
+                (hessian.pytree**ω + term1**ω - term2**ω).ω,  # pyright: ignore
+                output_structure=jax.eval_shape(lambda: grad_diff),
+                tags=lx.positive_semidefinite_tag,
+            )
+            return new_hessian
+
+
+class BFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
+    def update(self, use_inverse, inner, grad_diff, y_diff, f_info):
+        """https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm"""
+        if use_inverse:
+            # Inverse Hessian
+            # pyright doesn't get it
+            f_info = cast(FunctionInfo.EvalGradHessianInv, f_info)
+            hessian_inv = f_info.hessian_inv
+            # Use Woodbury identity for rank-1 update of approximate Hessian.
+            inv_mvp = hessian_inv.mv(grad_diff)
+            mvp_inner = tree_dot(grad_diff, inv_mvp)
+            diff_outer = _outer(y_diff, y_diff)
+            mvp_outer = _outer(y_diff, inv_mvp)
+            term1 = (((inner + mvp_inner) * (diff_outer**ω)) / (inner**2)).ω
+            term2 = ((_outer(inv_mvp, y_diff) ** ω + mvp_outer**ω) / inner).ω
+            new_hessian_inv = lx.PyTreeLinearOperator(
+                (hessian_inv.pytree**ω + term1**ω - term2**ω).ω,  # pyright: ignore
+                output_structure=jax.eval_shape(lambda: grad_diff),
+                tags=lx.positive_semidefinite_tag,
+            )
+            return new_hessian_inv
+        else:
+            # Hessian
+            # pyright doesn't get it
+            f_info = cast(FunctionInfo.EvalGradHessian, f_info)
+            hessian = f_info.hessian
+            # BFGS update to the operator directly
+            mvp = hessian.mv(y_diff)
+            term1 = (_outer(grad_diff, grad_diff) ** ω / inner).ω
+            term2 = (_outer(mvp, mvp) ** ω / tree_dot(y_diff, mvp)).ω
+            new_hessian = lx.PyTreeLinearOperator(
+                (hessian.pytree**ω + term1**ω - term2**ω).ω,  # pyright: ignore
+                output_structure=jax.eval_shape(lambda: grad_diff),
+                tags=lx.positive_semidefinite_tag,
+            )
+            return new_hessian
 
 
 class _QuasiNewtonState(
@@ -205,7 +250,7 @@ class AbstractQuasiNewton(
     use_inverse: AbstractVar[bool]
     descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
     search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
-    hessian_update: AbstractVar[Callable]
+    hessian_update: AbstractVar[AbstractQuasiNewtonUpdate]
     verbose: AbstractVar[frozenset[str]]
 
     def init(
@@ -264,21 +309,16 @@ class AbstractQuasiNewton(
         def accepted(descent_state):
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
-            y_diff = (state.y_eval**ω - y**ω).ω
-            if self.use_inverse:
-                hessian = None
-                hessian_inv = state.f_info.hessian_inv
-            else:
-                hessian = state.f_info.hessian
-                hessian_inv = None
-            f_eval_info = _update_hessian(
-                self.hessian_update, f_eval, grad, state.f_info.grad, y_diff, hessian, hessian_inv
+            f_eval_info = self.hessian_update(
+                self.use_inverse, f_eval, state.f_info, y, state.y_eval, grad
             )
+
             descent_state = self.descent.query(
                 state.y_eval,
                 f_eval_info,  # pyright: ignore
                 descent_state,
             )
+            y_diff = (state.y_eval**ω - y**ω).ω
             f_diff = (f_eval**ω - state.f_info.f**ω).ω
             terminate = cauchy_termination(
                 self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff
@@ -374,7 +414,7 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
-    hessian_update: Callable
+    hessian_update: AbstractQuasiNewtonUpdate
     verbose: frozenset[str]
 
     def __init__(
@@ -392,7 +432,7 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
-        self.hessian_update = bfgs_update
+        self.hessian_update = BFGSUpdate()
         self.verbose = verbose
 
 
@@ -443,7 +483,7 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
-    hessian_update: Callable
+    hessian_update: AbstractQuasiNewtonUpdate
     verbose: frozenset[str]
 
     def __init__(
@@ -461,7 +501,7 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
-        self.hessian_update = dfp_update
+        self.hessian_update = DFPUpdate()
         self.verbose = verbose
 
 

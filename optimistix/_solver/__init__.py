@@ -38,10 +38,11 @@ from .nonlinear_cg import (
 from .optax import OptaxMinimiser as OptaxMinimiser
 from .quasi_newton import (
     AbstractQuasiNewton as AbstractQuasiNewton,
+    AbstractQuasiNewtonUpdate as AbstractQuasiNewtonUpdate,
     BFGS as BFGS,
-    bfgs_update as bfgs_update,
+    BFGSUpdate as BFGSUpdate,
     DFP as DFP,
-    dfp_update as dfp_update,
+    DFPUpdate as DFPUpdate,
 )
 from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,

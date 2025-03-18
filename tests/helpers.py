@@ -121,7 +121,7 @@ class BFGSDampedNewton(optx.AbstractQuasiNewton):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DampedNewtonDescent()
-    hessian_update: Callable = optx.bfgs_update
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate()
     verbose: frozenset[str] = frozenset()
 
 
@@ -134,7 +134,7 @@ class BFGSIndirectDampedNewton(optx.AbstractQuasiNewton):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.IndirectDampedNewtonDescent()
-    hessian_update: Callable = optx.bfgs_update
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate()
     verbose: frozenset[str] = frozenset()
 
 
@@ -147,7 +147,7 @@ class BFGSDogleg(optx.AbstractQuasiNewton):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DoglegDescent(linear_solver=lx.SVD())
-    hessian_update: Callable = optx.bfgs_update
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate()
     verbose: frozenset[str] = frozenset()
 
 
@@ -160,7 +160,7 @@ class BFGSTrustRegion(optx.AbstractQuasiNewton):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.LinearTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
-    hessian_update: Callable = optx.bfgs_update
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate()
     verbose: frozenset[str] = frozenset()
 
 
