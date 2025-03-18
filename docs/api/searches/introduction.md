@@ -60,7 +60,7 @@ class HybridSolver(optx.AbstractQuasiNewton):
     norm: Callable
     use_inverse: bool = True
     descent: optx.AbstractDescent = optx.DoglegDescent()
-    update_formula: Callable = optx.bfgs_update
+    hessian_update: Callable = optx.bfgs_update
     search: optx.AbstractSearch = optx.LearningRate(0.1)
 ```
 will at each step:

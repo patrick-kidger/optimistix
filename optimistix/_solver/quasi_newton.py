@@ -144,7 +144,7 @@ _Hessian = TypeVar(
 )
 
 
-def _update_hessian(update_formula, f_eval, grad, prev_grad, y_diff, hessian, hessian_inv) -> _Hessian:
+def _update_hessian(hessian_update, f_eval, grad, prev_grad, y_diff, hessian, hessian_inv) -> _Hessian:
     grad_diff = (grad**ω - prev_grad**ω).ω
     inner = tree_dot(grad_diff, y_diff)
 
@@ -154,7 +154,7 @@ def _update_hessian(update_formula, f_eval, grad, prev_grad, y_diff, hessian, he
     # to avoid a division by zero.
     inner_nonzero = inner > jnp.finfo(inner.dtype).eps
     hessian, hessian_inv = filter_cond(
-        inner_nonzero, update_formula, no_update, inner, grad_diff, y_diff, hessian, hessian_inv
+        inner_nonzero, hessian_update, no_update, inner, grad_diff, y_diff, hessian, hessian_inv
     )
     if hessian is None:
         return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian_inv)
@@ -205,7 +205,7 @@ class AbstractQuasiNewton(
     use_inverse: AbstractVar[bool]
     descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
     search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
-    update_formula: AbstractVar[Callable]
+    hessian_update: AbstractVar[Callable]
     verbose: AbstractVar[frozenset[str]]
 
     def init(
@@ -272,7 +272,7 @@ class AbstractQuasiNewton(
                 hessian = state.f_info.hessian
                 hessian_inv = None
             f_eval_info = _update_hessian(
-                self.update_formula, f_eval, grad, state.f_info.grad, y_diff, hessian, hessian_inv
+                self.hessian_update, f_eval, grad, state.f_info.grad, y_diff, hessian, hessian_inv
             )
             descent_state = self.descent.query(
                 state.y_eval,
@@ -374,7 +374,7 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
-    update_formula: Callable
+    hessian_update: Callable
     verbose: frozenset[str]
 
     def __init__(
@@ -392,7 +392,7 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
-        self.update_formula = bfgs_update
+        self.hessian_update = bfgs_update
         self.verbose = verbose
 
 
@@ -414,7 +414,7 @@ BFGS.__init__.__doc__ = """**Arguments:**
     default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
     line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
     Hessian approximation `B` as part of their own computations.
-- `update_formula`: The update formula to build up the Hessian approximation.
+- `hessian_update`: The update formula to build up the Hessian approximation.
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example
@@ -443,7 +443,7 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
-    update_formula: Callable
+    hessian_update: Callable
     verbose: frozenset[str]
 
     def __init__(
@@ -461,7 +461,7 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
-        self.update_formula = dfp_update
+        self.hessian_update = dfp_update
         self.verbose = verbose
 
 
@@ -483,7 +483,7 @@ DFP.__init__.__doc__ = """**Arguments:**
     default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
     line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
     Hessian approximation `B` as part of their own computations.
-- `update_formula`: The update formula to build up the Hessian approximation.
+- `hessian_update`: The update formula to build up the Hessian approximation.
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example
