@@ -125,7 +125,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
         f_eval = f_eval_info.f
         grad = f_eval_info.grad
         y_diff = (y_eval**ω - y**ω).ω
-        grad_diff = (f_eval_info.grad**ω - f_info.grad**ω).ω
+        grad_diff = (grad**ω - f_info.grad**ω).ω
         inner = tree_dot(grad_diff, y_diff)
 
         # In particular inner = 0 on the first step (as then state.grad=0), and so for
