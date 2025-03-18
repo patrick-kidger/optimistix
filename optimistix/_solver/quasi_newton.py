@@ -81,15 +81,17 @@ _Hessian = TypeVar(
 class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
     """Abstract class for updating the approx. Hessian in a quasi-Newton method."""
 
-    def no_update(self, use_inverse, inner, grad_diff, y_diff, f_info):
-        if use_inverse:
+    use_inverse: AbstractVar[bool]
+
+    def no_update(self, inner, grad_diff, y_diff, f_info):
+        if self.use_inverse:
             return f_info.hessian_inv
-        return f_info.hessian
+        else:
+            return f_info.hessian
 
     @abc.abstractmethod
     def update(
         self,
-        use_inverse: bool,
         inner: PyTree,
         grad_diff: PyTree,
         y_diff: PyTree,
@@ -99,7 +101,6 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
 
     def __call__(
         self,
-        use_inverse: bool,
         f_eval: PyTree,
         f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
         y: PyTree,
@@ -120,13 +121,12 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
             inner_nonzero,
             self.update,
             self.no_update,
-            use_inverse,
             inner,
             grad_diff,
             y_diff,
             f_info,
         )
-        if use_inverse:
+        if self.use_inverse:
             # in this case `hessian` is the new inverse hessian
             return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian)
         else:
@@ -134,9 +134,12 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
 
 
 class DFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
-    def update(self, use_inverse, inner, grad_diff, y_diff, f_info):
-        """https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula"""
-        if use_inverse:
+    """https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula"""
+
+    use_inverse: bool
+
+    def update(self, inner, grad_diff, y_diff, f_info):
+        if self.use_inverse:
             # Inverse Hessian
             # pyright doesn't get it
             f_info = cast(FunctionInfo.EvalGradHessianInv, f_info)
@@ -169,10 +172,28 @@ class DFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
             return new_hessian
 
 
+DFPUpdate.__init__.__doc__ = """**Arguments:**
+
+- `use_inverse`: The DFP algorithm involves computing matrix-vector products of the
+    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
+    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
+    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
+    and do a matrix-vector product on every step. Option (a) is generally cheaper for
+    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
+    dense Hessians (as matrix-vector products are cheaper than linear solves). The
+    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
+    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
+    Hessian approximation `B` as part of their own computations.
+"""
+
+
 class BFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
-    def update(self, use_inverse, inner, grad_diff, y_diff, f_info):
-        """https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm"""
-        if use_inverse:
+    """https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm"""
+
+    use_inverse: bool
+
+    def update(self, inner, grad_diff, y_diff, f_info):
+        if self.use_inverse:
             # Inverse Hessian
             # pyright doesn't get it
             f_info = cast(FunctionInfo.EvalGradHessianInv, f_info)
@@ -205,6 +226,21 @@ class BFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
                 tags=lx.positive_semidefinite_tag,
             )
             return new_hessian
+
+
+BFGSUpdate.__init__.__doc__ = """**Arguments:**
+
+- `use_inverse`: The BFGS algorithm involves computing matrix-vector products of the
+    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
+    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
+    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
+    and do a matrix-vector product on every step. Option (a) is generally cheaper for
+    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
+    dense Hessians (as matrix-vector products are cheaper than linear solves). The
+    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
+    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
+    Hessian approximation `B` as part of their own computations.
+"""
 
 
 class _QuasiNewtonState(
@@ -247,7 +283,6 @@ class AbstractQuasiNewton(
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
-    use_inverse: AbstractVar[bool]
     descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
     search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
     hessian_update: AbstractVar[AbstractQuasiNewtonUpdate]
@@ -265,7 +300,7 @@ class AbstractQuasiNewton(
     ) -> _QuasiNewtonState:
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
-        if self.use_inverse:
+        if self.hessian_update.use_inverse:
             hessian_inv = _identity_pytree(y)
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, hessian_inv)
         else:
@@ -310,7 +345,7 @@ class AbstractQuasiNewton(
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
             f_eval_info = self.hessian_update(
-                self.use_inverse, f_eval, state.f_info, y, state.y_eval, grad
+                f_eval, state.f_info, y, state.y_eval, grad
             )
 
             descent_state = self.descent.query(
@@ -411,7 +446,6 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
     hessian_update: AbstractQuasiNewtonUpdate
@@ -422,17 +456,15 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
-        use_inverse: bool = True,
         verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
-        self.hessian_update = BFGSUpdate()
+        self.hessian_update = BFGSUpdate(use_inverse=True)
         self.verbose = verbose
 
 
@@ -444,17 +476,6 @@ BFGS.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
-- `use_inverse`: The BFGS algorithm involves computing matrix-vector products of the
-    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
-    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
-    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
-    and do a matrix-vector product on every step. Option (a) is generally cheaper for
-    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
-    dense Hessians (as matrix-vector products are cheaper than linear solves). The
-    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
-    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
-    Hessian approximation `B` as part of their own computations.
-- `hessian_update`: The update formula to build up the Hessian approximation.
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example
@@ -480,7 +501,6 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
     hessian_update: AbstractQuasiNewtonUpdate
@@ -491,17 +511,15 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
-        use_inverse: bool = True,
         verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
-        self.hessian_update = DFPUpdate()
+        self.hessian_update = DFPUpdate(use_inverse=True)
         self.verbose = verbose
 
 
@@ -513,17 +531,6 @@ DFP.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
-- `use_inverse`: The DFP algorithm involves computing matrix-vector products of the
-    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
-    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
-    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
-    and do a matrix-vector product on every step. Option (a) is generally cheaper for
-    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
-    dense Hessians (as matrix-vector products are cheaper than linear solves). The
-    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
-    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
-    Hessian approximation `B` as part of their own computations.
-- `hessian_update`: The update formula to build up the Hessian approximation.
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example
