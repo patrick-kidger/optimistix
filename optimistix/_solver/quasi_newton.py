@@ -83,6 +83,22 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
 
     use_inverse: AbstractVar[bool]
 
+    @abc.abstractmethod
+    def __call__(
+        self,
+        f_eval_info: FunctionInfo.EvalGrad,
+        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
+        y: PyTree,
+        y_eval: PyTree,
+    ) -> Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv]:
+        ...
+
+
+class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
+    """Private intermediate class for BFGS/DFP updates."""
+
+    use_inverse: AbstractVar[bool]
+
     def no_update(self, inner, grad_diff, y_diff, f_info):
         if self.use_inverse:
             return f_info.hessian_inv
@@ -101,14 +117,15 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
 
     def __call__(
         self,
-        f_eval: PyTree,
+        f_eval_info: FunctionInfo.EvalGrad,
         f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
         y: PyTree,
         y_eval: PyTree,
-        grad: PyTree,
     ) -> Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv]:
+        f_eval = f_eval_info.f
+        grad = f_eval_info.grad
         y_diff = (y_eval**ω - y**ω).ω
-        grad_diff = (grad**ω - f_info.grad**ω).ω
+        grad_diff = (f_eval_info.grad**ω - f_info.grad**ω).ω
         inner = tree_dot(grad_diff, y_diff)
 
         # In particular inner = 0 on the first step (as then state.grad=0), and so for
@@ -133,8 +150,13 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
             return FunctionInfo.EvalGradHessian(f_eval, grad, hessian)
 
 
-class DFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
-    """https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula"""
+class DFPUpdate(_AbstractBFGSDFPUpdate, strict=True):
+    """DFP (Davidon––Fletcher––Powell) approximate Hessian updates.
+
+    This is a variant of the BFGS update.
+
+    Ref: https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula.
+    """
 
     use_inverse: bool
 
@@ -187,8 +209,11 @@ DFPUpdate.__init__.__doc__ = """**Arguments:**
 """
 
 
-class BFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
-    """https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm"""
+class BFGSUpdate(_AbstractBFGSDFPUpdate, strict=True):
+    """BFGS (Broyden--Fletcher--Goldfarb--Shanno) approximate Hessian updates.
+
+    Ref: https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm.
+    """
 
     use_inverse: bool
 
@@ -268,7 +293,9 @@ class AbstractQuasiNewton(
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
     it progressively builds up a Hessian approximation using multiple steps of gradient
-    information.
+    information. These updates to the Hessian are handled by the `hessian_update`
+    attribute, which should be a subclass of `AbstractQuasiNewtonUpdate`, such as
+    `BFGSUpdate` or `DFPUpdate`.
 
     This abstract version may be subclassed to choose alternative descent and searches.
 
@@ -345,7 +372,7 @@ class AbstractQuasiNewton(
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
             f_eval_info = self.hessian_update(
-                f_eval, state.f_info, y, state.y_eval, grad
+                FunctionInfo.EvalGrad(f_eval, grad), state.f_info, y, state.y_eval
             )
 
             descent_state = self.descent.query(
