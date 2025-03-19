@@ -79,7 +79,7 @@ _Hessian = TypeVar(
 
 
 class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
-    """Abstract class for updating the approx. Hessian in a quasi-Newton method."""
+    """Abstract class for updating the approximate Hessian in a quasi-Newton method."""
 
     use_inverse: AbstractVar[bool]
 
@@ -516,6 +516,9 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
     it progressively builds up a Hessian approximation using multiple steps of gradient
     information.
+
+    [optimistix.BFGS][] is generally preferred, since it is more numerically stable on
+    most problems.
 
     Supports the following `options`:
 
