@@ -112,30 +112,6 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
         self.verbose = frozenset()
 
 
-class DFPHessian(optx.AbstractQuasiNewton):
-    """DFP Hessian (uses hessian, not inverse!)."""
-
-    rtol: float
-    atol: float
-    norm: Callable = optx.max_norm
-    search: optx.AbstractSearch = optx.BacktrackingArmijo()
-    descent: optx.AbstractDescent = optx.NewtonDescent(linear_solver=lx.Cholesky())
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.DFPUpdate(use_inverse=False)
-    verbose: frozenset[str] = frozenset()
-
-
-class BFGSHessian(optx.AbstractQuasiNewton):
-    """BFGS Hessian (uses hessian, not inverse!)."""
-
-    rtol: float
-    atol: float
-    norm: Callable = optx.max_norm
-    search: optx.AbstractSearch = optx.BacktrackingArmijo()
-    descent: optx.AbstractDescent = optx.NewtonDescent(linear_solver=lx.Cholesky())
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
-    verbose: frozenset[str] = frozenset()
-
-
 class BFGSDampedNewton(optx.AbstractQuasiNewton):
     """BFGS Hessian + direct Levenberg Marquardt update."""
 
@@ -209,16 +185,16 @@ _lsqr_only = (
 atol = rtol = 1e-8
 minimisers = (
     optx.NelderMead(rtol, atol),
-    BFGSHessian(rtol, atol),
-    optx.BFGS(rtol, atol),
+    optx.BFGS(rtol, atol, use_inverse=False),
+    optx.BFGS(rtol, atol, use_inverse=True),
     BFGSDampedNewton(rtol, atol),
     BFGSIndirectDampedNewton(rtol, atol),
     # Tighter tolerance needed to have bfgs_dogleg pass the JVP test.
     BFGSDogleg(1e-10, 1e-10),
     BFGSTrustRegionHessian(rtol, atol),
     BFGSTrustRegion(rtol, atol),
-    DFPHessian(rtol, atol),
-    optx.DFP(rtol, atol),
+    optx.DFP(rtol, atol, use_inverse=False),
+    optx.DFP(rtol, atol, use_inverse=True),
     optx.GradientDescent(1.5e-2, rtol, atol),
     # Tighter tolerance needed to have NonlinearCG pass the JVP test.
     optx.NonlinearCG(1e-10, 1e-10),

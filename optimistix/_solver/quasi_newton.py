@@ -476,6 +476,7 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     descent: NewtonDescent
     search: BacktrackingArmijo
     hessian_update: AbstractQuasiNewtonUpdate
+    use_inverse: bool
     verbose: frozenset[str]
 
     def __init__(
@@ -483,15 +484,17 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
+        use_inverse: bool = True,
         verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
+        self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
-        self.hessian_update = BFGSUpdate(use_inverse=True)
+        self.hessian_update = BFGSUpdate(use_inverse=use_inverse)
         self.verbose = verbose
 
 
@@ -503,6 +506,16 @@ BFGS.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `use_inverse`: The BFGS algorithm involves computing matrix-vector products of the
+    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
+    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
+    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
+    and do a matrix-vector product on every step. Option (a) is generally cheaper for
+    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
+    dense Hessians (as matrix-vector products are cheaper than linear solves). The
+    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
+    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
+    Hessian approximation `B` as part of their own computations.
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example
@@ -534,6 +547,7 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     descent: NewtonDescent
     search: BacktrackingArmijo
     hessian_update: AbstractQuasiNewtonUpdate
+    use_inverse: bool
     verbose: frozenset[str]
 
     def __init__(
@@ -541,11 +555,13 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
+        use_inverse: bool = True,
         verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
+        self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
@@ -561,6 +577,16 @@ DFP.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `use_inverse`: The DFP algorithm involves computing matrix-vector products of the
+    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
+    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
+    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
+    and do a matrix-vector product on every step. Option (a) is generally cheaper for
+    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
+    dense Hessians (as matrix-vector products are cheaper than linear solves). The
+    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
+    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
+    Hessian approximation `B` as part of their own computations.
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example
