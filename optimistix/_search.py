@@ -197,6 +197,50 @@ FunctionInfo.Residual = Residual
 FunctionInfo.ResidualJac = ResidualJac
 
 
+Eval.__init__.__doc__ = """**Arguments:**
+
+- `f`: the scalar output of a function evaluation `fn(y)`.
+"""
+
+
+EvalGrad.__init__.__doc__ = """**Arguments:**
+
+- `f`: the scalar output of a function evaluation `fn(y)`.
+- `grad`: the output of a gradient evaluation `grad(fn)(y)`.
+"""
+
+
+EvalGradHessian.__init__.__doc__ = """**Arguments:**
+
+- `f`: the scalar output of a function evaluation `fn(y)`.
+- `grad`: the output of a gradient evaluation `grad(fn)(y)`.
+- `hessian`: the output of a hessian evaluation `hessian(fn)(y)`.
+"""
+
+
+EvalGradHessianInv.__init__.__doc__ = """**Arguments:**
+
+- `f`: the scalar output of a function evaluation `fn(y)`.
+- `grad`: the output of a gradient evaluation `grad(fn)(y)`.
+- `hessian_inv`: the matrix inverse of a hessian evaluation `(hessian(fn)(y))^{-1}`.
+"""
+
+
+Residual.__init__.__doc__ = """**Arguments:**
+
+- `residual`: the vector output of a function evaluation `fn(y)`. When thought of as a
+    minimisation problem the scalar value to minimise is `0.5 * residual^T residual`.
+"""
+
+
+ResidualJac.__init__.__doc__ = """**Arguments:**
+
+- `residual`: the vector output of a function evaluation `fn(y)`. When thought of as a
+    minimisation problem the scalar value to minimise is `0.5 * residual^T residual`.
+- `jac`: the jacobian `jac(fn)(y)`.
+"""
+
+
 _FnInfo = TypeVar("_FnInfo", contravariant=True, bound=FunctionInfo)
 _FnEvalInfo = TypeVar("_FnEvalInfo", contravariant=True, bound=FunctionInfo)
 

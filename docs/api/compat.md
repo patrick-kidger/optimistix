@@ -8,6 +8,6 @@ The JAX API available at `jax.scipy.optimize.minimize` is being deprecated, in f
 ---
 
 ::: optimistix.compat.OptimizeResults
-    selection:
+    options:
         members:
             false

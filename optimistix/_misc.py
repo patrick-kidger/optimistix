@@ -1,3 +1,4 @@
+import inspect
 from collections.abc import Callable
 from typing import Any, Literal, overload, TypeVar, Union
 
@@ -11,15 +12,36 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 from lineax.internal import (
-    default_floating_dtype as default_floating_dtype,
-    max_norm as max_norm,
-    rms_norm as rms_norm,
-    sum_squares as sum_squares,
-    tree_dot as tree_dot,
-    two_norm as two_norm,
+    default_floating_dtype as _default_floating_dtype,
+    max_norm as _max_norm,
+    rms_norm as _rms_norm,
+    sum_squares as _sum_squares,
+    tree_dot as _tree_dot,
+    two_norm as _two_norm,
 )
 
 from ._custom_types import Y
+
+
+# Make the wrapped function a genuine member of this module.
+def _wrap(fn):
+    # Not using `functools.wraps` as our docgen will chase that.
+    def wrapped_fn(*args, **kwargs):
+        return fn(*args, **kwargs)
+
+    wrapped_fn.__signature__ = inspect.signature(fn)
+    wrapped_fn.__name__ = wrapped_fn.__qualname__ = fn.__name__
+    wrapped_fn.__module__ = __name__
+    wrapped_fn.__doc__ = fn.__doc__
+    return wrapped_fn
+
+
+default_floating_dtype = _wrap(_default_floating_dtype)
+max_norm = _wrap(_max_norm)
+rms_norm = _wrap(_rms_norm)
+sum_squares = _wrap(_sum_squares)
+tree_dot = _wrap(_tree_dot)
+two_norm = _wrap(_two_norm)
 
 
 @overload

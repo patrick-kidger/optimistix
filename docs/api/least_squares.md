@@ -13,7 +13,7 @@
 ??? abstract "`optimistix.AbstractLeastSquaresSolver`"
 
     ::: optimistix.AbstractLeastSquaresSolver
-        selection:
+        options:
             members:
                 - init
                 - step
@@ -23,39 +23,39 @@
 ??? abstract "`optimistix.AbstractGaussNewton`"
 
     ::: optimistix.AbstractGaussNewton
-        selection:
+        options:
             members:
                 false
 
 ::: optimistix.GaussNewton
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.LevenbergMarquardt
-    selection:
+    options:
         members:
             - __init__
 
 ---
             
 ::: optimistix.IndirectLevenbergMarquardt
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.Dogleg
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.BestSoFarLeastSquares
-    selection:
+    options:
         members:
             - __init__

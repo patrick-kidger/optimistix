@@ -15,7 +15,7 @@
 ??? abstract "`optimistix.AbstractFixedPointSolver`"
 
     ::: optimistix.AbstractFixedPointSolver
-        selection:
+        options:
             members:
                 - init
                 - step
@@ -23,13 +23,13 @@
                 - postprocess
 
 ::: optimistix.FixedPointIteration
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.BestSoFarFixedPoint
-    selection:
+    options:
         members:
             - __init__

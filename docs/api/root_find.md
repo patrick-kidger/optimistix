@@ -13,7 +13,7 @@
 ??? abstract "`optimistix.AbstractRootFinder`"
 
     ::: optimistix.AbstractRootFinder
-        selection:
+        options:
             members:
                 - init
                 - step
@@ -21,27 +21,27 @@
                 - postprocess
 
 ::: optimistix.Newton
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.Chord
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.Bisection
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.BestSoFarRootFinder
-    selection:
+    options:
         members:
             - __init__
