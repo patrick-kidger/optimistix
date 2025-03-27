@@ -3,32 +3,32 @@
 ??? abstract "`optimistix.AbstractSearch`"
 
     ::: optimistix.AbstractSearch
-        selection:
+        options:
             members:
                 false
 
 ::: optimistix.LearningRate
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.BacktrackingArmijo
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.ClassicalTrustRegion
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.LinearTrustRegion
-    selection:
+    options:
         members:
             - __init__

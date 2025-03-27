@@ -12,7 +12,7 @@ from .._solver import BFGS
 
 
 class OptimizeResults(NamedTuple):
-    """Object holding optimization results.
+    """NamedTuple holding optimization results.
 
     **Attributes:**
 

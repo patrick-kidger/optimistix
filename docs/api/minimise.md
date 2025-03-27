@@ -11,7 +11,7 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 ??? abstract "`optimistix.AbstractMinimiser`"
 
     ::: optimistix.AbstractMinimiser
-        selection:
+        options:
             members:
                 - init
                 - step
@@ -21,12 +21,12 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 ??? abstract "`optimistix.AbstractGradientDescent`"
 
     ::: optimistix.AbstractGradientDescent
-        selection:
+        options:
             members:
                 false
 
 ::: optimistix.GradientDescent
-    selection:
+    options:
         members:
             - __init__
 
@@ -35,19 +35,19 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 ??? abstract "`optimistix.AbstractBFGS`"
 
     ::: optimistix.AbstractBFGS
-        selection:
+        options:
             members:
                 false
 
 ::: optimistix.BFGS
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.OptaxMinimiser
-    selection:
+    options:
         members:
             - __init__
 
@@ -56,7 +56,7 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 ---
 
 ::: optimistix.NonlinearCG
-    selection:
+    options:
         members:
             - __init__
 
@@ -73,13 +73,13 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 ---
 
 ::: optimistix.NelderMead
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.BestSoFarMinimiser
-    selection:
+    options:
         members:
             - __init__

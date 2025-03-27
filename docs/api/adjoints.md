@@ -7,18 +7,18 @@ In practice this quite an advanced API, and almost all use cases should use [`op
 ??? abstract "`optimistix.AbstractAdjoint`"
 
     ::: optimistix.AbstractAdjoint
-        selection:
+        options:
             members:
                 - apply
 
 ::: optimistix.ImplicitAdjoint
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.RecursiveCheckpointAdjoint
-    selection:
+    options:
         members:
             - __init__
