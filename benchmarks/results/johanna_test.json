@@ -1,0 +1,91 @@
+{
+    "machine_info": {
+        "node": "bs-mbpas-0019",
+        "processor": "arm",
+        "machine": "arm64",
+        "python_compiler": "Clang 16.0.0 (clang-1600.0.26.4)",
+        "python_implementation": "CPython",
+        "python_implementation_version": "3.13.1",
+        "python_version": "3.13.1",
+        "python_build": [
+            "main",
+            "Dec  3 2024 17:59:52"
+        ],
+        "release": "24.3.0",
+        "system": "Darwin",
+        "cpu": {
+            "python_version": "3.13.1.final.0 (64 bit)",
+            "cpuinfo_version": [
+                9,
+                0,
+                0
+            ],
+            "cpuinfo_version_string": "9.0.0",
+            "arch": "ARM_8",
+            "bits": 64,
+            "count": 8,
+            "arch_string_raw": "arm64",
+            "brand_raw": "Apple M2"
+        }
+    },
+    "commit_info": {
+        "id": "c1dad7e75fc35bd5a4977ac3a872991e51e83d2c",
+        "time": "2025-03-27T17:32:36+01:00",
+        "author_time": "2025-03-27T17:32:36+01:00",
+        "dirty": false,
+        "project": "optimistix",
+        "branch": "pytest-benchmark"
+    },
+    "benchmarks": [
+        {
+            "group": null,
+            "name": "test_benchmark_unconstrained_minimisers[minimiser0-<lambda>-y00-None-expected_result0]",
+            "fullname": "benchmarks/test_benchmarks.py::test_benchmark_unconstrained_minimisers[minimiser0-<lambda>-y00-None-expected_result0]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[BFGS(\n  rtol=0.001,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  use_inverse=True,\n  descent=NewtonDescent(linear_solver=Cholesky()),\n  search=BacktrackingArmijo(),\n  verbose=frozenset({})\n)]",
+                "fn": "UNSERIALIZABLE[<function <lambda> at 0x10df83600>]",
+                "y0": "UNSERIALIZABLE[Array([2., 2., 2., 2., 2., 2., 2., 2., 2., 2.], dtype=float32)]",
+                "args": null,
+                "expected_result": "UNSERIALIZABLE[Array([1., 1., 1., 1., 1., 1., 1., 1., 1., 1.], dtype=float32)]"
+            },
+            "param": "minimiser0-<lambda>-y00-None-expected_result0",
+            "extra_info": {},
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.0006523330230265856,
+                "max": 0.0008992080111056566,
+                "mean": 0.0007194416131824255,
+                "stddev": 0.00010250249312878066,
+                "rounds": 5,
+                "median": 0.0006749579915776849,
+                "iqr": 9.36245487537235e-05,
+                "q1": 0.0006611462449654937,
+                "q3": 0.0007547707937192172,
+                "iqr_outliers": 1,
+                "stddev_outliers": 1,
+                "outliers": "1;1",
+                "ld15iqr": 0.0006523330230265856,
+                "hd15iqr": 0.0008992080111056566,
+                "ops": 1389.9668599603713,
+                "total": 0.0035972080659121275,
+                "data": [
+                    0.0008992080111056566,
+                    0.000706625054590404,
+                    0.0006640839856117964,
+                    0.0006523330230265856,
+                    0.0006749579915776849
+                ],
+                "iterations": 1
+            }
+        }
+    ],
+    "datetime": "2025-04-13T18:25:32.775829+00:00",
+    "version": "5.1.0"
+}
