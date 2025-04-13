@@ -45,3 +45,13 @@ This is an unfortunately common occurence! Nonlinear optimisation is a difficult
 6. If you are getting a solution, but it is worse then you are expecting, then the solver may have converged to a local minima. For this, changing the target problem is usually the best approach. (For example when fitting a time series: don't try to fit the whole time series in one go. Instead only fit the start of the time series, and when the model is better-trained later on, then start lengthening how much of the time series you feed into the loss.)
 
 7. Finally, if all else fails: start placing down `jax.debug.print` and `jax.debug.breakpoint` statements, and start bisecting through the internals of the solver. Adding debug statements to the Optimistix source code (located at `import optimistix; print(optimistix.__file__)`) is always going to be the most powerful approach. (This is really standard advice for working with any library, but it needs restating surprisingly often! See also [this standard advice for unsticking yourself](https://kidger.site/thoughts/how-to-handle-a-hands-off-supervisor/#unsticking-yourself).)
+
+
+## How to set up constrained problems (TODO)
+
+Things like: 
+
+- log-space trick: for better scaling and positivity constraints without any extra work
+- scaling constraint values: e.g. dividing by large constant values, ... Include what
+can happen if problems are poorly scaled. (Scaling is highly problem-specific, for that
+reason I'm not in favor of providing routines.)

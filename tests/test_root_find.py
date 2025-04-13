@@ -128,9 +128,10 @@ def test_root_find_jvp(getkey, solver, _fn, init, dtype, args):
 
 def test_bisection_flip():
     for fn in (lambda x, _: x, lambda x, _: -x):
-        options = dict(lower=-1, upper=2)
+        lower = -1
+        upper = 2
         sol = optx.root_find(
-            fn, optx.Bisection(rtol=1e-4, atol=1e-4), 1.0, options=options
+            fn, optx.Bisection(rtol=1e-4, atol=1e-4), 1.0, bounds=(lower, upper)
         )
         assert jnp.allclose(0, sol.value, atol=1e-3)
 
@@ -143,12 +144,11 @@ def test_bisection_flip():
     [(lower, upper) for lower in (-3, 3) for upper in (-4, -2, 2, 4)],
 )
 def test_bisection_expansion(fn, lower, upper):
-    options = {"lower": lower, "upper": upper}
     sol = optx.root_find(
         fn,
         optx.Bisection(rtol=0.0, atol=1e-4, expand_if_necessary=True),
         100.0,
-        options=options,
+        bounds=(lower, upper),
     )
     assert jnp.allclose(0, sol.value, atol=1e-3)
 
@@ -177,15 +177,21 @@ def test_newton_bounded(solver):
         tol = 1e-2
 
     lower_bound = (-jnp.inf, jnp.array([[0, -jnp.inf], [-jnp.inf, -jnp.inf]]))
+    upper_bound = jtu.tree_map(lambda x: jnp.inf, lower_bound)  # Dummy bound
     true_lower_root = (jnp.array(0.0), jnp.array([[1.0, 0.0], [0.0, -1.0]]))
     y0 = (jnp.array(0.1), jnp.array([[1.1, 0.1], [0.1, -1.1]]))
-    lower_root = optx.root_find(f, solver, y0, options=dict(lower=lower_bound)).value
+    lower_root = optx.root_find(
+        f, solver, y0, options=dict(clip=True), bounds=(lower_bound, upper_bound)
+    ).value
     assert tree_allclose(lower_root, true_lower_root, rtol=tol, atol=tol)
 
     upper_bound = (jnp.inf, jnp.array([[0, jnp.inf], [jnp.inf, jnp.inf]]))
+    lower_bound = jtu.tree_map(lambda x: -jnp.inf, upper_bound)  # Dummy bound
     true_upper_root = (jnp.array(0.0), jnp.array([[-1.0, 0.0], [0.0, -1.0]]))
     y0 = (jnp.array(0.1), jnp.array([[-1.1, 0.1], [0.1, -1.1]]))
-    upper_root = optx.root_find(f, solver, y0, options=dict(upper=upper_bound)).value
+    upper_root = optx.root_find(
+        f, solver, y0, options=dict(clip=True), bounds=(lower_bound, upper_bound)
+    ).value
     assert tree_allclose(upper_root, true_upper_root, rtol=tol, atol=tol)
 
 

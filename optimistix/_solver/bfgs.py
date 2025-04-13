@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -10,13 +10,24 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
-from .._custom_types import Aux, DescentState, Fn, SearchState, Y
+from .._custom_types import (
+    Aux,
+    Constraint,
+    DescentState,
+    EqualityOut,
+    Fn,
+    InequalityOut,
+    SearchState,
+    Y,
+)
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
+    evaluate_constraint,
     filter_cond,
     lin_to_grad,
     max_norm,
+    tree_clip,
     tree_dot,
     tree_full_like,
     verbose_print,
@@ -28,10 +39,11 @@ from .._search import (
 )
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
+from .cauchy_point import CauchyNewtonDescent
 from .gauss_newton import NewtonDescent
 
 
-def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
+def identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
     """Create an identity pytree `I` such that
     `pytree = lx.PyTreeLinearOperator(I).mv(pytree)`
 
@@ -72,11 +84,23 @@ def _outer(tree1, tree2):
     return jtu.tree_map(leaf_fn, tree1)
 
 
-def _bfgs_update(f_eval, grad, prev_grad, hessian, hessian_inv, y_diff):
+def bfgs_update(
+    f_eval,
+    grad,
+    prev_grad,
+    hessian,
+    hessian_inv,
+    y_eval,
+    y_diff,
+    bounds,
+    constraint_residual,
+    constraint_bound,
+    constraint_jac,
+):
     grad_diff = (grad**ω - prev_grad**ω).ω
     inner = tree_dot(grad_diff, y_diff)
 
-    def bfgs_update(hessian, hessian_inv):
+    def update(hessian, hessian_inv):
         if hessian is None:
             assert hessian_inv is not None
             # Use Woodbury identity for rank-1 update of approximate Hessian.
@@ -114,12 +138,21 @@ def _bfgs_update(f_eval, grad, prev_grad, hessian, hessian_inv, y_diff):
     # to avoid a division by zero.
     inner_nonzero = inner > jnp.finfo(inner.dtype).eps
     hessian, hessian_inv = filter_cond(
-        inner_nonzero, bfgs_update, no_update, hessian, hessian_inv
+        inner_nonzero, update, no_update, hessian, hessian_inv
     )
     if hessian is None:
         return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian_inv)
     else:
-        return FunctionInfo.EvalGradHessian(f_eval, grad, hessian)
+        return FunctionInfo.EvalGradHessian(
+            f_eval,
+            grad,
+            hessian,
+            y_eval,
+            bounds,
+            constraint_residual,
+            constraint_bound,
+            constraint_jac,
+        )
 
 
 _Hessian = TypeVar(
@@ -162,6 +195,9 @@ class AbstractBFGS(
         compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
         which is usually more efficient. Changing this can be useful when the target
         function does not support reverse-mode automatic differentiation.
+    - `clip`: A boolean indicating whether to clip the solution to the bounds after each
+        step. If `True`, then bounds must be passed in the `bounds` argument.
+        Defaults to `False`.
     """
 
     rtol: AbstractVar[float]
@@ -178,18 +214,39 @@ class AbstractBFGS(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _BFGSState:
+        clip = options.get("clip", False)
+        if clip and bounds is None:
+            raise ValueError("If clip is True, bounds must be provided.")
+
+        if constraint is not None:
+            evaluated = evaluate_constraint(constraint, y)
+            constraint_residual, constraint_bound, constraint_jacobians = evaluated
+        else:
+            constraint_residual = constraint_bound = constraint_jacobians = None
+
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
         if self.use_inverse:
-            hessian_inv = _identity_pytree(y)
+            hessian_inv = identity_pytree(y)
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, hessian_inv)
         else:
-            hessian = _identity_pytree(y)
-            f_info = FunctionInfo.EvalGradHessian(f, grad, hessian)
+            hessian = identity_pytree(y)
+            f_info = FunctionInfo.EvalGradHessian(
+                f,
+                grad,
+                hessian,
+                y,
+                bounds,
+                constraint_residual,
+                constraint_bound,
+                constraint_jacobians,  # pyright: ignore  # TODO fix this!!
+            )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
         return _BFGSState(
             first_step=jnp.array(True),
@@ -209,19 +266,30 @@ class AbstractBFGS(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _BFGSState,
         tags: frozenset[object],
     ) -> tuple[Y, _BFGSState, Aux]:
         autodiff_mode = options.get("autodiff_mode", "bwd")
+        clip = options.get("clip", False)
+
+        if constraint is not None:
+            evaluated = evaluate_constraint(constraint, state.y_eval)
+            constraint_residual, constraint_bound, constraint_jacobians = evaluated
+        else:
+            constraint_residual = constraint_bound = constraint_jacobians = None
+
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
+
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
             y,
             state.y_eval,
             state.f_info,
-            FunctionInfo.Eval(f_eval),
+            FunctionInfo.Eval(f_eval, bounds, constraint_residual),
             state.search_state,
         )
 
@@ -229,21 +297,34 @@ class AbstractBFGS(
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
             y_diff = (state.y_eval**ω - y**ω).ω
+
             if self.use_inverse:
                 hessian = None
                 hessian_inv = state.f_info.hessian_inv
             else:
                 hessian = state.f_info.hessian
                 hessian_inv = None
-            f_eval_info = _bfgs_update(
-                f_eval, grad, state.f_info.grad, hessian, hessian_inv, y_diff
+
+            f_eval_info = bfgs_update(
+                f_eval,
+                grad,
+                state.f_info.grad,
+                hessian,
+                hessian_inv,
+                state.y_eval,
+                y_diff,
+                bounds,
+                constraint_residual,
+                constraint_bound,
+                constraint_jacobians,
             )
+
             descent_state = self.descent.query(
                 state.y_eval,
                 f_eval_info,  # pyright: ignore
                 descent_state,
             )
-            f_diff = (f_eval**ω - state.f_info.f**ω).ω
+            f_diff = f_eval - state.f_info.f
             terminate = cauchy_termination(
                 self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff
             )
@@ -275,6 +356,9 @@ class AbstractBFGS(
 
         y_descent, descent_result = self.descent.step(step_size, descent_state)
         y_eval = (y**ω + y_descent**ω).ω
+        if clip and bounds is not None:
+            y_eval = tree_clip(y_eval, *bounds)
+
         result = RESULTS.where(
             search_result == RESULTS.successful, descent_result, search_result
         )
@@ -298,6 +382,8 @@ class AbstractBFGS(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _BFGSState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -310,6 +396,8 @@ class AbstractBFGS(
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _BFGSState,
         tags: frozenset[object],
         result: RESULTS,
@@ -330,6 +418,9 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian], strict=True):
         compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
         which is usually more efficient. Changing this can be useful when the target
         function does not support reverse-mode automatic differentiation.
+    - `clip`: A boolean indicating whether to clip the solution to the bounds after each
+        step. If `True`, then bounds must be passed in the `bounds` argument.
+        Defaults to `False`.
     """
 
     rtol: float
@@ -376,6 +467,71 @@ BFGS.__init__.__doc__ = """**Arguments:**
     default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
     line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
     Hessian approximation `B` as part of their own computations.
+- `verbose`: Whether to print out extra information about how the solve is
+    proceeding. Should be a frozenset of strings, specifying what information to print.
+    Valid entries are `step_size`, `loss`, `y`. For example 
+    `verbose=frozenset({"step_size", "loss"})`.
+"""
+
+
+class BFGS_B(AbstractBFGS[Y, Aux, FunctionInfo.EvalGradHessian], strict=True):
+    """Bounded BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
+
+    This is a quasi-Newton optimisation algorithm, whose defining feature is the way
+    it progressively builds up a Hessian approximation using multiple steps of gradient
+    information. This version also supports box constraints on the variables, which
+    are handled via a box-projected Cauchy-Newton step: a minimiser is identified along
+    the piecewise-linear projected gradient direction, and then used to define the
+    active bound constraints while optimising in the unconstrained variables. The
+    advantage over a simple box clip on the computed step is that trade-offs between
+    the optimisation variables are taken into account when computing the constrained
+    step.
+    Does not support the use of an inverse Hessian approximation.
+
+    Supports the following `options`:
+
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
+
+    (Note that while clipping is technically possible due to its support in
+    [`optimistix.AbstractBFGS`][], it is redundant here and hence not listed.)
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    use_inverse: bool
+    descent: CauchyNewtonDescent
+    search: BacktrackingArmijo
+    verbose: frozenset[str]
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        verbose: frozenset[str] = frozenset(),
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.use_inverse = False
+        self.descent = CauchyNewtonDescent(linear_solver=lx.SVD())
+        # TODO(jhaffner): replace the linear solver with a more efficient one.
+        self.search = BacktrackingArmijo()
+        self.verbose = verbose
+
+
+BFGS_B.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example 
