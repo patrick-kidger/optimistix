@@ -5,6 +5,9 @@
 # If you'd like to save the results, the flag `--benchmark-save=<file_path>` can be used
 # to save a .json file with stats and additional custom metrics.
 
+# open questions: should benchmarks be version controlled? This would be necessary to
+# compare performance across versions, but I'm not sure how large the files would be.
+
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -35,6 +38,7 @@ unconstrained_problems = (
 )
 
 
+@pytest.mark.benchmark
 @pytest.mark.parametrize("fn, y0, args, expected_result", unconstrained_problems)
 @pytest.mark.parametrize("minimiser", unconstrained_minimisers)
 def test_benchmark_unconstrained_minimisers(
