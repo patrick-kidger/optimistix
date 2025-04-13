@@ -1,6 +1,6 @@
 import abc
 from collections.abc import Callable
-from typing import Any, cast, Generic, TypeVar, Union
+from typing import Any, Generic, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -79,19 +79,41 @@ _Hessian = TypeVar(
 
 
 class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
-    """Abstract class for updating the approximate Hessian in a quasi-Newton method."""
+    """Abstract base class for quasi-Newton updates to the Hessian approximation. An
+    update consumes information about the current and preceding step, the gradient
+    values at the respective points, and the previous Hessian approximation and returns
+    an updated instance of [`optimistix.FunctionInfo.EvalGradHessian`][] or
+    [`optimistix.FunctionInfo.EvalGradHessianInv`][], depending on whether we're
+    approximating the Hessian or its inverse.
+    """
 
     use_inverse: AbstractVar[bool]
 
     @abc.abstractmethod
     def __call__(
         self,
-        f_eval_info: FunctionInfo.EvalGrad,
+        y: Y,
+        y_eval: Y,
         f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
-        y: PyTree,
-        y_eval: PyTree,
+        f_eval_info: FunctionInfo.EvalGrad,
     ) -> Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv]:
-        ...
+        """Called whenever we want to update the Hessian approximation. This is usually
+        in the `accepted` branch of the `step` method of an
+        [`optimistix.AbstractQuasiNewton`][] minimiser.
+
+        **Arguments:**
+
+        - `f_eval_info`: The function value and its gradient at the current (just
+            accepted) iterate `y_eval`
+        - `f_info`: The function value, gradient and Hessian approximation at the
+            previous accepted iterate `y`
+        - `y`: the previous accepted iterate
+        - `y_eval`: the current (just accepted) iterate
+
+        **Returns:**
+
+        The updated Hessian (or Hessian-inverse) approximation.
+        """
 
 
 class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
@@ -117,10 +139,10 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
 
     def __call__(
         self,
-        f_eval_info: FunctionInfo.EvalGrad,
+        y: Y,
+        y_eval: Y,
         f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
-        y: PyTree,
-        y_eval: PyTree,
+        f_eval_info: FunctionInfo.EvalGrad,
     ) -> Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv]:
         f_eval = f_eval_info.f
         grad = f_eval_info.grad
@@ -151,20 +173,18 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
 
 
 class DFPUpdate(_AbstractBFGSDFPUpdate, strict=True):
-    """DFP (Davidon––Fletcher––Powell) approximate Hessian updates.
+    """DFP (Davidon–Fletcher–Powell) approximate Hessian updates.
 
     This is a variant of the BFGS update.
 
-    Ref: https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula.
+    See [https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula](https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula).
     """
 
     use_inverse: bool
 
     def update(self, inner, grad_diff, y_diff, f_info):
         if self.use_inverse:
-            # Inverse Hessian
-            # pyright doesn't get it
-            f_info = cast(FunctionInfo.EvalGradHessianInv, f_info)
+            assert isinstance(f_info, FunctionInfo.EvalGradHessianInv)
             hessian_inv = f_info.hessian_inv
             inv_mvp = hessian_inv.mv(grad_diff)
             term1 = (_outer(y_diff, y_diff) ** ω / inner).ω
@@ -176,9 +196,7 @@ class DFPUpdate(_AbstractBFGSDFPUpdate, strict=True):
             )
             return new_hessian_inv
         else:
-            # Hessian
-            # pyright doesn't get it
-            f_info = cast(FunctionInfo.EvalGradHessian, f_info)
+            assert isinstance(f_info, FunctionInfo.EvalGradHessian)
             hessian = f_info.hessian
             mvp = hessian.mv(y_diff)
             mvp_inner = tree_dot(y_diff, mvp)
@@ -202,26 +220,21 @@ DFPUpdate.__init__.__doc__ = """**Arguments:**
     linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
     and do a matrix-vector product on every step. Option (a) is generally cheaper for
     sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
-    dense Hessians (as matrix-vector products are cheaper than linear solves). The
-    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
-    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
-    Hessian approximation `B` as part of their own computations.
+    dense Hessians (as matrix-vector products are cheaper than linear solves).
 """
 
 
 class BFGSUpdate(_AbstractBFGSDFPUpdate, strict=True):
-    """BFGS (Broyden--Fletcher--Goldfarb--Shanno) approximate Hessian updates.
+    """BFGS (Broyden–Fletcher–Goldfarb–Shanno) approximate Hessian updates.
 
-    Ref: https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm.
+    See [https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm](https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm).
     """
 
     use_inverse: bool
 
     def update(self, inner, grad_diff, y_diff, f_info):
         if self.use_inverse:
-            # Inverse Hessian
-            # pyright doesn't get it
-            f_info = cast(FunctionInfo.EvalGradHessianInv, f_info)
+            assert isinstance(f_info, FunctionInfo.EvalGradHessianInv)
             hessian_inv = f_info.hessian_inv
             # Use Woodbury identity for rank-1 update of approximate Hessian.
             inv_mvp = hessian_inv.mv(grad_diff)
@@ -237,9 +250,7 @@ class BFGSUpdate(_AbstractBFGSDFPUpdate, strict=True):
             )
             return new_hessian_inv
         else:
-            # Hessian
-            # pyright doesn't get it
-            f_info = cast(FunctionInfo.EvalGradHessian, f_info)
+            assert isinstance(f_info, FunctionInfo.EvalGradHessian)
             hessian = f_info.hessian
             # BFGS update to the operator directly
             mvp = hessian.mv(y_diff)
@@ -261,10 +272,7 @@ BFGSUpdate.__init__.__doc__ = """**Arguments:**
     linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
     and do a matrix-vector product on every step. Option (a) is generally cheaper for
     sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
-    dense Hessians (as matrix-vector products are cheaper than linear solves). The
-    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
-    line search methods like [`optimistix.ClassicalTrustRegion`][], which use the
-    Hessian approximation `B` as part of their own computations.
+    dense Hessians (as matrix-vector products are cheaper than linear solves).
 """
 
 
@@ -372,7 +380,10 @@ class AbstractQuasiNewton(
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
             f_eval_info = self.hessian_update(
-                FunctionInfo.EvalGrad(f_eval, grad), state.f_info, y, state.y_eval
+                y,
+                state.y_eval,
+                state.f_info,
+                FunctionInfo.EvalGrad(f_eval, grad),
             )
 
             descent_state = self.descent.query(
@@ -456,7 +467,7 @@ class AbstractQuasiNewton(
 
 
 class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
-    """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
+    """BFGS (Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
     it progressively builds up a Hessian approximation using multiple steps of gradient
@@ -524,13 +535,13 @@ BFGS.__init__.__doc__ = """**Arguments:**
 
 
 class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
-    """DFP (Davidon--Fletcher--Powell) minimisation algorithm.
+    """DFP (Davidon–Fletcher–Powell) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
     it progressively builds up a Hessian approximation using multiple steps of gradient
     information.
 
-    [optimistix.BFGS][] is generally preferred, since it is more numerically stable on
+    [`optimistix.BFGS`][] is generally preferred, since it is more numerically stable on
     most problems.
 
     Supports the following `options`:
@@ -565,7 +576,7 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
-        self.hessian_update = DFPUpdate(use_inverse=True)
+        self.hessian_update = DFPUpdate(use_inverse=use_inverse)
         self.verbose = verbose
 
 
