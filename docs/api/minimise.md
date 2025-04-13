@@ -39,35 +39,32 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
             members:
                 false
 
+    [`optimistix.AbstractQuasiNewton`][] supports several update methods for the Hessian approximation. Optimistix currently provides two of these ([`optimistix.BFGSUpdate`][] and [`optimistix.DFPUpdate`][]), but you can also implement your own using the [`optimistix.AbstractQuasiNewtonUpdate`][] interface.
+
+    ::: optimistix.AbstractQuasiNewtonUpdate
+        options:
+            members:
+                - __call__
+
+    ::: optimistix.BFGSUpdate
+        options:
+            members:
+                - __init__
+
+    ::: optimistix.DFPUpdate
+        options:
+            members:
+                - __init__
+
 ::: optimistix.BFGS
     options:
         members:
             - __init__
 
 ::: optimistix.DFP
-    selection:
+    options:
         members:
             - __init__
-
-[`optimistix.AbstractQuasiNewton`][] supports several update methods for the Hessian approximation. optimistix currently provides two of these ([`optimistix.BFGSUpdate`][] and [`optimistix.DFPUpdate`][]), but you can also implement your own using the [`optimistix.AbstractQuasiNewtonUpdate`][] interface.
-
-??? abstract "`optimistix.AbstractQuasiNewtonUpdate`"
-
-    ::: optimistix.AbstractQuasiNewtonUpdate
-        selection:
-            members:
-                - __call__
-
-::: optimistix.BFGSUpdate
-    selection:
-        members:
-            - __init__
-
-::: optimistix.DFPUpdate
-    selection:
-        members:
-            - __init__
-
 
 ---
 
