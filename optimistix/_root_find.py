@@ -7,11 +7,27 @@ from equinox import AbstractVar
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
+from ._custom_types import (
+    Aux,
+    Constraint,
+    EqualityOut,
+    Fn,
+    InequalityOut,
+    MaybeAuxFn,
+    Out,
+    SolverState,
+    Y,
+)
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver, least_squares
 from ._minimise import AbstractMinimiser, minimise
-from ._misc import inexact_asarray, NoneAux, OutAsArray, tree_full_like
+from ._misc import (
+    checked_bounds,
+    inexact_asarray,
+    NoneAux,
+    OutAsArray,
+    tree_full_like,
+)
 from ._solution import Solution
 
 
@@ -57,27 +73,39 @@ class _ToRoot(AbstractIterativeSolver):
     def norm(self):
         return self.solver.norm
 
-    def init(self, fn, y, args, options, f_struct, aux_struct, tags):
+    def init(
+        self, fn, y, args, options, constraint, bounds, f_struct, aux_struct, tags
+    ):
         orig_f_struct, _ = aux_struct
-        init_state = self.solver.init(fn, y, args, options, f_struct, aux_struct, tags)
+        init_state = self.solver.init(
+            fn, y, args, options, constraint, bounds, f_struct, aux_struct, tags
+        )
         f_inf = tree_full_like(orig_f_struct, jnp.inf)
         return (init_state, f_inf)
 
-    def step(self, fn, y, args, options, state, tags):
+    def step(self, fn, y, args, options, constraint, bounds, state, tags):
         state, _ = state
-        new_y, new_state, (f, aux) = self.solver.step(fn, y, args, options, state, tags)
+        new_y, new_state, (f, aux) = self.solver.step(
+            fn, y, args, options, constraint, bounds, state, tags
+        )
         return new_y, (new_state, f), (f, aux)
 
-    def terminate(self, fn, y, args, options, state, tags):
+    def terminate(self, fn, y, args, options, constraint, bounds, state, tags):
         state, f = state
-        terminate, result = self.solver.terminate(fn, y, args, options, state, tags)
+        terminate, result = self.solver.terminate(
+            fn, y, args, options, constraint, bounds, state, tags
+        )
         # No rtol, because `rtol * 0 = 0`.
         near_zero = self.norm(f) < self.atol
         return terminate & near_zero, result
 
-    def postprocess(self, fn, y, aux, args, options, state, tags, result):
+    def postprocess(
+        self, fn, y, aux, args, options, constraint, bounds, state, tags, result
+    ):
         state, _ = state
-        return self.solver.postprocess(fn, y, aux, args, options, state, tags, result)
+        return self.solver.postprocess(
+            fn, y, aux, args, options, constraint, bounds, state, tags, result
+        )
 
 
 class _MinimToRoot(AbstractMinimiser, _ToRoot):
@@ -116,6 +144,8 @@ class _LstsqToRoot(AbstractLeastSquaresSolver, _ToRoot):
         return self.solver.norm
 
 
+# TODO: documentation for keyword argument constraint. Check fixed_point for a few
+# thoughts on this.
 @eqx.filter_jit
 def root_find(
     fn: MaybeAuxFn[Y, Out, Aux],
@@ -126,11 +156,14 @@ def root_find(
     options: dict[str, Any] | None = None,
     *,
     has_aux: bool = False,
+    constraint: Constraint[Y, EqualityOut, InequalityOut] | None = None,
+    bounds: tuple[Y, Y] | None = None,
     max_steps: int | None = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
-) -> Solution[Y, Aux]:
+) -> Solution[Y, Aux]:  # pyright: ignore
+    # TODO(jhaffner): Figure out why pyright is not happy here and fix it.
     """Solve a root-finding problem.
 
     Given a nonlinear function `fn(y, args)` which returns a pytree of arrays,
@@ -152,6 +185,15 @@ def root_find(
         See each individual solver's documentation for more details.
     - `has_aux`: If `True`, then `fn` may return a pair, where the first element is its
         function value, and the second is just auxiliary data. Keyword only argument.
+    - `constraint`: Individual solvers may accept a constraint function `constraint(y)`.
+        This must return a PyTree of scalars, one for each constraint, such that
+        `constraint(y) >= 0` if the constraint is satisfied. The initial value `y0` must
+        be feasible with respect to these constraints. Keyword only argument.
+    - `bounds`: Individual solvers may accept bounds. This should be a pair of pytrees
+        of the same structure as `y`, where the first element is the lower bound, and
+        the second is the upper bound. Unbounded leaves can be indicated with +/- inf
+        for the upper and lower bounds, respectively. For finite bounds, it is checked
+        whether `y` is in the closed interval `[lower, upper]`. Keyword only argument.
     - `max_steps`: The maximum number of steps the solver can take. Keyword only
         argument.
     - `adjoint`: The adjoint method used to compute gradients through the fixed-point
@@ -185,6 +227,8 @@ def root_find(
             args,
             options,
             has_aux=True,
+            constraint=constraint,
+            bounds=bounds,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
@@ -201,26 +245,38 @@ def root_find(
             args,
             options,
             has_aux=True,
+            constraint=constraint,
+            bounds=bounds,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
         )
-        _, aux = sol.aux
-        sol = eqx.tree_at(lambda s: s.aux, sol, aux)
-        return sol
     else:
         y0 = jtu.tree_map(inexact_asarray, y0)
+
         fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
         fn = cast(Fn[Y, Out, Aux], fn)
-        f_struct, aux_struct = fn.out_struct
-        if options is None:
-            options = {}
+        f_struct, aux_struct = fn.out_struct  # pyright: ignore
+
+        if bounds is not None:
+            bounds = checked_bounds(y0, jtu.tree_map(inexact_asarray, bounds))
+
+        if constraint is not None:
+            constraint = eqx.filter_closure_convert(constraint, y0)
+            constraint = cast(Constraint[Y, EqualityOut, InequalityOut], constraint)
+            # TODO(jhaffner): this can be done more elegantly
+            msg = "The initial point must be feasible."
+            pred = jnp.all(constraint(y0) >= 0)  # pyright: ignore (ConstraintOut array)
+            eqx.error_if(y0, pred, msg)
+
         return iterative_solve(
             fn,
             solver,
             y0,
             args,
             options,
+            constraint=constraint,
+            bounds=bounds,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,

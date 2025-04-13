@@ -5,8 +5,24 @@ from .best_so_far import (
     BestSoFarMinimiser as BestSoFarMinimiser,
     BestSoFarRootFinder as BestSoFarRootFinder,
 )
+from .bfgs import AbstractBFGS as AbstractBFGS, BFGS as BFGS, BFGS_B as BFGS_B
 from .bisection import Bisection as Bisection
+from .boundary_maps import (
+    AbstractBoundaryMap as AbstractBoundaryMap,
+    BoxProjection as BoxProjection,
+    ClosestFeasiblePoint as ClosestFeasiblePoint,
+)
+from .cauchy_point import (
+    cauchy_point as cauchy_point,
+    CauchyNewton as CauchyNewton,
+    CauchyNewtonDescent as CauchyNewtonDescent,
+)
+from .coleman_li import (
+    ColemanLi as ColemanLi,
+    ColemanLiDescent as ColemanLiDescent,
+)
 from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
+from .filtered import FilteredLineSearch as FilteredLineSearch
 from .fixed_point import FixedPointIteration as FixedPointIteration
 from .gauss_newton import (
     AbstractGaussNewton as AbstractGaussNewton,
@@ -17,6 +33,14 @@ from .gradient_methods import (
     AbstractGradientDescent as AbstractGradientDescent,
     GradientDescent as GradientDescent,
     SteepestDescent as SteepestDescent,
+)
+from .interior_point import (
+    InteriorDescent as InteriorDescent,
+    InteriorPoint as InteriorPoint,
+)
+from .ipoptlike import (
+    IPOPTLike as IPOPTLike,
+    IPOPTLikeDescent as IPOPTLikeDescent,  # TODO: name might change
 )
 from .learning_rate import LearningRate as LearningRate
 from .levenberg_marquardt import (
@@ -43,6 +67,10 @@ from .quasi_newton import (
     BFGSUpdate as BFGSUpdate,
     DFP as DFP,
     DFPUpdate as DFPUpdate,
+from .proximal_projected import ProjectedGradientDescent as ProjectedGradientDescent
+from .sequential import (
+    QuadraticSubproblemDescent as QuadraticSubproblemDescent,
+    SLSQP as SLSQP,
 )
 from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,

@@ -2,16 +2,32 @@ from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import PyTree
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._custom_types import Args, Aux, Fn, MaybeAuxFn, SolverState, Y
+from ._custom_types import (
+    Args,
+    Aux,
+    Constraint,
+    EqualityOut,
+    Fn,
+    InequalityOut,
+    MaybeAuxFn,
+    SolverState,
+    Y,
+)
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver
 from ._minimise import AbstractMinimiser
-from ._misc import inexact_asarray, NoneAux, OutAsArray
+from ._misc import (
+    checked_bounds,
+    inexact_asarray,
+    NoneAux,
+    OutAsArray,
+)
 from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
 
@@ -47,6 +63,20 @@ class _ToRootFn(eqx.Module, Generic[Y, Aux]):
         return (out**ω - y**ω).ω, aux
 
 
+# TODO(jhaffner): Should we support bounds and constraints in this top-level API? For
+# now I have kept all top-level APIs the same, but if fixed_point is never going to use
+# constraints, then it might make sense to remove them, lest we confuse users.
+# Possible things to do:
+# - Remove bounds and constraints from the top-level API. I don't think this is great
+# for maintainability since we want our solvers are interoperable and may call top-level
+# APIs internally (e.g. call to `root_find` below.) This would have to be handled here
+# by passing hard-coded None values to the internal calls, including `iterative_solve`.
+# - Keep things as-is but add an equinox remove docs decorator. This would remove the
+# keyword arguments that do not apply to fixed point solvers from the documentation. But
+# they would still be part of the signature.
+# - Keep things as-is and add a note to the documentation that bounds and constraints
+# are not used by fixed point solvers. Perhaps throw an error if they are passed to
+# `fixed_point`, or leave it as-is and handle errata in the solvers.
 @eqx.filter_jit
 def fixed_point(
     fn: MaybeAuxFn[Y, Y, Aux],
@@ -59,6 +89,8 @@ def fixed_point(
     options: dict[str, Any] | None = None,
     *,
     has_aux: bool = False,
+    constraint: Constraint[Y, EqualityOut, InequalityOut] | None = None,
+    bounds: tuple[Y, Y] | None = None,
     max_steps: int | None = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
@@ -88,6 +120,15 @@ def fixed_point(
         See each individual solver's documentation for more details.
     - `has_aux`: If `True`, then `fn` may return a pair, where the first element is its
         function value, and the second is just auxiliary data. Keyword only argument.
+    - `constraint`: Individual solvers may accept a constraint function `constraint(y)`.
+        This must return a PyTree of scalars, one for each constraint, such that
+        `constraint(y) >= 0` if the constraint is satisfied. The initial value `y0` must
+        be feasible with respect to these constraints. Keyword only argument.
+    - `bounds`: Individual solvers may accept bounds. This should be a pair of pytrees
+        of the same structure as `y`, where the first element is the lower bound, and
+        the second is the upper bound. Unbounded leaves can be indicated with +/- inf
+        for the upper and lower bounds, respectively. For finite bounds, it is checked
+        whether `y` is in the closed interval `[lower, upper]`. Keyword only argument.
     - `max_steps`: The maximum number of steps the solver can take. Keyword only
         argument.
     - `adjoint`: The adjoint method used to compute gradients through the fixed-point
@@ -123,6 +164,8 @@ def fixed_point(
             args,
             options,
             has_aux=True,
+            constraint=constraint,
+            bounds=bounds,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
@@ -136,14 +179,26 @@ def fixed_point(
             raise ValueError(
                 "The input and output of `fixed_point_fn` must have the same structure"
             )
-        if options is None:
-            options = {}
+
+        if bounds is not None:
+            bounds = checked_bounds(y0, jtu.tree_map(inexact_asarray, bounds))
+
+        if constraint is not None:
+            constraint = eqx.filter_closure_convert(constraint, y0)
+            constraint = cast(Constraint[Y, EqualityOut, InequalityOut], constraint)
+            # TODO(jhaffner): this can be done more elegantly
+            msg = "The initial point must be feasible."
+            pred = jnp.all(constraint(y0) >= 0)  # pyright: ignore (ConstraintOut array)
+            eqx.error_if(y0, pred, msg)
+
         return iterative_solve(
             fn,
             solver,
             y0,
             args,
             options,
+            constraint=constraint,
+            bounds=bounds,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,

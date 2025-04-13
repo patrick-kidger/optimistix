@@ -2,14 +2,32 @@ from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._custom_types import Args, Aux, Fn, MaybeAuxFn, Out, SolverState, Y
+from ._custom_types import (
+    Args,
+    Aux,
+    Constraint,
+    EqualityOut,
+    Fn,
+    InequalityOut,
+    MaybeAuxFn,
+    Out,
+    SolverState,
+    Y,
+)
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._minimise import AbstractMinimiser, minimise
-from ._misc import inexact_asarray, NoneAux, OutAsArray, sum_squares
+from ._misc import (
+    checked_bounds,
+    inexact_asarray,
+    NoneAux,
+    OutAsArray,
+    sum_squares,
+)
 from ._solution import Solution
 
 
@@ -41,6 +59,8 @@ class _ToMinimiseFn(eqx.Module, Generic[Y, Out, Aux]):
         return 0.5 * sum_squares(residual), aux
 
 
+# TODO: Leave keyword argument for constraints if least squares solvers don't handle
+# these? See fixed_point for a more thorough description of the choice to make here.
 @eqx.filter_jit
 def least_squares(
     fn: MaybeAuxFn[Y, Out, Aux],
@@ -51,6 +71,8 @@ def least_squares(
     options: dict[str, Any] | None = None,
     *,
     has_aux: bool = False,
+    constraint: Constraint[Y, EqualityOut, InequalityOut] | None = None,
+    bounds: tuple[Y, Y] | None = None,
     max_steps: int | None = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
@@ -76,6 +98,15 @@ def least_squares(
         See each individual solver's documentation for more details.
     - `has_aux`: If `True`, then `fn` may return a pair, where the first element is its
         function value, and the second is just auxiliary data. Keyword only argument.
+    - `constraint`: Individual solvers may accept a constraint function `constraint(y)`.
+        This must return a PyTree of scalars, one for each constraint, such that
+        `constraint(y) >= 0` if the constraint is satisfied. The initial value `y0` must
+        be feasible with respect to these constraints. Keyword only argument.
+    - `bounds`: Individual solvers may accept bounds. This should be a pair of pytrees
+        of the same structure as `y`, where the first element is the lower bound, and
+        the second is the upper bound. Unbounded leaves can be indicated with +/- inf
+        for the upper and lower bounds, respectively. For finite bounds, it is checked
+        whether `y` is in the closed interval `[lower, upper]`. Keyword only argument.
     - `max_steps`: The maximum number of steps the solver can take. Keyword only
         argument.
     - `adjoint`: The adjoint method used to compute gradients through the fixed-point
@@ -108,6 +139,8 @@ def least_squares(
             args,
             options,
             has_aux=True,
+            constraint=constraint,
+            bounds=bounds,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
@@ -117,14 +150,26 @@ def least_squares(
         fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
         fn = cast(Fn[Y, Out, Aux], fn)
         f_struct, aux_struct = fn.out_struct
-        if options is None:
-            options = {}
+
+        if bounds is not None:
+            bounds = checked_bounds(y0, jtu.tree_map(inexact_asarray, bounds))
+
+        if constraint is not None:
+            constraint = eqx.filter_closure_convert(constraint, y0)
+            constraint = cast(Constraint[Y, EqualityOut, InequalityOut], constraint)
+            # TODO(jhaffner): this can be done more elegantly
+            msg = "The initial point must be feasible."
+            pred = jnp.all(constraint(y0) >= 0)  # pyright: ignore (ConstraintOut array)
+            eqx.error_if(y0, pred, msg)
+
         return iterative_solve(
             fn,
             solver,
             y0,
             args,
             options,
+            constraint=constraint,
+            bounds=bounds,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,

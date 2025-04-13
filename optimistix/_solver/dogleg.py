@@ -169,14 +169,15 @@ class DoglegDescent(
                 t_interp = jnp.where(b >= 0, quadratic_1, quadratic_2)
                 result = RESULTS.successful
             else:
-                root_find_options = {"lower": jnp.array(1.0), "upper": jnp.array(2.0)}
+                lower = jnp.array(1.0)
+                upper = jnp.array(2.0)
                 root_sol = root_find(
                     lambda t, _: (
                         self.trust_region_norm(interpolate(t)) - scaled_step_size
                     ),
                     self.root_finder,
                     y0=jnp.array(1.5),
-                    options=root_find_options,
+                    bounds=(lower, upper),
                     throw=False,
                 )
                 t_interp = root_sol.value
@@ -232,6 +233,9 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
         usually more efficient. Changing this can be useful when the target function has
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
+    - `clip`: A boolean indicating whether to clip the solution to the bounds after each
+        step. If `True`, then bounds must be passed in the `bounds` argument.
+        Defaults to `False`.
     """
 
     rtol: float

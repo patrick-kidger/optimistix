@@ -23,22 +23,34 @@ For an in-depth discussion of how these pieces fit together, see the documentati
 """
 
 import abc
-from typing import ClassVar, Generic, TypeVar
+from collections.abc import Callable
+from typing import Any, ClassVar, Generic, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
+from equinox.internal import ω
 from jaxtyping import Array, Bool, Scalar
 
 from ._custom_types import (
+    _Iterate,
     DescentState,
+    EqualityOut,
+    InequalityOut,
     Out,
     SearchState,
     Y,
 )
 from ._misc import sum_squares, tree_dot
 from ._solution import RESULTS
+
+
+# TODO(jhaffner): FunctionInfo actually has its own section in the documentation, which
+# should mention which flavors of FunctionInfo will carry information about constraints.
+# (And bounds.)
+# TODO(jhaffner): For now I'm adding constraint information where I need it. This will
+# need to be systematised later.
 
 
 class FunctionInfo(eqx.Module):
@@ -67,12 +79,14 @@ class FunctionInfo(eqx.Module):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class Eval(FunctionInfo):
+class Eval(FunctionInfo, Generic[Y, EqualityOut, InequalityOut]):
     """Has a `.f` attribute describing `fn(y)`. Used when no gradient information is
     available.
     """
 
     f: Scalar
+    bounds: tuple[Y, Y] | None
+    constraint_residual: tuple[EqualityOut, InequalityOut] | None
 
     def as_min(self):
         return self.f
@@ -87,6 +101,7 @@ class EvalGrad(FunctionInfo, Generic[Y]):
 
     f: Scalar
     grad: Y
+    bounds: tuple[Y, Y] | None
 
     def as_min(self):
         return self.f
@@ -95,8 +110,16 @@ class EvalGrad(FunctionInfo, Generic[Y]):
         return tree_dot(self.grad, y)
 
 
+_ConstraintJacobians = (
+    tuple[lx.AbstractLinearOperator, None] |
+    tuple[lx.AbstractLinearOperator, lx.AbstractLinearOperator] |
+    tuple[None, lx.AbstractLinearOperator] |
+    None
+)
+
+
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGradHessian(FunctionInfo, Generic[Y]):
+class EvalGradHessian(FunctionInfo, Generic[Y, EqualityOut, InequalityOut]):
     """Has `.f` and `.grad` attributes as with [`optimistix.FunctionInfo.EvalGrad`][].
     Also has a `.hessian` attribute describing (an approximation to) the Hessian of
     `fn` at `y`. Used with quasi-Newton minimisation algorithms, like BFGS.
@@ -105,12 +128,69 @@ class EvalGradHessian(FunctionInfo, Generic[Y]):
     f: Scalar
     grad: Y
     hessian: lx.AbstractLinearOperator
+    at: Y
+    bounds: tuple[Y, Y] | None
+
+    constraint_residual: tuple[EqualityOut, InequalityOut] | None
+    constraint_bounds: tuple[EqualityOut, InequalityOut] | None
+    constraint_jacobians: _ConstraintJacobians
 
     def as_min(self):
         return self.f
 
     def compute_grad_dot(self, y: Y):
         return tree_dot(self.grad, y)
+
+    def to_quadratic(self) -> Callable[[Y, Any], Scalar]:
+        # With the Hessian and gradient, we have created a quadratic approximation to
+        # the target function. In unconstrained optimisation, we only need to take a
+        # single step, computed using a linear solve. In constrained optimisation, we
+        # often need to solve the quadratic subproblem iteratively. This function allows
+        # us to pass the quadratic approximation to optx.quadratic_solve, which will
+        # solve the problem for the current quadratic approximation to the target
+        # function and the current linear approximation of the constraints.
+
+        # Note: since the quadratic approximation can be ASSUMED to only ever be called
+        # inside a sequential quadratic program descent, we could also pass `self.at` as
+        # y instead. However, this makes to many assumptions about the usage of this API
+        # for my taste, which is why I opted to write this information into the function
+        # information itself.
+
+        def quadratic(_y, args):
+            del args
+            ydiff = (_y**ω - self.at**ω).ω
+            quadratic_term = 0.5 * tree_dot(ydiff, self.hessian.mv(ydiff))
+            linear_term = tree_dot(self.grad, ydiff)
+            return quadratic_term + linear_term + self.f
+
+        return quadratic
+
+    def to_linear_constraints(
+        self,
+    ) -> Callable[[Y], tuple[EqualityOut, InequalityOut]] | None:
+        # Creates a linear approximation to the constraints that can be used as the
+        # constraint function in a quadratic subproblem. For a more detailed
+        # explanation, see `.to_quadratic()`.
+
+        # TODO: design - currently the sequential descent (imaginatively named
+        # QuadraticSubproblemDescent) accepts quadratic solvers that only handle bounds.
+        # We might get rid of this problem if/when we decide to remove CauchyNewton as a
+        # solver, since it is terrible anyway. Until then we have this ugly workaround.
+        # TODO why do I need to flag this with pyright: ignore below after gating None?
+        if self.constraint_jacobians is None:
+            return None
+            # raise ValueError(
+            #     "Cannot linearise constraints without constraint Jacobian information,
+            #     "which this solver does not provide."
+            # )
+        else:
+
+            def linear_constraints(_y):
+                ydiff = (_y**ω - self.at**ω).ω
+                ydiff_constraints = self.constraint_jac.mv(ydiff)  # pyright: ignore
+                return (self.constraint_residual**ω - ydiff_constraints**ω).ω
+
+            return linear_constraints
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
@@ -254,7 +334,7 @@ class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState]):
     """
 
     @abc.abstractmethod
-    def init(self, y: Y, f_info_struct: _FnInfo) -> DescentState:
+    def init(self, y: _Iterate, f_info_struct: _FnInfo) -> DescentState:
         """Is called just once, at the very start of the entire optimisation problem.
         This is used to set up the evolving state for the descent.
 
@@ -270,7 +350,7 @@ class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState]):
         """
 
     @abc.abstractmethod
-    def query(self, y: Y, f_info: _FnInfo, state: DescentState) -> DescentState:
+    def query(self, y: _Iterate, f_info: _FnInfo, state: DescentState) -> DescentState:
         """Is called whenever the search decides to halt and accept its current iterate,
         and then query the descent for a new descent direction.
 
@@ -296,7 +376,7 @@ class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState]):
         """
 
     @abc.abstractmethod
-    def step(self, step_size: Scalar, state: DescentState) -> tuple[Y, RESULTS]:
+    def step(self, step_size: Scalar, state: DescentState) -> tuple[_Iterate, RESULTS]:
         """Computes the descent of size `step_size`.
 
         **Arguments:**

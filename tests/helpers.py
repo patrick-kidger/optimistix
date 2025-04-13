@@ -297,6 +297,18 @@ minimisers = _general_minimisers + _minim_only
 least_squares_optimisers = _lsqr_only + _general_minimisers
 
 
+gauss_newton_optimisers = [
+    x for x in least_squares_optimisers if isinstance(x, optx.AbstractGaussNewton)
+]
+
+gauss_newton_optimisers = [
+    x for x in least_squares_optimisers if isinstance(x, optx.AbstractGaussNewton)
+]
+
+gauss_newton_optimisers = [
+    x for x in least_squares_optimisers if isinstance(x, optx.AbstractGaussNewton)
+]
+
 #
 # MINIMISATION PROBLEMS
 #
@@ -330,7 +342,16 @@ def rosenbrock(tree: PyTree[Array], args: Scalar):
     return (100 * (y[1:] - y[:-1]), const - y[:-1])
 
 
-def _himmelblau(tree: PyTree[Array], args: PyTree):
+def scalar_rosenbrock(y: PyTree[Array], args: Any) -> Scalar:
+    # Wiki
+    # Rosenbrock, but for minimisation. Assumes y is an array with two elements.
+    # Used to test the constrained minimisers.
+    del args
+    x1, x2 = y
+    return 100 * (x2 - x1**2) ** 2 + (1 - x1) ** 2
+
+
+def himmelblau(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     const1, const2 = args
@@ -536,7 +557,7 @@ diagonal_bowl_args = matrix.T @ matrix
 minimisation_fn_minima_init_args = (
     (bowl, jnp.array(0.0), bowl_init, diagonal_bowl_args),
     (
-        _himmelblau,
+        himmelblau,
         jnp.array(0.0),
         [jnp.array(2.0), jnp.array(2.5)],
         (jnp.array(11.0), jnp.array(7.0)),
@@ -794,41 +815,41 @@ robertson_args = (jnp.array(0.04), jnp.array(3e7), jnp.array(1e4))
 ones_robertson = (jnp.ones(2), {"b": jnp.array(1.0)})
 hundred = jnp.ones(100)
 single = jnp.array(1.0)
-bisection_fn_init_options_args = (
+bisection_fn_init_bounds_args = (
     (
         trivial,
         single,
-        {"upper": jnp.array(2.0), "lower": jnp.array(0.5)},
+        (jnp.array(0.5), jnp.array(2.0)),  # bounds
         None,
     ),
     (
         _cos,
         single,
-        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        (jnp.array(0.0), jnp.array(1.0)),
         jnp.array(1.0),
     ),
     (
         _exponential,
         single,
-        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        (jnp.array(0.0), jnp.array(1.0)),
         jnp.array(1.0),
     ),
     (
         _midpoint_y_linear,
         single,
-        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        (jnp.array(0.0), jnp.array(1.0)),
         jnp.array([0.5]),
     ),
     (
         _midpoint_f_linear,
         single,
-        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        (jnp.array(0.0), jnp.array(1.0)),
         jnp.array([0.625]),
     ),
     (
         _midpoint_k_linear,
         single,
-        {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
+        (jnp.array(0.0), jnp.array(1.0)),
         jnp.array([-0.137]),
     ),
 )

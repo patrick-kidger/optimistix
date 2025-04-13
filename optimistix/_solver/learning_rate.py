@@ -5,18 +5,15 @@ import jax.numpy as jnp
 from jaxtyping import Array, Bool, Scalar, ScalarLike
 
 from .._custom_types import Y
+from .._misc import scalarlike_asarray
 from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
-
-
-def _typed_asarray(x: ScalarLike) -> Array:
-    return jnp.asarray(x)
 
 
 class LearningRate(AbstractSearch[Y, FunctionInfo, FunctionInfo, None]):
     """Move downhill by taking a step of the fixed size `learning_rate`."""
 
-    learning_rate: ScalarLike = eqx.field(converter=_typed_asarray)
+    learning_rate: ScalarLike = eqx.field(converter=scalarlike_asarray)
 
     def init(self, y: Y, f_info_struct: FunctionInfo) -> None:
         return None

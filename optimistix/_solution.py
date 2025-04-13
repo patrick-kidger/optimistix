@@ -7,6 +7,18 @@ from jaxtyping import ArrayLike, PyTree
 from ._custom_types import Aux, Y
 
 
+_requires_restoration = """
+The search could not find a step size above the cutoff value, or the descent failed to 
+factorise the linear system. Either is signaling that a feasibility restoration is 
+required to continue. (This means solving another optimisation problem to find a close
+by point in the feasible set that represents an improvement over the last point.)
+
+This is intended to be an optimistix internal result, caught and handled by the solver.
+(And relevant only for constrained solves.) If you ever see this reported as the result 
+of a solve, please report it as a bug here: https://github.com/patrick-kidger/optimistix 
+"""
+
+
 # Extend `lineax.RESULTS` as we want to be able to use their error messages too.
 class RESULTS(lx.RESULTS):  # pyright: ignore
     successful = ""
@@ -16,6 +28,7 @@ class RESULTS(lx.RESULTS):  # pyright: ignore
         "roots), or you may need to increase `max_steps`."
     )
     nonlinear_divergence = "Nonlinear solve diverged."
+    feasibility_restoration_required = _requires_restoration
 
 
 class Solution(eqx.Module, Generic[Y, Aux]):

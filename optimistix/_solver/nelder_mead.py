@@ -1,6 +1,6 @@
 import functools as ft
 from collections.abc import Callable
-from typing import Any, cast, Generic
+from typing import Any, cast, Generic, Union
 
 import equinox as eqx
 import jax
@@ -10,7 +10,7 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
-from .._custom_types import Aux, Fn, Y
+from .._custom_types import Aux, Constraint, EqualityOut, Fn, InequalityOut, Y
 from .._minimise import AbstractMinimiser
 from .._misc import max_norm, tree_full_like, tree_where
 from .._solution import RESULTS
@@ -96,7 +96,7 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
     need gradient evaluations.
 
     This is usually an "algorithm of last resort". Gradient-based algorithms are usually
-    much faster, and are more likely to converge to a minima.
+    much faster, and be more likely to converge to a minima.
 
     Comparable to `scipy.optimize.minimize(method="Nelder-Mead")`.
     """
@@ -113,10 +113,16 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _NelderMeadState[Y, Aux]:
+        del (
+            constraint,
+            bounds,
+        )  # TODO jhaffner: make it clear that these are not yet handled
         aux = tree_full_like(aux_struct, 0)
         y0_simplex = options.get("y0_simplex", False)
 
@@ -209,6 +215,8 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _NelderMeadState[Y, Aux],
         tags: frozenset[object],
     ) -> tuple[Y, _NelderMeadState[Y, Aux], Aux]:
@@ -416,6 +424,8 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _NelderMeadState[Y, Aux],
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -449,6 +459,8 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _NelderMeadState,
         tags: frozenset[object],
         result: RESULTS,

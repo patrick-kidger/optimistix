@@ -184,6 +184,7 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: NonlinearCGDescent[Y]
     search: AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
+    verbose: frozenset[str]
 
     def __init__(
         self,
@@ -195,24 +196,32 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
         search: AbstractSearch[
             Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any
         ] = BacktrackingArmijo(decrease_factor=0.5, slope=0.1),
+        verbose: frozenset[str] = frozenset(),
     ):
-        """**Arguments:**
-
-        - `rtol`: Relative tolerance for terminating solve.
-        - `atol`: Absolute tolerance for terminating solve.
-        - `norm`: The norm used to determine the difference between two iterates in the
-            convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
-            includes three built-in norms: [`optimistix.max_norm`][],
-            [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
-        - `method`: The function which computes `beta` in `NonlinearCG`. Defaults to
-            `polak_ribiere`. Optimistix includes four built-in methods:
-            [`optimistix.polak_ribiere`][], [`optimistix.fletcher_reeves`][],
-            [`optimistix.hestenes_stiefel`][], and [`optimistix.dai_yuan`][], but any
-            function `(Y, Y, Y) -> Scalar` will work.
-        - `search`: The (line) search to use at each step.
-        """
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.descent = NonlinearCGDescent(method=method)
         self.search = search
+        self.verbose = verbose
+
+
+NonlinearCG.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `method`: The function which computes `beta` in `NonlinearCG`. Defaults to
+    `polak_ribiere`. Optimistix includes four built-in methods:
+    [`optimistix.polak_ribiere`][], [`optimistix.fletcher_reeves`][],
+    [`optimistix.hestenes_stiefel`][], and [`optimistix.dai_yuan`][], but any
+    function `(Y, Y, Y) -> Scalar` will work.
+- `search`: The (line) search to use at each step.
+- `verbose`: Whether to print out extra information about how the solve is
+    proceeding. Should be a frozenset of strings, specifying what information to print.
+    Valid entries are `loss`, `step_size` and `y`. For example 
+    `verbose=frozenset({"loss"})`.
+"""

@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Callable
 from typing import Any, Generic, TYPE_CHECKING
 
@@ -16,10 +17,18 @@ else:
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._custom_types import Aux, Fn, Out, Y
-from .._misc import cauchy_termination, max_norm, tree_full_like
+from .._custom_types import Aux, Constraint, EqualityOut, Fn, InequalityOut, Out, Y
+from .._misc import cauchy_termination, max_norm, tree_clip, tree_full_like
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
+
+
+# Note: With the introduction of boundary maps, the root finders *could* now
+# use these too. However, we still use `clip` below since:
+# - The other boundary maps would not necessarily make sense in the context of root
+# finders, and if we support one we support them all.
+# - This is consistent with the previously behaviour, where bounds were passed as
+# options to the solver, and the iterates were clipped to this value.
 
 
 def _small(diffsize: Scalar) -> Bool[Array, " "]:
@@ -72,11 +81,23 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _NewtonChordState[Y]:
-        del options, aux_struct
+        del aux_struct
+
+        clip = options.get("clip", False)
+        if clip and bounds is None:
+            raise ValueError("Option `'clip'=True` requires bounds to be passed.")
+        if clip is False and bounds is not None:  # Catch for smoother upgrades
+            warnings.warn(
+                "Bounds were passed without clipping enabled. To enable clipping, pass "
+                "options=dict(clip=True) to the solver."
+            )
+
         if self._is_newton:
             linear_state = None
         else:
@@ -105,12 +126,34 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _NewtonChordState[Y],
         tags: frozenset[object],
     ) -> tuple[Y, _NewtonChordState[Y], Aux]:
-        lower = options.get("lower")
-        upper = options.get("upper")
+        del constraint
+
+        clip = options.get("clip", False)  # Default
+        if bounds is not None:
+            lower, upper = bounds
+        elif options.get("lower") is not None or options.get("upper") is not None:
+            lower = options.get("lower", None)
+            upper = options.get("upper", None)
+            if lower is None and upper is not None:
+                lower = tree_full_like(upper, -jnp.inf)
+            if upper is None and lower is not None:
+                upper = tree_full_like(lower, jnp.inf)
+            warnings.warn(
+                "Passing bounds through the 'options' dictionary is deprecated. "
+                "Pass a pair (lower, upper) through the bounds argument instead and "
+                "enable clipping, e.g. with "
+                "`optx.root_find(..., options=dict(clip=True), bounds=(lower, upper))`."
+            )
+            clip = True
+        else:
+            lower = upper = None
         del options
+
         if self._is_newton:
             fx, lin_fn, aux = jax.linearize(lambda _y: fn(_y, args), y, has_aux=True)
             jac = lx.FunctionLinearOperator(
@@ -124,21 +167,21 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             sol = lx.linear_solve(
                 jac, fx, self.linear_solver, state=linear_state, throw=False
             )
+
         diff = sol.value
         new_y = (y**ω - diff**ω).ω
-        if lower is not None:
-            new_y = jtu.tree_map(lambda a, b: jnp.clip(a, min=b), new_y, lower)
-        if upper is not None:
-            new_y = jtu.tree_map(lambda a, b: jnp.clip(a, max=b), new_y, upper)
-        if lower is not None or upper is not None:
+        if clip:
+            new_y = tree_clip(new_y, lower, upper)
             diff = (y**ω - new_y**ω).ω
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         with jax.numpy_dtype_promotion("standard"):
             diffsize = self.norm((diff**ω / scale**ω).ω)
+
         if self.cauchy_termination:
             f_val = fx
         else:
             f_val = None
+
         new_state = _NewtonChordState(
             f=f_val,
             linear_state=state.linear_state,
@@ -156,6 +199,8 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _NewtonChordState[Y],
         tags: frozenset[object],
     ):
@@ -201,6 +246,8 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _NewtonChordState,
         tags: frozenset[object],
         result: RESULTS,
@@ -214,14 +261,11 @@ class Newton(_AbstractNewtonChord[Y, Out, Aux]):
     Unlike the SciPy implementation of Newton's method, the Optimistix version also
     works for vector-valued (or PyTree-valued) `y`.
 
-    This solver optionally accepts the following `options`:
+    This solver accepts the following `options`:
 
-    - `lower`: The lower bound on the hypercube which contains the root. Should be a
-        PyTree of arrays each broadcastable to the corresponding element of `y`. The
-        iterates of `y` will be clipped to this hypercube.
-    - `upper`: The upper bound on the hypercube which contains the root. Should be a
-        PyTree of arrays each broadcastable to the corresponding element of `y`. The
-        iterates of `y` will be clipped to this hypercube.
+    - `clip`: Whether to clip the iterates of `y` to the hypercube defined by the
+        `lower` and `upper` bounds. If `True`, then bounds must be passed as well.
+        Defaults to False.
     """
 
     _is_newton = True
@@ -239,12 +283,9 @@ class Chord(_AbstractNewtonChord[Y, Out, Aux]):
 
     This solver optionally accepts the following `options`:
 
-    - `lower`: The lower bound on the hypercube which contains the root. Should be a
-        PyTree of arrays each broadcastable to the corresponding element of `y`. The
-        iterates of `y` will be clipped to this hypercube.
-    - `upper`: The upper bound on the hypercube which contains the root. Should be a
-        PyTree of arrays each broadcastable to the corresponding element of `y`. The
-        iterates of `y` will be clipped to this hypercube.
+    - `clip`: Whether to clip the iterates of `y` to the hypercube defined by the
+        `lower` and `upper` bounds. If `True`, then bounds must be passed as well.
+        Defaults to False.
     """
 
     _is_newton = False

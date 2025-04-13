@@ -7,9 +7,23 @@ import jax.tree_util as jtu
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
-from ._custom_types import Aux, Fn, MaybeAuxFn, SolverState, Y
+from ._custom_types import (
+    Aux,
+    Constraint,
+    EqualityOut,
+    Fn,
+    InequalityOut,
+    MaybeAuxFn,
+    SolverState,
+    Y,
+)
 from ._iterate import AbstractIterativeSolver, iterative_solve
-from ._misc import inexact_asarray, NoneAux, OutAsArray
+from ._misc import (
+    checked_bounds,
+    inexact_asarray,
+    NoneAux,
+    OutAsArray,
+)
 from ._solution import Solution
 
 
@@ -44,6 +58,8 @@ def minimise(
     options: dict[str, Any] | None = None,
     *,
     has_aux: bool = False,
+    constraint: Constraint[Y, EqualityOut, InequalityOut] | None = None,
+    bounds: tuple[Y, Y] | None = None,
     max_steps: int | None = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
@@ -65,6 +81,15 @@ def minimise(
         See each individual solver's documentation for more details.
     - `has_aux`: If `True`, then `fn` may return a pair, where the first element is its
         function value, and the second is just auxiliary data. Keyword only argument.
+    - `constraint`: Individual solvers may accept a constraint function `constraint(y)`.
+        This must return a PyTree of scalars, one for each constraint, such that
+        `constraint(y) >= 0` if the constraint is satisfied. The initial value `y0` must
+        be feasible with respect to these constraints. Keyword only argument.
+    - `bounds`: Individual solvers may accept bounds. This should be a pair of pytrees
+        of the same structure as `y`, where the first element is the lower bound, and
+        the second is the upper bound. Unbounded leaves can be indicated with +/- inf
+        for the upper and lower bounds, respectively. For finite bounds, it is checked
+        whether `y` is in the closed interval `[lower, upper]`. Keyword only argument.
     - `max_steps`: The maximum number of steps the solver can take. Keyword only
         argument.
     - `adjoint`: The adjoint method used to compute gradients through the fixed-point
@@ -91,8 +116,20 @@ def minimise(
     fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
     fn = cast(Fn[Y, Scalar, Aux], fn)
     f_struct, aux_struct = fn.out_struct
-    if options is None:
-        options = {}
+
+    if bounds is not None:
+        bounds = checked_bounds(y0, jtu.tree_map(inexact_asarray, bounds))
+
+    if constraint is not None:
+        constraint = eqx.filter_closure_convert(constraint, y0)
+        constraint = cast(Constraint[Y, EqualityOut, InequalityOut], constraint)
+
+        # TODO(jhaffner): Error handling for inequality + equality constraints
+        # TODO(jhaffner): this can be done more elegantly
+        # msg = "The initial point must be feasible."
+        # TODO: check this only for the inequality constraints for now!
+        # pred = jnp.all(constraint(y0)[1] >= 0)  # pyright: ignore (ConstraintOut array
+        # eqx.error_if(y0, pred, msg)
 
     if not (
         isinstance(f_struct, jax.ShapeDtypeStruct)
@@ -109,6 +146,8 @@ def minimise(
         y0,
         args,
         options,
+        constraint=constraint,
+        bounds=bounds,
         max_steps=max_steps,
         adjoint=adjoint,
         throw=throw,

@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Union
 
 import equinox as eqx
 import jax
@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._custom_types import Aux, Fn, Y
+from .._custom_types import Aux, Constraint, EqualityOut, Fn, InequalityOut, Y
 from .._fixed_point import AbstractFixedPointSolver
 from .._misc import max_norm
 from .._solution import RESULTS
@@ -37,11 +37,13 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _FixedPointState:
-        del fn, y, args, options, f_struct, aux_struct
+        del fn, y, args, options, constraint, bounds, f_struct, aux_struct
         return _FixedPointState(jnp.array(jnp.inf))
 
     def step(
@@ -50,6 +52,8 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _FixedPointState,
         tags: frozenset[object],
     ) -> tuple[Y, _FixedPointState, Aux]:
@@ -66,6 +70,8 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _FixedPointState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -78,6 +84,8 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _FixedPointState,
         tags: frozenset[object],
         result: RESULTS,

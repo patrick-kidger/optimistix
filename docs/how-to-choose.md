@@ -37,3 +37,26 @@ If your problem is particularly messy, as discussed above, then use a first-orde
 ## Fixed-point problems
 
 For these, follow the same advice as for root-finding problems.
+
+## Simple bounds
+
+[`optimistix.Bisection`][] requires bounds. In addition, many solvers optionally clip iterates to a hypercube defined by bounds `(lower, upper)`.
+
+This works well if your problem looks somewhat like this: 
+
+<img src="../_static/contour_local_minimum.png">
+
+In this case, you can turn a non-convex problem into a problem that is convex in the search space!
+
+!!! info
+    For this to work as expected, all elements of `lower` must be smaller than the respective elements in `upper`. 
+    This property is not checked. 
+    (If values in `upper` are smaller than their respective entries in `lower`, `y` can never be in the overlapping region.)
+    Whether the initial value `y0` is in the closed interval `[lower, upper]` is not checked either.
+
+Simple bounds can also be helpful to avoid evaluating a function outside of the domain on which it is defined.
+
+## More complex bounds
+
+Clipping the value of `y` to some bounds does not preserve search directions.
+For this reason, it is generally a poor choice unless bounds are far from the optimum and clipping can be assumed to be a rare event.

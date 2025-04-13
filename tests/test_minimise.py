@@ -199,15 +199,15 @@ def test_optax_recompilation():
     assert num_called_so_far == num_called
 
 
-@pytest.mark.parametrize("solver", minimisers)
+@pytest.mark.parametrize(
+    "solver",
+    [solver for solver in minimisers if not isinstance(solver, optx.OptaxMinimiser)],
+)
 @pytest.mark.parametrize(
     "fn, y0, options, expected", forward_only_fn_init_options_expected
 )
 def test_forward_minimisation(fn, y0, options, expected, solver):
-    if isinstance(solver, optx.OptaxMinimiser):  # No support for forward option
-        return
-    else:
-        # Many steps because gradient descent takes ridiculously long
-        sol = optx.minimise(fn, solver, y0, options=options, max_steps=2**10)
-        assert sol.result == optx.RESULTS.successful
-        assert tree_allclose(sol.value, expected, atol=1e-4, rtol=1e-4)
+    # Many steps because gradient descent takes ridiculously long
+    sol = optx.minimise(fn, solver, y0, options=options, max_steps=2**10)
+    assert sol.result == optx.RESULTS.successful
+    assert tree_allclose(sol.value, expected, atol=1e-4, rtol=1e-4)

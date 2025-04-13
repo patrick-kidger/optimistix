@@ -217,12 +217,15 @@ class IndirectDampedNewtonDescent(
             return self.trust_region_norm(step) - scaled_step_size
 
         def reject_newton():
+            lower = jnp.array(1e-5)
+            upper = jnp.array(jnp.inf)
             lambda_out = root_find(
                 fn=comparison_fn,
                 has_aux=False,
                 solver=self.root_finder,
                 y0=jnp.asarray(self.lambda_0),
-                options=dict(lower=1e-5),
+                options=dict(clip=True),
+                bounds=(lower, upper),
                 max_steps=32,
                 throw=False,
             ).value
@@ -269,6 +272,9 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
         usually more efficient. Changing this can be useful when the target function has
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
+    - `clip`: A boolean indicating whether to clip the solution to the bounds after each
+        step. If `True`, then bounds must be passed in the `bounds` argument.
+        Defaults to `False`.
     """
 
     rtol: float
@@ -328,6 +334,9 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
         usually more efficient. Changing this can be useful when the target function has
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
+    - `clip`: A boolean indicating whether to clip the solution to the bounds after each
+        step. If `True`, then bounds must be passed in the `bounds` argument.
+        Defaults to `False`.
     """
 
     rtol: float

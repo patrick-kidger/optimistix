@@ -26,6 +26,10 @@ from ._misc import (
     rms_norm as rms_norm,
     two_norm as two_norm,
 )
+from ._quadratic_solve import (
+    AbstractQuadraticSolver as AbstractQuadraticSolver,
+    quadratic_solve as quadratic_solve,
+)
 from ._root_find import (
     AbstractRootFinder as AbstractRootFinder,
     root_find as root_find,
@@ -37,6 +41,7 @@ from ._search import (
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solver import (
+    AbstractBoundaryMap as AbstractBoundaryMap,
     AbstractGaussNewton as AbstractGaussNewton,
     AbstractGradientDescent as AbstractGradientDescent,
     AbstractQuasiNewton as AbstractQuasiNewton,
@@ -47,16 +52,25 @@ from ._solver import (
     BestSoFarMinimiser as BestSoFarMinimiser,
     BestSoFarRootFinder as BestSoFarRootFinder,
     BFGS as BFGS,
+    BFGS_B as BFGS_B,
     BFGSUpdate as BFGSUpdate,
     Bisection as Bisection,
+    BoxProjection as BoxProjection,
+    cauchy_point as cauchy_point,
+    CauchyNewton as CauchyNewton,
+    CauchyNewtonDescent as CauchyNewtonDescent,
     Chord as Chord,
     ClassicalTrustRegion as ClassicalTrustRegion,
+    ClosestFeasiblePoint as ClosestFeasiblePoint,
+    ColemanLi as ColemanLi,
+    ColemanLiDescent as ColemanLiDescent,
     dai_yuan as dai_yuan,
     DampedNewtonDescent as DampedNewtonDescent,
     DFP as DFP,
     DFPUpdate as DFPUpdate,
     Dogleg as Dogleg,
     DoglegDescent as DoglegDescent,
+    FilteredLineSearch as FilteredLineSearch,
     FixedPointIteration as FixedPointIteration,
     fletcher_reeves as fletcher_reeves,
     GaussNewton as GaussNewton,
@@ -64,6 +78,9 @@ from ._solver import (
     hestenes_stiefel as hestenes_stiefel,
     IndirectDampedNewtonDescent as IndirectDampedNewtonDescent,
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
+    InteriorDescent as InteriorDescent,
+    InteriorPoint as InteriorPoint,
+    IPOPTLike as IPOPTLike,
     LearningRate as LearningRate,
     LevenbergMarquardt as LevenbergMarquardt,
     LinearTrustRegion as LinearTrustRegion,
@@ -74,6 +91,9 @@ from ._solver import (
     NonlinearCGDescent as NonlinearCGDescent,
     OptaxMinimiser as OptaxMinimiser,
     polak_ribiere as polak_ribiere,
+    ProjectedGradientDescent as ProjectedGradientDescent,
+    QuadraticSubproblemDescent as QuadraticSubproblemDescent,
+    SLSQP as SLSQP,
     SteepestDescent as SteepestDescent,
 )
 

@@ -6,11 +6,13 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.extend as jex
+import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar, ScalarLike
 from lineax.internal import (
     default_floating_dtype as _default_floating_dtype,
     max_norm as _max_norm,
@@ -83,12 +85,67 @@ def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = F
     return jtu.tree_map(fn, struct)
 
 
+@overload
 def tree_where(
     pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
 ) -> PyTree[Array]:
-    """Return the `true` or `false` pytree depending on `pred`."""
-    keep = lambda a, b: jnp.where(pred, a, b)
-    return jtu.tree_map(keep, true, false)
+    ...
+
+
+@overload
+def tree_where(
+    pred: PyTree[ArrayLike], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
+) -> PyTree[Array]:
+    ...
+
+
+def tree_where(pred, true, false):
+    """Return a pytree with values from `true` where `pred` is true, and `false` where
+    `pred` is false. If `pred` is a single boolean, then the same `pred` is used for all
+    elements of the tree.
+    """
+    if jtu.tree_structure(pred) == jtu.tree_structure(true):
+        if jtu.tree_structure(true) == jtu.tree_structure(false):  # false is PyTree
+            return jtu.tree_map(lambda p, t, f: jnp.where(p, t, f), pred, true, false)
+        else:
+            return jtu.tree_map(lambda p, t: jnp.where(p, t, false), pred, true)
+    else:  # pred is a boolean
+        if jtu.tree_structure(true) == jtu.tree_structure(false):
+            return jtu.tree_map(lambda t, f: jnp.where(pred, t, f), true, false)
+        else:  # false is not a PyTree
+            # TODO assert that false is a Scalar?
+            return jtu.tree_map(lambda t: jnp.where(pred, t, false), true)
+
+
+def tree_clip(
+    tree: PyTree[ArrayLike], lower: PyTree[ArrayLike], upper: PyTree[ArrayLike]
+) -> PyTree[Array]:
+    """Clip tree to values lower, upper. Does not check if lower < upper - this is
+    already checked in the top-level APIs, and since tree_clip is not part of the public
+    API we don't check again here.
+    """
+    return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
+
+
+def feasible_step_length(
+    current: PyTree[Array],
+    bound: PyTree[Array],
+    proposed_step: PyTree[Array],
+    *,
+    offset: ScalarLike = jnp.array(0.0),
+) -> ScalarLike:
+    """Returns the maximum feasible step length for any current value, its bound, and a
+    proposed step. The current value can be an instance of an optimisation variable `y`,
+    a dual variable, or a slack variable.
+    The current value, its bound and the proposed step must all have the same PyTree
+    structure. (Raising errata for mismatches is deferred to jtu.tree_map and ω.)
+    """
+    distance = ((1 - offset) * (current**ω - bound**ω)).ω
+    ratios = (-(distance**ω) / (proposed_step**ω)).ω
+    safe_ratios = tree_where(jtu.tree_map(jnp.isfinite, ratios), ratios, jnp.inf)
+    positive_ratios = jtu.tree_map(lambda x: jnp.where(x >= 0, x, jnp.inf), safe_ratios)
+    step_lengths, _ = jfu.ravel_pytree(positive_ratios)
+    return jnp.min(jnp.hstack([step_lengths, jnp.ones(1)]))
 
 
 def resolve_rcond(rcond, n, m, dtype):
@@ -258,3 +315,64 @@ def verbose_print(*args: tuple[bool, str, Any]) -> None:
     if len(string_pieces) > 0:
         string = ", ".join(string_pieces)
         jax.debug.print(string, *arg_pieces)
+
+
+def checked_bounds(y: Y, bounds: tuple[Y, Y]) -> tuple[Y, Y]:
+    msg = (
+        "The PyTree structure of the bounds does not match the structure of `y0`."
+        "Got structures {} and {}, but expected structure {} for both."
+    )
+    lower, upper = bounds
+    lower_struct = jtu.tree_structure(lower)
+    upper_struct = jtu.tree_structure(upper)
+    y_struct = jtu.tree_structure(y)
+    if not lower_struct == y_struct or not upper_struct == y_struct:
+        raise ValueError(msg.format(lower_struct, upper_struct, y_struct))
+
+    msg = (
+        "The initial value `y0` must be contained in the interval `[lower, upper]`."
+        "Got bounds `lower` {} and `upper` {}, with `y0` {}."
+    )
+    with jax.ensure_compile_time_eval(), jax.numpy_dtype_promotion("standard"):
+        lower_checks = jtu.tree_map(lambda a, b: a >= b, y, lower)
+        lower_checks, _ = jfu.ravel_pytree(lower_checks)
+        upper_checks = jtu.tree_map(lambda a, b: a <= b, y, upper)
+        upper_checks, _ = jfu.ravel_pytree(upper_checks)
+        pred = jnp.concatenate([lower_checks, upper_checks])  # noqa: F841
+    # TODO: I'm not quite sure if this error gets triggered correctly, fix it!
+    # bounds = eqx.error_if(bounds, pred, msg.format(lower, upper, y))
+
+    # Note: returning the bounds to ensure that the runtime error does not get optimized
+    # out as dead code. https://docs.kidger.site/equinox/api/errors/#equinox.error_if
+    return bounds
+
+
+def scalarlike_asarray(x: ScalarLike) -> Array:
+    # https://github.com/patrick-kidger/optimistix/pull/109#issuecomment-2645950275
+    return jnp.asarray(x)
+
+
+# TODO: typing
+def evaluate_constraint(constraint, y):
+    assert constraint is not None
+
+    constraint_residual = constraint(y)
+    constraint_bound = constraint(tree_full_like(y, 0))
+
+    equality_residual, inequality_residual = constraint_residual
+    if equality_residual is not None:
+        equality_jacobian, _ = jax.jacfwd(constraint)(y)
+        equality_jac = lx.PyTreeLinearOperator(
+            equality_jacobian, jax.eval_shape(lambda: equality_residual)
+        )
+    else:
+        equality_jac = None
+
+    if inequality_residual is not None:
+        _, inequality_jacobian = jax.jacfwd(constraint)(y)
+        inequality_jac = lx.PyTreeLinearOperator(
+            inequality_jacobian, jax.eval_shape(lambda: inequality_residual)
+        )
+    else:
+        inequality_jac = None
+    return constraint_residual, constraint_bound, (equality_jac, inequality_jac)

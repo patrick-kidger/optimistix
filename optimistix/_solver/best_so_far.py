@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Generic
+from typing import Any, Generic, Union
 
 import equinox as eqx
 import jax
@@ -8,7 +8,16 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._custom_types import Aux, Fn, Out, SolverState, Y
+from .._custom_types import (
+    Aux,
+    Constraint,
+    EqualityOut,
+    Fn,
+    InequalityOut,
+    Out,
+    SolverState,
+    Y,
+)
 from .._fixed_point import AbstractFixedPointSolver
 from .._iterate import AbstractIterativeSolver
 from .._least_squares import AbstractLeastSquaresSolver
@@ -55,6 +64,8 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
@@ -63,7 +74,15 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
         loss = jnp.array(jnp.inf)
         auxmented_fn = eqx.Partial(_auxmented, fn)
         state = self.solver.init(
-            auxmented_fn, y, args, options, f_struct, (f_struct, aux_struct), tags
+            auxmented_fn,
+            y,
+            args,
+            options,
+            constraint,
+            bounds,
+            f_struct,
+            (f_struct, aux_struct),
+            tags,
         )
         return _BestSoFarState(best_y=y, best_aux=aux, best_loss=loss, state=state)
 
@@ -73,12 +92,14 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _BestSoFarState,
         tags: frozenset[object],
     ) -> tuple[Y, _BestSoFarState, Aux]:
         auxmented_fn = eqx.Partial(_auxmented, fn)
         new_y, new_state, (f, new_aux) = self.solver.step(
-            auxmented_fn, y, args, options, state.state, tags
+            auxmented_fn, y, args, options, constraint, bounds, state.state, tags
         )
         loss = self._to_loss(y, f)
         pred = loss < state.best_loss
@@ -96,11 +117,15 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _BestSoFarState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         auxmented_fn = eqx.Partial(_auxmented, fn)
-        return self.solver.terminate(auxmented_fn, y, args, options, state.state, tags)
+        return self.solver.terminate(
+            auxmented_fn, y, args, options, constraint, bounds, state.state, tags
+        )
 
     def postprocess(
         self,
@@ -109,6 +134,8 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _BestSoFarState,
         tags: frozenset[object],
         result: RESULTS,

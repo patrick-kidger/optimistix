@@ -8,7 +8,17 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
-from .._custom_types import Aux, DescentState, Fn, Out, SearchState, Y
+from .._custom_types import (
+    Aux,
+    Constraint,
+    DescentState,
+    EqualityOut,
+    Fn,
+    InequalityOut,
+    Out,
+    SearchState,
+    Y,
+)
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
@@ -16,6 +26,7 @@ from .._misc import (
     lin_to_grad,
     max_norm,
     tree_full_like,
+    verbose_print,
 )
 from .._search import (
     AbstractDescent,
@@ -133,6 +144,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
     search: AbstractVar[
         AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
     ]
+    verbose: AbstractVar[frozenset[str]]
 
     def init(
         self,
@@ -140,11 +152,21 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _GradientDescentState:
-        f_info = FunctionInfo.EvalGrad(jnp.zeros(f_struct.shape, f_struct.dtype), y)
+        del constraint  # TODO jhaffner: these are not handled. Currently writing None
+        # into FunctionInfo.Eval. This should be handled properly - raising errors, and
+        # making things explicit in the documentation.
+        # Currently, Eval requests constraint residual information, but EvalGrad does
+        # not. I have sprinkled TODO notes liberally, so I should be able to find all
+        # the places that need to be updated.
+        f_info = FunctionInfo.EvalGrad(
+            jnp.zeros(f_struct.shape, f_struct.dtype), y, bounds
+        )
         f_info_struct = jax.eval_shape(lambda: f_info)
         return _GradientDescentState(
             first_step=jnp.array(True),
@@ -163,6 +185,8 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _GradientDescentState,
         tags: frozenset[object],
     ) -> tuple[Y, _GradientDescentState, Aux]:
@@ -175,17 +199,21 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
             y,
             state.y_eval,
             state.f_info,
-            FunctionInfo.Eval(f_eval),
+            # TODO: constraint_residual! FunctionInfo.Eval now requires constraint
+            # information. This solver should specify to what extent, if any, it handles
+            # constraints. If gradient methods do not deal with constraints, then this
+            # should be added here as a comment.
+            FunctionInfo.Eval(f_eval, bounds, None),
             state.search_state,
         )
 
         def accepted(descent_state):
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
-            f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
+            f_eval_info = FunctionInfo.EvalGrad(f_eval, grad, bounds)
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
             y_diff = (state.y_eval**ω - y**ω).ω
-            f_diff = (f_eval**ω - state.f_info.f**ω).ω
+            f_diff = f_eval - state.f_info.f
             terminate = cauchy_termination(
                 self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff
             )
@@ -200,6 +228,20 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         y, f_info, aux, descent_state, terminate = filter_cond(
             accept, accepted, rejected, state.descent_state
         )
+
+        if len(self.verbose) > 0:
+            verbose_loss = "loss" in self.verbose
+            verbose_step_size = "step_size" in self.verbose
+            verbose_y = "y" in self.verbose
+            loss_eval = f_eval
+            loss = state.f_info.f
+            verbose_print(
+                (verbose_loss, "Loss on this step", loss_eval),
+                (verbose_loss, "Loss on the last accepted step", loss),
+                (verbose_step_size, "Step size", step_size),
+                (verbose_y, "y", state.y_eval),
+                (verbose_y, "y on the last accepted step", y),
+            )
 
         y_descent, descent_result = self.descent.step(step_size, descent_state)
         y_eval = (y**ω + y_descent**ω).ω
@@ -225,6 +267,8 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _GradientDescentState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -237,6 +281,8 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _GradientDescentState,
         tags: frozenset[object],
         result: RESULTS,
@@ -260,6 +306,7 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: SteepestDescent[Y]
     search: LearningRate[Y]
+    verbose: frozenset[str]
 
     def __init__(
         self,
@@ -267,19 +314,27 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
+        verbose: frozenset[str] = frozenset(),
     ):
-        """**Arguments:**
-
-        - `learning_rate`: Specifies a constant learning rate to use at each step.
-        - `rtol`: Relative tolerance for terminating the solve.
-        - `atol`: Absolute tolerance for terminating the solve.
-        - `norm`: The norm used to determine the difference between two iterates in the
-            convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
-            includes three built-in norms: [`optimistix.max_norm`][],
-            [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
-        """
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.descent = SteepestDescent()
         self.search = LearningRate(learning_rate)
+        self.verbose = verbose
+
+
+GradientDescent.__init__.__doc__ = """**Arguments:**
+
+- `learning_rate`: Specifies a constant learning rate to use at each step.
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `verbose`: Whether to print out extra information about how the solve is
+    proceeding. Should be a frozenset of strings, specifying what information to print.
+    Valid entries are `loss`, `step_size` and `y`. For example 
+    `verbose=frozenset({"loss"})`.
+"""

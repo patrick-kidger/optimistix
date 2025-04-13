@@ -18,8 +18,10 @@ def test_root_find():
 
     solver = optx.Bisection(rtol=1e-6, atol=1e-6)
     solver = optx.BestSoFarRootFinder(solver)
-    options = dict(lower=-1, upper=1)
-    sol = optx.root_find(fn, solver, jnp.array(0.0), options=options)
+    lower = -1
+    upper = 1
+    bounds = lower, upper
+    sol = optx.root_find(fn, solver, jnp.array(0.0), bounds=bounds)
     assert jnp.allclose(sol.value, 0.96118069, rtol=1e-5, atol=1e-5)
 
 

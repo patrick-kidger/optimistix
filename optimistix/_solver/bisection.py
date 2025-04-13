@@ -1,4 +1,5 @@
 import functools as ft
+import warnings
 from collections.abc import Callable
 from typing import Any, ClassVar, Literal
 
@@ -7,7 +8,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, PyTree, Scalar
 
-from .._custom_types import Aux, Fn
+from .._custom_types import Aux, Constraint, EqualityOut, Fn, InequalityOut
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
 
@@ -80,18 +81,11 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
     """The bisection method of root finding. This may only be used with functions
     `R->R`, i.e. functions with scalar input and scalar output.
 
-    This requires the following `options`:
-
-    - `lower`: The lower bound on the interval which contains the root.
-    - `upper`: The upper bound on the interval which contains the root.
-
-    Which are passed as, for example,
-    `optimistix.root_find(..., options=dict(lower=0, upper=1))`
-
-    This algorithm works by considering the interval `[lower, upper]`, checking the
-    sign of the evaluated function at the midpoint of the interval, and then keeping
-    whichever half contains the root. This is then repeated. The iteration stops once
-    the interval is sufficiently small.
+    This algorithm requires a finite lower and upper bound to be passed.
+    It works by considering the interval `[lower, upper]`, checking the sign of the
+    evaluated function at the midpoint of the interval, and then keeping whichever half
+    contains the root. This is then repeated. The iteration stops once the interval is
+    sufficiently small.
 
     If `expand_if_necessary` and `detect` are true, the initial interval will be
     expanded if it doesn't contain the the root.  This expansion assumes that the
@@ -111,13 +105,32 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
         y: Scalar,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Scalar, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Scalar, Scalar], None],
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _BisectionState:
-        lower = jnp.asarray(options["lower"], f_struct.dtype)
-        upper = jnp.asarray(options["upper"], f_struct.dtype)
-        del options, aux_struct
+        # TODO(jhaffner): raise warning and error at API boundary
+        if bounds is not None:
+            lower, upper = bounds
+        elif options.get("lower") is not None and options.get("upper") is not None:
+            lower = jnp.asarray(options["lower"], f_struct.dtype)
+            upper = jnp.asarray(options["upper"], f_struct.dtype)
+            warnings.warn(
+                "Passing bounds through the 'options' argument is deprecated. "
+                "Pass a pair (lower, upper) instead, e.g. with "
+                "`optx.root_find(..., bounds=(lower, upper))`."
+            )
+        else:
+            raise ValueError(
+                "Bisection requires lower and upper bounds. These should be passed "
+                "as a pair (lower, upper), e.g. with "
+                "`optx.root_find(..., bounds=(lower, upper))`."
+            )
+        # TODO(jhaffner): Check if passed bounds are finite.
+
+        del options, constraint, aux_struct
         if jnp.shape(y) != () or jnp.shape(lower) != () or jnp.shape(upper) != ():
             raise ValueError(
                 "Bisection can only be used to find the roots of a function taking a "
@@ -169,10 +182,12 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
         y: Scalar,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Scalar, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Scalar, Scalar], None],
         state: _BisectionState,
         tags: frozenset[object],
     ) -> tuple[Scalar, _BisectionState, Aux]:
-        del options
+        del options, constraint, bounds
         error, aux = fn(y, args)
         negative = state.flip ^ (error < 0)
         new_lower = jnp.where(negative, y, state.lower)
@@ -189,6 +204,8 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
         y: Scalar,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Scalar, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Scalar, Scalar], None],
         state: _BisectionState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -205,6 +222,8 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Scalar, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Scalar, Scalar], None],
         state: _BisectionState,
         tags: frozenset[object],
         result: RESULTS,
