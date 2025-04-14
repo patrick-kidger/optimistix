@@ -148,8 +148,8 @@ class BFGSDogleg(optx.AbstractQuasiNewton):
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSTrustRegion(optx.AbstractQuasiNewton):
-    """Standard BFGS + classical trust region update."""
+class BFGSLinearTrustRegion(optx.AbstractQuasiNewton):
+    """Standard BFGS + linear trust region update."""
 
     rtol: float
     atol: float
@@ -160,8 +160,8 @@ class BFGSTrustRegion(optx.AbstractQuasiNewton):
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSTrustRegionHessian(optx.AbstractQuasiNewton):
-    """Standard BFGS (uses hessian, not inverse!) + classical trust region update."""
+class BFGSLinearTrustRegionHessian(optx.AbstractQuasiNewton):
+    """Standard BFGS (uses hessian, not inverse!) + linear trust region update."""
 
     rtol: float
     atol: float
@@ -169,6 +169,66 @@ class BFGSTrustRegionHessian(optx.AbstractQuasiNewton):
     search: optx.AbstractSearch = optx.LinearTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
     hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
+    verbose: frozenset[str] = frozenset()
+
+
+class BFGSClassicalTrustRegionHessian(optx.AbstractQuasiNewton):
+    """Standard BFGS (uses hessian, not inverse!) + classical trust region update."""
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.NewtonDescent()
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
+    verbose: frozenset[str] = frozenset()
+
+
+class DFPDampedNewton(optx.AbstractQuasiNewton):
+    """DFP Hessian + direct Levenberg Marquardt update."""
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.DampedNewtonDescent()
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.DFPUpdate(use_inverse=False)
+    verbose: frozenset[str] = frozenset()
+
+
+class DFPIndirectDampedNewton(optx.AbstractQuasiNewton):
+    """DFP Hessian + indirect Levenberg Marquardt update."""
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.IndirectDampedNewtonDescent()
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.DFPUpdate(use_inverse=False)
+    verbose: frozenset[str] = frozenset()
+
+
+class DFPDogleg(optx.AbstractQuasiNewton):
+    """DFP Hessian + dogleg update."""
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.DoglegDescent(linear_solver=lx.SVD())
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.DFPUpdate(use_inverse=False)
+    verbose: frozenset[str] = frozenset()
+
+
+class DFPClassicalTrustRegionHessian(optx.AbstractQuasiNewton):
+    """Standard DFP (uses hessian, not inverse!) + classical trust region update."""
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.NewtonDescent()
+    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.DFPUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
@@ -189,12 +249,18 @@ _general_minimisers = (
     optx.BFGS(rtol, atol, use_inverse=True),
     BFGSDampedNewton(rtol, atol),
     BFGSIndirectDampedNewton(rtol, atol),
-    # Tighter tolerance needed to have bfgs_dogleg pass the JVP test.
+    # Tighter tolerance needed to have BFGSDogleg pass the JVP test.
     BFGSDogleg(1e-10, 1e-10),
-    BFGSTrustRegionHessian(rtol, atol),
-    BFGSTrustRegion(rtol, atol),
+    BFGSClassicalTrustRegionHessian(rtol, atol),
+    BFGSLinearTrustRegionHessian(rtol, atol),
+    BFGSLinearTrustRegion(rtol, atol),
     optx.DFP(rtol, atol, use_inverse=False),
     optx.DFP(rtol, atol, use_inverse=True),
+    DFPDampedNewton(rtol, atol),
+    DFPIndirectDampedNewton(rtol, atol),
+    # Tighter tolerance needed to have DFPDogleg pass the JVP test.
+    DFPDogleg(1e-10, 1e-10),
+    DFPClassicalTrustRegionHessian(rtol, atol),
     optx.GradientDescent(1.5e-2, rtol, atol),
     # Tighter tolerance needed to have NonlinearCG pass the JVP test.
     optx.NonlinearCG(1e-10, 1e-10),
