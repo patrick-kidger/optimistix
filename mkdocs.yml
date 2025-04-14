@@ -77,8 +77,10 @@ plugins:
     - hippogriffe:
         extra_public_objects:
             - jax.Array
+            - lineax.AutoLinearSolver
             - lineax.AbstractLinearSolver
             - lineax.AbstractLinearOperator
+            - lineax.QR
     - mkdocstrings:
         handlers:
             python:
