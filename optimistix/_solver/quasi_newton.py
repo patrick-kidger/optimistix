@@ -103,12 +103,12 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
 
         **Arguments:**
 
-        - `f_eval_info`: The function value and its gradient at the current (just
-            accepted) iterate `y_eval`
-        - `f_info`: The function value, gradient and Hessian approximation at the
-            previous accepted iterate `y`
         - `y`: the previous accepted iterate
         - `y_eval`: the current (just accepted) iterate
+        - `f_info`: The function value, gradient and Hessian approximation at the
+        previous accepted iterate `y`
+        - `f_eval_info`: The function value and its gradient at the current (just
+            accepted) iterate `y_eval`
 
         **Returns:**
 
