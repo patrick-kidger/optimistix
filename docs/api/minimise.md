@@ -44,6 +44,11 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
         members:
             - __init__
 
+::: optimistix.BFGS_B
+    options:
+        members:
+            - __init__
+
 ---
 
 ::: optimistix.OptaxMinimiser
@@ -70,9 +75,66 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 
 ::: optimistix.dai_yuan
 
+
 ---
 
 ::: optimistix.NelderMead
+    options:
+        members:
+            - __init__
+
+---
+
+::: optimistix.IPOPTLike
+    options:
+        members:
+            - __init__
+
+---
+
+::: optimistix.SLSQP
+    options:
+        members:
+            - __init__
+
+---
+
+::: optimistix.ColemanLi
+    options:
+        members:
+            - __init__
+
+---
+
+::: optimistix.ProjectedGradientDescent
+    options:
+        members:
+            - __init__
+
+---
+
+::: optimistix.IPOPTLike
+    options:
+        members:
+            - __init__
+
+---
+
+::: optimistix.SLSQP
+    options:
+        members:
+            - __init__
+
+---
+
+::: optimistix.ColemanLi
+    options:
+        members:
+            - __init__
+
+---
+
+::: optimistix.ProjectedGradientDescent
     options:
         members:
             - __init__

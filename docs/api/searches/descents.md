@@ -46,3 +46,25 @@
     options:
         members:
             - __init__
+
+---
+
+::: optimistix.InteriorDescent
+    selection: 
+        members: 
+            - __init__
+
+
+---
+
+::: optimistix.QuadraticSubproblemDescent
+    selection: 
+        members: 
+            - __init__
+
+---
+
+::: optimistix.ColemanLiDescent
+    selection:
+        members:
+            - __init__
