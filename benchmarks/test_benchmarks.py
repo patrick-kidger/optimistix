@@ -40,4 +40,4 @@ def test_benchmark_unconstrained_minimisers(
 
     # Benchmark the runtime of the compiled function
     result = benchmark.pedantic(wrapped, rounds=5, iterations=1)
-    assert isinstance(result, optx.Solution)
+    benchmark.extra_info["number of steps"] = result.stats["num_steps"]
