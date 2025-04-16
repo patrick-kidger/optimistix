@@ -6,8 +6,8 @@ from jaxtyping import ScalarLike
 class BT2(eqx.Module):
     """The BT2 problem from the CUTEST collection of benchmark problems.
     Original source: https://www.jstor.org/stable/2157674?seq=21, page 620. Similar in
-    spirit to BT1 - the objective and constraint function have similar shapes, and form
-    a shifted juxtaposition.
+    spirit to BT1 - the objective contours look roughly similar to the constraint
+    manifold locally, but the cross-sections of both are shifted from one another.
     Three starting values are documented in the original paper - a vector of all ones,
     all tens and all hundreds. In the official CUTEST collection, this value defaults to
     all tens, so we match that here.
