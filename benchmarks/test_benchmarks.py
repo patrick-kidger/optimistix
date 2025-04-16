@@ -36,7 +36,6 @@ def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
         num_steps = solution.stats["num_steps"]
         return objective_value, solution.result, num_steps
 
-    # Benchmark the runtime of the compiled function
     values = benchmark.pedantic(wrapped, args=(problem.y0(),), rounds=5, iterations=1)
 
     # Save information and results
