@@ -3,3 +3,4 @@ from .bt2 import BT2 as BT2
 from .bt4 import BT4 as BT4
 from .bt5 import BT5 as BT5
 from .bt8 import BT8 as BT8
+from .flt import FLT as FLT

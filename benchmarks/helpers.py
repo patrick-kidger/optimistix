@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 
-from .cutest import BT1, BT2, BT4, BT5, BT8
+from .cutest import BT1, BT2, BT4, BT5, BT8, FLT
 
 
 unconstrained_problems = (
@@ -25,4 +25,7 @@ constrained_problems = (
     BT5(y0_iD=2),
     BT8(y0_iD=0),
     BT8(y0_iD=1),
+    FLT(),  # TODO this currently fails allclose with IPOPTLike unless the tolerances
+    # on IPOPTLike are higher. With higher tolerances, we fail on some of the other
+    # problems.
 )
