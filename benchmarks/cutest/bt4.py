@@ -22,6 +22,9 @@ class BT4(eqx.Module):
 
     y0_iD: int = 0  # Can also be 1, or 2
 
+    def __check_init__(self):
+        assert self.y0_iD in (0, 1, 2), "y0_iD must be 0, 1 or 2."
+
     def objective(self, y, args):
         del args
         x1, x2, _ = y
