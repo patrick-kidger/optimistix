@@ -4,3 +4,4 @@ from .bt4 import BT4 as BT4
 from .bt5 import BT5 as BT5
 from .bt8 import BT8 as BT8
 from .flt import FLT as FLT
+from .genhs28 import GENHS28 as GENHS28

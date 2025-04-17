@@ -28,4 +28,5 @@ constrained_problems = (
     FLT(),  # TODO this currently fails allclose with IPOPTLike unless the tolerances
     # on IPOPTLike are higher. With higher tolerances, we fail on some of the other
     # problems.
+    # GENHS28(),  # TODO: IPOPTLike currently fails, other solvers not tested
 )
