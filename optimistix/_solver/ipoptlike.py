@@ -58,11 +58,6 @@ def _make_kkt_operator(hessian, jacobian, input_structure):
     return lx.FunctionLinearOperator(kkt, input_structure)
 
 
-# TODO: merit function gradient
-def _merit_gradient():
-    pass
-
-
 def _make_barrier_hessians(
     y: Y,
     bounds: tuple[Y, Y],
