@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 
-from .cutest import BT1, BT2, BT4, BT5
+from .cutest import BT1, BT2, BT4, BT5, BT8
 
 
 unconstrained_problems = (
@@ -23,4 +23,6 @@ constrained_problems = (
     BT5(y0_iD=0),
     BT5(y0_iD=1),
     BT5(y0_iD=2),
+    BT8(y0_iD=0),
+    BT8(y0_iD=1),
 )
