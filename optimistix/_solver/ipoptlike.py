@@ -231,7 +231,8 @@ class IPOPTLikeDescent(
         y_step = (max_step_size * y_step**ω).ω
         eqdual_step = (max_step_size * eqdual_step**ω).ω
 
-        iterate_step = (y_step, (eqdual_step, None), b_steps)
+        dummy = inequality_residual  # Not yet used or updated
+        iterate_step = (y_step, (eqdual_step, dummy), b_steps)
 
         return _IPOPTLikeDescentState(
             iterate_step,
