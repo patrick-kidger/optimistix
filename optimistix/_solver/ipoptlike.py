@@ -152,6 +152,7 @@ class IPOPTLikeDescent(
         state: _IPOPTLikeDescentState,
     ) -> _IPOPTLikeDescentState:
         y, (equality_dual, inequality_dual), boundary_multipliers = iterate
+        jax.debug.print("iterate in descent.query: {}", iterate)
 
         assert f_info.constraint_residual is not None
         assert f_info.constraint_jacobians is not None
@@ -440,6 +441,7 @@ class AbstractIPOPTLike(
             tree_full_like(constraint_residual, 1.0),
             (lower_bound_dual, upper_bound_dual),
         )
+        jax.debug.print("iterate in init: {}", iterate)
 
         return _IPOPTLikeState(
             first_step=jnp.array(True),
@@ -470,6 +472,8 @@ class AbstractIPOPTLike(
 
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
         y_eval, (equality_dual, inequality_dual), boundary_multipliers = state.iterate
+        jax.debug.print("iterate in step: {}", state.iterate)
+
         evaluated = evaluate_constraint(constraint, y_eval)
         constraint_residual, constraint_bound, constraint_jacobians = evaluated
 
