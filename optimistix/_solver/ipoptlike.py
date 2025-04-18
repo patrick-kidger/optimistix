@@ -336,6 +336,13 @@ class _IPOPTLikeState(
     num_accepted_steps: Int[Array, ""]
 
 
+# TODO: update the signs of the constraint functions in the Lagrangian. IPOPT adds the
+# constraint term, rather than subtracting it. In other solvers, a negative sign is used
+# for the constraint term. I prefer this notation, since it is more straightforward for
+# inequality constraints - at least to me it makes more sense that we would want to keep
+# both the slack variables and the multipliers strictly positive. In the interest of
+# modularity and ease of maintainability, enforcing a common convention here is a good
+# choice.
 # TODO: what happens when no bounds are specified? The barrier parameter is meaningless
 # in this case.
 # TODO documentation
