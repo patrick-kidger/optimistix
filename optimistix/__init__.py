@@ -95,6 +95,7 @@ from ._solver import (
     QuadraticSubproblemDescent as QuadraticSubproblemDescent,
     SLSQP as SLSQP,
     SteepestDescent as SteepestDescent,
+    XDYcYdDescent as XDYcYdDescent,
 )
 
 

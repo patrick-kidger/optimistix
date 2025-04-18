@@ -114,6 +114,9 @@ class _IPOPTLikeDescentState(
     result: RESULTS
 
 
+# TODO: this currently does nothing with inequality constraints (but will accept them.)
+# They're not part of the KKT system, and I don't know how to handle them yet within the
+# reduced-system formalism below.
 # TODO: perhaps streamline this - if I have an iterate that carries a formalism on how
 # its constraints and bounds should be handled.
 class IPOPTLikeDescent(
@@ -543,7 +546,14 @@ class AbstractIPOPTLike(
             constraint_hessian_ = constraint_hessian(y_eval, dual_, template)
 
             # TODO: too large values of the constraint hessian prevent convergence. Why?
-            lagrangian_hessian_ = (hessian_**ω + constraint_hessian_**ω).ω
+            # lagrangian_hessian_ = (hessian_**ω + constraint_hessian_**ω).ω
+            # TODO: unclear why this does not work for PyTrees (?!?!?)
+            # TODO: this now establishes the convention that
+            # Lagragian = target-function - duals * constraints
+            # This is in *contrast* to the previous formulation, in dev / ipoptlike !!!
+            lagrangian_hessian_ = hessian_ - all_constraint_hessian_
+            # lagrangian_hessian_ = (hessian_**ω).ω # + constraint_hessians_**ω).ω
+
             lagrangian_hessian_ = lx.PyTreeLinearOperator(
                 # TODO: start slowly!
                 lagrangian_hessian_,

@@ -76,3 +76,4 @@ from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,
     LinearTrustRegion as LinearTrustRegion,
 )
+from .xdycyd import XDYcYdDescent as XDYcYdDescent
