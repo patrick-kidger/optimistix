@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 
-from .cutest import BT1, BT2, BT4, BT5, BT8, FLT
+from .cutest import BT1, BT2, BT4, BT5, BT8, FLETCHER, FLT
 
 
 unconstrained_problems = (
