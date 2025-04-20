@@ -483,6 +483,7 @@ class AbstractIPOPTLike(
 
         evaluated = evaluate_constraint(constraint, y_eval)
         constraint_residual, constraint_bound, constraint_jacobians = evaluated
+        jax.debug.print("constraint residual: {}", constraint_residual)
 
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), y_eval, has_aux=True
@@ -551,8 +552,7 @@ class AbstractIPOPTLike(
             # TODO: this now establishes the convention that
             # Lagragian = target-function - duals * constraints
             # This is in *contrast* to the previous formulation, in dev / ipoptlike !!!
-            lagrangian_hessian_ = hessian_ - all_constraint_hessian_
-            # lagrangian_hessian_ = (hessian_**ω).ω # + constraint_hessians_**ω).ω
+            lagrangian_hessian_ = (hessian_**ω - all_constraint_hessian_**ω).ω
 
             lagrangian_hessian_ = lx.PyTreeLinearOperator(
                 # TODO: start slowly!

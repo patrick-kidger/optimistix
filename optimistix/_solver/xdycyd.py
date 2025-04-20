@@ -14,12 +14,14 @@ from .._custom_types import (
     Y,
 )
 from .._misc import (
+    feasible_step_length,
     tree_full_like,
     tree_where,
 )
 from .._search import (
     AbstractDescent,
     FunctionInfo,
+    Iterate,
 )
 from .._solution import RESULTS
 
@@ -127,10 +129,21 @@ class XDYcYdDescent(
         # here. (This anyway needs to be rectified.)
         y, (equality_dual, inequality_dual), boundary_multipliers = iterate
 
+        # TODO: test driving the iterate here
+        _, slack = f_info.constraint_residual  # pyright: ignore
+        iterate_ = Iterate.AllAtOnce(
+            y=y,
+            bounds=f_info.bounds,
+            slack=slack,
+            equality_dual=equality_dual,
+            inequality_dual=inequality_dual,
+            boundary_multipliers=boundary_multipliers,
+        )
+
         # TODO: special case for infinite bounds? Right now not doing that
         equality_residual, inequality_residual = f_info.constraint_residual  # pyright: ignore
         barrier_hessian = jtu.tree_map(
-            lambda s, d: d / (s + 1e-6), inequality_residual, inequality_dual
+            lambda s, d: d / (s + 1e-6), iterate_.slack, iterate_.inequality_dual
         )
         barrier_hessian = lx.DiagonalLinearOperator(barrier_hessian)
         # jax.debug.print("Barrier Hessian in descent.query: \n{}", barrier_hessian)
@@ -153,19 +166,28 @@ class XDYcYdDescent(
             f_info.hessian, barrier_hessian, f_info.constraint_jacobians
         )
         input_structure = jax.eval_shape(
-            lambda: (y, inequality_residual, (equality_dual, inequality_dual))
+            lambda: (
+                iterate_.y,
+                iterate_.slack,
+                (iterate_.equality_dual, iterate_.inequality_dual),
+            )
         )
         kkt_operator = lx.FunctionLinearOperator(kkt_operator_, input_structure)
         # jax.debug.print("KKT matrix: \n{}", kkt_operator.as_matrix())
 
         hj, gj = f_info.constraint_jacobians  # pyright: ignore
+        barrier = 0.01  # TODO
         vector = (
             -f_info.grad
-            + hj.T.mv(equality_dual)  # pyright: ignore
-            + gj.T.mv(inequality_dual),  # pyright: ignore
+            + hj.T.mv(iterate_.equality_dual)  # pyright: ignore
+            + gj.T.mv(iterate_.inequality_dual),  # pyright: ignore
             # TODO: hard-coded barrier parameter here, and hard-coded epsilon
-            -inequality_dual + 0.01 * 1 / (inequality_residual + 1e-6),
-            (-equality_residual, 0.0),  # TODO: no explicit slack variable
+            -iterate_.inequality_dual + barrier * 1 / (iterate_.slack + 1e-6),  # pyright: ignore
+            (-equality_residual, tree_full_like(inequality_residual, 0.0)),
+            # TODO: no explicit slack variable (0.0) - this is recommended in N & W (!)
+            # (At least that is my interpretation of Chapter 19.)
+            # TODO: residuals - also for constraint function - in f_info
+            # TODO: no boundary multipliers yet
         )
         # TODO: what is meant by the last bit? I don't have explicit slack variables
         # yet, I "initialise" the slack variables as the residuals of the constraints
@@ -179,9 +201,26 @@ class XDYcYdDescent(
         # TODO: truncate to feasible step size
 
         # Output while I figure out the other steps
-        y_step, _, dual_steps = out.value  # TODO: throw the slack steps away
-        # TODO: boundary multipliers currently do nothing
+        y_step, slack_steps, dual_steps = out.value  # TODO: throw the slack steps away
+        max_slack_step_size = feasible_step_length(
+            inequality_residual,
+            tree_full_like(inequality_residual, 0.0),
+            slack_steps,
+            offset=barrier,
+        )
+        _, inequality_dual_steps = dual_steps
+        max_dual_step_size = feasible_step_length(
+            inequality_dual,
+            tree_full_like(inequality_dual, 0.0),
+            inequality_dual_steps,
+            offset=barrier,
+        )
+        max_step_size = jnp.min(jnp.array([max_slack_step_size, max_dual_step_size]))
+        # TODO boundary multiplier steps
+
+        # TODO: boundary multipliers currently do nothing / but not so fake anymore
         fake_iterate_step = (y_step, dual_steps, boundary_multipliers)
+        fake_iterate_step = (max_step_size * fake_iterate_step**ω).ω
         # result = RESULTS.successful
 
         return _XDYcYdDescentState(

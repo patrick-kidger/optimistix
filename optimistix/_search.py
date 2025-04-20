@@ -24,7 +24,7 @@ For an in-depth discussion of how these pieces fit together, see the documentati
 
 import abc
 from collections.abc import Callable
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, Generic, Type, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -325,7 +325,105 @@ _FnInfo = TypeVar("_FnInfo", contravariant=True, bound=FunctionInfo)
 _FnEvalInfo = TypeVar("_FnEvalInfo", contravariant=True, bound=FunctionInfo)
 
 
-class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState]):
+class Iterate(eqx.Module):
+    """Different solvers require different types of iterates to compute the solution to
+    the optimisation problem. While a solver for an unconstrained problem may only need
+    access to the primal variable `y`, solving a constrained problem generally requires
+    the introduction of dual variables, or Lagrange multipliers. In most constrained
+    descents, these are updated alongside the primal variables (primal-dual methods).
+
+    This enumeration-ish object captures the different variants of iterates.
+    """
+
+    Primal: ClassVar[Type["Primal"]]
+    BoundedPrimal: ClassVar[Type["BoundedPrimal"]]
+    AllAtOnce: ClassVar[Type["AllAtOnce"]]
+
+    @abc.abstractmethod
+    def nothing(self) -> None:
+        """Dummy thing to make sure that this is an abstract class."""
+
+
+class Primal(Iterate, Generic[Y], strict=True):
+    """The primal variable `y`. Used in unconstrained problems."""
+
+    y: Y
+
+    def nothing(self):
+        return None
+
+
+class BoundedPrimal(Iterate, Generic[Y], strict=True):
+    """The primal variable `y` and its bounds. Used in bound-constrained problems."""
+
+    y: Y
+    bounds: tuple[Y, Y] | None
+
+    def nothing(self):
+        return None
+
+
+# TODO: if they all allow for things to be None, why are the "lower levels" needed at
+# all?
+
+
+# TODO: inequality out/ equality out can be restricted to be arrays, I think.
+class AllAtOnce(Iterate, Generic[Y, EqualityOut, InequalityOut], strict=True):
+    y: Y
+    bounds: tuple[Y, Y] | None
+    slack: InequalityOut | None
+    equality_dual: EqualityOut | None
+    inequality_dual: InequalityOut | None
+    boundary_multipliers: tuple[Y, Y] | None
+
+    # The primal variable y, of type Y
+    # Its bounds, of type tuple[Y, Y]
+    # The (primal) slack variables slack, of type InequalityOut
+    # The (dual) equality multipliers equality_dual, of type EqualityOut
+    # The (dual) inequality multipliers inequality_dual, of type InequalityOut
+    # The (dual) boundary multipliers boundary_multipliers, of type [Y, Y]
+    # Now the problem is that the bounds, equality constraints, inequality constraints,
+    # or all three, may be None. # That creates 2^3 = 8 cases, too many to create their
+    # own class for. So I have to allow the option for each of these attributes to be
+    # None.
+
+    # TODO: methods? Like a feasible update step size? The steps should be truncated
+    # in the descent, since methods might differ (allowing for nonsynchronous stepsizes,
+    # for instance, and the descent state should hold the step defined as a "full step"
+    # to make sure that the search step sizes and descent step sizes remain coupled).
+
+    # TODO: This could have a "to_barrier" method, I think. Not *quite* sure if I could
+    # put everything in there, but probably quite a lot of things.
+
+    def nothing(self):
+        return None
+
+
+Primal.__qualname__ = "Iterate.Primal"
+BoundedPrimal.__qualname__ = "Iterate.BoundedPrimal"
+AllAtOnce.__qualname__ = "Iterate.AllAtOnce"
+Iterate.Primal = Primal
+Iterate.BoundedPrimal = BoundedPrimal
+Iterate.AllAtOnce = AllAtOnce
+
+
+Primal.__init__.__doc__ = """**Arguments:**
+
+- `y`: the (primal) optimisation variable `y`.
+"""
+
+BoundedPrimal.__init__.__doc__ = """**Arguments:**
+
+- `y`: the (primal) optimisation variable `y`.
+- `bounds`: the bounds on the optimisation variable `y`. A tuple `(lower, upper)`, where
+    `lower` and `upper` must have the same PyTree structure as `y`.
+"""
+
+# TODO: AllAtOnce iterate, once this gets a proper name...
+# Or make it just one iterate, especially if everything except the primal may be None.
+
+
+class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState], strict=True):
     """The abstract base class for descents. A descent consumes a scalar (e.g. a step
     size), and returns the `diff` to take at point `y`, so that `y + diff` is the next
     iterate in a nonlinear optimisation problem.
