@@ -14,6 +14,7 @@ unconstrained_problems = (
 )
 
 
+# TODO: none of these problems have inequality constraints
 constrained_problems = (
     BT1(),
     BT2(),
@@ -28,3 +29,5 @@ constrained_problems = (
     FLT(),
     # GENHS28(),  # TODO: IPOPTLike currently fails, other solvers not tested
 )
+
+problems_with_inequality_constraints = (FLETCHER(),)
