@@ -16,7 +16,7 @@ jobs:
             test-script: |
                 cp -r ${{ github.workspace }}/tests ./tests
                 cp ${{ github.workspace }}/pyproject.toml ./pyproject.toml
-                uv sync --extra dev --no-install-project --inexact
+                uv sync --extra dev --with 'jax[cpu]' --no-install-project --inexact
                 uv run --no-sync pytest
             pypi-token: ${{ secrets.pypi_token }}
             github-user: patrick-kidger
