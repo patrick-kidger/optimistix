@@ -1,6 +1,8 @@
 import functools as ft
 
+import equinox as eqx
 import jax
+import jax.tree_util as jtu
 import optimistix as optx
 import pytest
 import sif2jax
@@ -22,9 +24,10 @@ def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
             optx.minimise,
             problem.objective,
             minimiser,
-            args=problem.args(),
-            max_steps=2**8,  # TODO: increase number of steps - for tough problems
-            throw=False,
+            problem.y0(),
+            problem.args(),
+            max_steps=2**10,  # TODO troubleshooting
+            # throw=False,
         )
     )
 

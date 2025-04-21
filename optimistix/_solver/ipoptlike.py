@@ -152,7 +152,6 @@ class IPOPTLikeDescent(
         state: _IPOPTLikeDescentState,
     ) -> _IPOPTLikeDescentState:
         y, (equality_dual, inequality_dual), boundary_multipliers = iterate
-        jax.debug.print("iterate in descent.query: {}", iterate)
 
         assert f_info.constraint_residual is not None
         assert f_info.constraint_jacobians is not None
@@ -296,7 +295,7 @@ def _termination(
         jtu.tree_map(
             lambda a, b, c, d: a + b - c - d, f_info.grad, dual_term, lb_dual, ub_dual
         )
-    )
+    )  # TODO: compare to IPOPT definition (signs of boundary multipliers)
 
     # TODO: implement support for inequality residuals
     equality_residual, inequality_residual = f_info.constraint_residual
@@ -448,7 +447,6 @@ class AbstractIPOPTLike(
             tree_full_like(constraint_residual, 1.0),
             (lower_bound_dual, upper_bound_dual),
         )
-        jax.debug.print("iterate in init: {}", iterate)
 
         return _IPOPTLikeState(
             first_step=jnp.array(True),
@@ -479,7 +477,6 @@ class AbstractIPOPTLike(
 
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
         y_eval, (equality_dual, inequality_dual), boundary_multipliers = state.iterate
-        jax.debug.print("iterate in step: {}", state.iterate)
 
         evaluated = evaluate_constraint(constraint, y_eval)
         constraint_residual, constraint_bound, constraint_jacobians = evaluated
@@ -506,22 +503,44 @@ class AbstractIPOPTLike(
             # TODO: WIP: Hessians of the Lagrangian
             hessian_, _ = jax.hessian(fn)(y_eval, args)
 
-            def _wrapped_constraint(_y, _duals):
-                equality_dual, _ = _duals
-                equality_res, _ = constraint(_y)  # pyright: ignore (None)
-                equality_contrib = jtu.tree_map(jnp.dot, equality_dual, equality_res)
-                # TODO norm: I think in practice equality constraints are often split
-                # into two inequality constraints. Here I'm not doing that, which means
-                # that the Hessian of the equality constraint part of the Lagrangian may
-                # be negative definite in the worst case. This results in grave
-                # numerical problems, which is why I avoid this here - an alternative
-                # could be to consider the constraint violation as the scalar quantity
-                # of interest. Here I am just taking the absolute value. I need to sit
-                # down with pen and paper to think about how defensible this actually is
-                return jnp.abs(equality_contrib)
+            def constraint_hessian(_y, _duals, _template):
+                # Template should have the same shape as the hessian of fn, used to
+                # correct the shape of the constraint Hessian ((1, 2, 2) --> (2, 2))
+                equality_dual, inequality_dual = _duals
+                equality_hess, inequality_hess = jax.hessian(constraint)(_y)  # pyright: ignore
+
+                summed_hess = _template
+                if equality_dual is not None:
+                    if equality_dual.size == 1:
+                        weighted_contribution = (equality_dual * equality_hess**ω).ω
+                        summed_hess = (summed_hess**ω + weighted_contribution**ω).ω
+                    else:
+                        for d, h in zip(equality_dual, equality_hess):
+                            weighted_contribution = (d * h**ω).ω
+                            summed_hess = (summed_hess**ω + weighted_contribution**ω).ω
+                if inequality_dual is not None:
+                    if inequality_dual.size == 1:
+                        weighted_contribution = (inequality_dual * inequality_hess**ω).ω
+                        summed_hess = (summed_hess**ω + weighted_contribution**ω).ω
+                    else:
+                        for d, h in zip(inequality_dual, inequality_hess):
+                            weighted_contribution = (d * h**ω).ω
+                            summed_hess = (summed_hess**ω + weighted_contribution**ω).ω
+
+                def match_leaf_shape(x, example):  # (1, 2, 2) --> (2, 2)
+                    # TODO perhaps rename squeeze if needed (and use squeeze)
+                    if x.shape == example.shape:
+                        return x
+                    else:
+                        return jnp.reshape(x, example.shape)
+
+                summed_hess = jtu.tree_map(match_leaf_shape, summed_hess, _template)
+
+                return summed_hess
 
             dual_ = (equality_dual, inequality_dual)
-            constraint_hessian_ = jax.hessian(_wrapped_constraint)(y_eval, dual_)
+            template = tree_full_like(hessian_, 0.0)
+            constraint_hessian_ = constraint_hessian(y_eval, dual_, template)
 
             # TODO: too large values of the constraint hessian prevent convergence. Why?
             lagrangian_hessian_ = (hessian_**ω + constraint_hessian_**ω).ω

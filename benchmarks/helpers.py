@@ -19,14 +19,12 @@ constrained_problems = (
     BT2(),
     BT4(y0_iD=0),
     BT4(y0_iD=1),
-    # BT4(y0_iD=2,  # TODO: currently this one fails
+    # BT4(y0_iD=2),  # TODO: currently this one fails
     BT5(y0_iD=0),
     BT5(y0_iD=1),
     BT5(y0_iD=2),
     BT8(y0_iD=0),
     BT8(y0_iD=1),
-    FLT(),  # TODO this currently fails allclose with IPOPTLike unless the tolerances
-    # on IPOPTLike are higher. With higher tolerances, we fail on some of the other
-    # problems.
+    FLT(),
     # GENHS28(),  # TODO: IPOPTLike currently fails, other solvers not tested
 )
