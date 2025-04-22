@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import PyTree, Scalar
+from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import (
     EqualityOut,
@@ -15,6 +15,7 @@ from .._custom_types import (
 )
 from .._misc import (
     feasible_step_length,
+    filter_cond,
     tree_full_like,
     tree_where,
 )
@@ -94,6 +95,7 @@ def _make_barrier_gradients(
 class _XDYcYdDescentState(
     eqx.Module, Generic[Y, EqualityOut, InequalityOut], strict=True
 ):
+    first_step: Bool[Array, ""]
     step: PyTree
     result: RESULTS
 
@@ -117,7 +119,7 @@ class XDYcYdDescent(
     ) -> _XDYcYdDescentState:
         del f_info_struct
         # TODO: error management here
-        return _XDYcYdDescentState(iterate, RESULTS.successful)
+        return _XDYcYdDescentState(jnp.array(True), iterate, RESULTS.successful)
 
     def query(  # pyright: ignore  (figuring out what types a descent should take)
         self,
@@ -125,6 +127,47 @@ class XDYcYdDescent(
         f_info: FunctionInfo.EvalGradHessian,
         state: _XDYcYdDescentState,
     ) -> _XDYcYdDescentState:
+        # Handle initialisation of dual variables where required
+        def least_squares_duals(iterate__f_info):
+            iterate, f_info = iterate__f_info
+            # TODO: no support for no constraints yet! And either constraint must be
+            # allowed to be None, but we don't handle this case here
+            y, duals, boundary_multipliers = iterate
+
+            def make_kkt(jacobians, input_structure):
+                hjac, gjac = jacobians
+
+                def kkt(inputs):
+                    aux_step, (eq_dual_step, ineq_dual_step) = inputs
+                    r1 = aux_step + hjac.T.mv(eq_dual_step) + gjac.T.mv(ineq_dual_step)
+                    r2 = hjac.mv(aux_step)
+                    r3 = gjac.mv(aux_step)
+                    return r1, (r2, r3)
+
+                return lx.FunctionLinearOperator(kkt, input_structure)
+
+            input_structure = jax.eval_shape(lambda: (y, duals))
+            kkt_operator = make_kkt(f_info.constraint_jacobians, input_structure)
+            vector = (-f_info.grad, tree_full_like(duals, 0.0))
+
+            out = lx.linear_solve(kkt_operator, vector, self.linear_solver)
+            _, new_duals = out.value
+
+            # TODO: make the cutoff a descent attribute
+            reasonable_duals = jtu.tree_map(lambda x: jnp.abs(x) < 1e3, new_duals)
+            new_duals = tree_where(reasonable_duals, new_duals, 0.0)
+
+            new_iterate = (y, new_duals, boundary_multipliers)
+
+            return new_iterate
+
+        def keep_duals(iterate__f_info):
+            iterate, _ = iterate__f_info
+            return iterate
+
+        args = (iterate, f_info)
+        iterate = filter_cond(state.first_step, least_squares_duals, keep_duals, args)
+
         # TODO: IPOPTLike defaults no bounds to infinite bounds, but we ignore bounds
         # here. (This anyway needs to be rectified.)
         y, (equality_dual, inequality_dual), boundary_multipliers = iterate
@@ -146,7 +189,6 @@ class XDYcYdDescent(
             lambda s, d: d / (s + 1e-6), iterate_.slack, iterate_.inequality_dual
         )
         barrier_hessian = lx.DiagonalLinearOperator(barrier_hessian)
-        # jax.debug.print("Barrier Hessian in descent.query: \n{}", barrier_hessian)
 
         # TODO: adapt for PyTrees
         def make_kkt_operator(w, z, jacs):
@@ -155,9 +197,9 @@ class XDYcYdDescent(
             def kkt(inputs):
                 y, slacks, (equality_duals, inequality_duals) = inputs
                 y_step = w.mv(y) + hj.T.mv(equality_duals) + gj.T.mv(inequality_duals)
-                s_step = z.mv(slacks) - inequality_duals
+                s_step = -z.mv(slacks) + inequality_duals  # TODO is this correct?
                 hl_step = hj.mv(y)
-                gl_step = gj.mv(y) - slacks
+                gl_step = gj.mv(y) + slacks
                 return y_step, s_step, (hl_step, gl_step)
 
             return kkt
@@ -173,14 +215,15 @@ class XDYcYdDescent(
             )
         )
         kkt_operator = lx.FunctionLinearOperator(kkt_operator_, input_structure)
-        # jax.debug.print("KKT matrix: \n{}", kkt_operator.as_matrix())
 
         hj, gj = f_info.constraint_jacobians  # pyright: ignore
         barrier = 0.01  # TODO
+
+        eq_dual = iterate_.equality_dual
+        ineq_dual = iterate_.inequality_dual
+        upper_rhs = f_info.grad + hj.T.mv(eq_dual) + gj.T.mv(ineq_dual)  # pyright: ignore
         vector = (
-            -f_info.grad
-            + hj.T.mv(iterate_.equality_dual)  # pyright: ignore
-            + gj.T.mv(iterate_.inequality_dual),  # pyright: ignore
+            -upper_rhs,  # pyright: ignore
             # TODO: hard-coded barrier parameter here, and hard-coded epsilon
             -iterate_.inequality_dual + barrier * 1 / (iterate_.slack + 1e-6),  # pyright: ignore
             (-equality_residual, tree_full_like(inequality_residual, 0.0)),
@@ -193,15 +236,18 @@ class XDYcYdDescent(
         # yet, I "initialise" the slack variables as the residuals of the constraints
         # at each iteration. I think in practice these might deviate!!
 
-        # jax.debug.print("vector: \n{}", vector)
-
         out = lx.linear_solve(kkt_operator, vector, self.linear_solver)
-        # jax.debug.print("out.value: \n{}", out.value)
 
         # TODO: truncate to feasible step size
 
         # Output while I figure out the other steps
         y_step, slack_steps, dual_steps = out.value  # TODO: throw the slack steps away
+
+        dual_steps = (dual_steps**ω).ω  # Flip sign to see if this is enough to get it
+        # to work. The system is now equivalent to the one given in 19.3 of NW on p. 569
+        slack_steps = (
+            -(slack_steps**ω)
+        ).ω  # Only relevant to constrain step length TODO
         max_slack_step_size = feasible_step_length(
             inequality_residual,
             tree_full_like(inequality_residual, 0.0),
@@ -221,9 +267,9 @@ class XDYcYdDescent(
         # TODO: boundary multipliers currently do nothing / but not so fake anymore
         fake_iterate_step = (y_step, dual_steps, boundary_multipliers)
         fake_iterate_step = (max_step_size * fake_iterate_step**ω).ω
-        # result = RESULTS.successful
 
         return _XDYcYdDescentState(
+            jnp.array(False),
             fake_iterate_step,
             RESULTS.promote(out.result),
         )

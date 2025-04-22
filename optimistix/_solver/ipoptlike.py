@@ -291,6 +291,7 @@ def _termination(
 
     equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
     dual_term = equality_jacobian.T.mv(equality_dual)  # pyright: ignore  # TODO
+    dual_term = (dual_term**ω + inequality_jacobian.T.mv(inequality_dual) ** ω).ω  # pyright: ignore
     optimality_error = norm(
         jtu.tree_map(
             lambda a, b, c, d: a + b - c - d, f_info.grad, dual_term, lb_dual, ub_dual
@@ -299,7 +300,15 @@ def _termination(
 
     # TODO: implement support for inequality residuals
     equality_residual, inequality_residual = f_info.constraint_residual
-    constraint_norm = norm(equality_residual)
+    inequality_violation = tree_where(
+        # Only count violations if the residual is less than zero
+        # Alternatively transform with slack! # TODO
+        jtu.tree_map(lambda x: jnp.where(x < 0, x, 0.0), inequality_residual),
+        inequality_residual,
+        0.0,
+    )
+    constraint_norm = norm(equality_residual) + norm(inequality_violation)
+    jax.debug.print("constraint norm: {}", constraint_norm)
 
     errata = (optimality_error, constraint_norm)
 
@@ -442,9 +451,12 @@ class AbstractIPOPTLike(
         upper_bound_dual = tree_where(
             jtu.tree_map(jnp.isfinite, upper), upper_bound_dual, 0.0
         )
+        equality_dual, inequality_dual = constraint_residual
+        equality_dual = tree_full_like(equality_dual, 1.0)
+        inequality_dual = tree_full_like(inequality_dual, -1.0)
         iterate = (
             y,
-            tree_full_like(constraint_residual, 1.0),
+            (equality_dual, inequality_dual),
             (lower_bound_dual, upper_bound_dual),
         )
 
@@ -475,6 +487,7 @@ class AbstractIPOPTLike(
         if bounds is None:
             bounds = (tree_full_like(y, -jnp.inf), tree_full_like(y, jnp.inf))
 
+        jax.debug.print("iterate: {}", state.iterate)
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
         y_eval, (equality_dual, inequality_dual), boundary_multipliers = state.iterate
 
@@ -496,6 +509,7 @@ class AbstractIPOPTLike(
         )
 
         def accepted(states):
+            jax.debug.print("Accepted step")
             search_state, descent_state = states
 
             grad = lin_to_grad(lin_fn, y_eval, autodiff_mode=autodiff_mode)
@@ -610,10 +624,6 @@ class AbstractIPOPTLike(
                 jnp.array(False),
             )
 
-        # Dummy branch to compare second order correction effect
-        _ = filter_cond(
-            jnp.invert(accept), accepted, rejected, (search_state, state.descent_state)
-        )
         # Branch for normal acceptance / rejection
         y, f_info, aux, search_state, descent_state, terminate = filter_cond(
             accept, accepted, rejected, (search_state, state.descent_state)
@@ -643,24 +653,33 @@ class AbstractIPOPTLike(
 
         def restore(args):
             del args
+
+            jax.debug.print("Restoring feasibility")
+
             # TODO: make attribute and update the penalty parameter for the feasibility
             # restoration problem based on the barrier parameter.
             boundary_map = ClosestFeasiblePoint(1e-6, BFGS(rtol=1e-3, atol=1e-6))
             recovered_y, restoration_result = boundary_map(y_eval, constraint, bounds)
             # TODO: Allow feasibility restoration to raise a certificate of
             # infeasibility and error out.
-            return recovered_y, restoration_result
+
+            # Re-initialise the search
+            f_info_struct = eqx.filter_eval_shape(lambda: state.f_info)
+            new_search_state = self.search.init(recovered_y, f_info_struct)
+            # TODO: inelegant to use state.iterate here?
+            new_descent_state = self.descent.init(state.iterate, f_info_struct)
+            return recovered_y, new_search_state, restoration_result, new_descent_state
 
         def regular_update(args):
-            search_result, descent_result = args
+            search_result, search_state, descent_result, descent_state = args
             result = RESULTS.where(
                 search_result == RESULTS.successful, descent_result, search_result
             )
             y_eval = (y**ω + y_descent**ω).ω
-            return y_eval, result
+            return y_eval, search_state, result, descent_state
 
-        args = (search_result, descent_result)
-        y_eval, result = filter_cond(
+        args = (search_result, search_state, descent_result, descent_state)
+        y_eval, search_state, result, descent_state = filter_cond(
             requires_restoration, restore, regular_update, args
         )
 
