@@ -94,25 +94,19 @@ def test_constrained_minimisers(fn, y0, args, constraint, expected_result, solve
     assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
 
 
-@pytest.mark.skip(reason="resurrect once the filter reset is implemented - gets stuck.")
+@pytest.mark.skip(reason="Need to streamline constraint categories (support ineq.)")
 @pytest.mark.parametrize("solver", (optx.IPOPTLike(rtol=1e-3, atol=1e-3),))
 @pytest.mark.parametrize(
     "fn, y0, args, constraint, expected_result",
     minimise_fn_y0_args_constraint_expected_result,
 )
 def test_ipoptlike(fn, y0, args, constraint, expected_result, solver):
-    dummy_bounds = (
-        jtu.tree_map(lambda x: jnp.full_like(x, -jnp.inf), y0),
-        jtu.tree_map(lambda x: jnp.full_like(x, jnp.inf), y0),
-    )
     sol = optx.minimise(
         fn,
         solver,
         y0,
         args=args,
         constraint=constraint,
-        # TODO hotfix: dummy bounds, while broader support for bounds / no bounds is WIP
-        bounds=dummy_bounds,
         max_steps=2**10,  # Needs more steps than unconstrained solvers
     )
     res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
@@ -121,7 +115,7 @@ def test_ipoptlike(fn, y0, args, constraint, expected_result, solver):
 
 # TODO: this test should be unified with some of the other ones above! For now we're
 # collecting more test cases, but these still need to be systematized.
-@pytest.mark.skip("Looks like a feasibility restoration doom loop, fix filter reset!")
+@pytest.mark.skip(reason="some test cases do not provide inequality constraints.")
 @pytest.mark.parametrize("solver", (optx.IPOPTLike(rtol=1e-3, atol=1e-3),))
 @pytest.mark.parametrize(
     "fn, y0, args, constraint, bounds, expected_result",

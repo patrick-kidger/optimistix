@@ -291,7 +291,10 @@ def _termination(
 
     equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
     dual_term = equality_jacobian.T.mv(equality_dual)  # pyright: ignore  # TODO
-    dual_term = (dual_term**ω + inequality_jacobian.T.mv(inequality_dual) ** ω).ω  # pyright: ignore
+    if inequality_jacobian is not None:
+        dual_term = (
+            dual_term**ω + inequality_jacobian.T.mv(inequality_dual) ** ω  # pyright: ignore
+        ).ω
     optimality_error = norm(
         jtu.tree_map(
             lambda a, b, c, d: a + b - c - d, f_info.grad, dual_term, lb_dual, ub_dual
@@ -300,15 +303,16 @@ def _termination(
 
     # TODO: implement support for inequality residuals
     equality_residual, inequality_residual = f_info.constraint_residual
-    inequality_violation = tree_where(
-        # Only count violations if the residual is less than zero
-        # Alternatively transform with slack! # TODO
-        jtu.tree_map(lambda x: jnp.where(x < 0, x, 0.0), inequality_residual),
-        inequality_residual,
-        0.0,
-    )
-    constraint_norm = norm(equality_residual) + norm(inequality_violation)
-    jax.debug.print("constraint norm: {}", constraint_norm)
+    constraint_norm = norm(equality_residual)
+    if inequality_residual is not None:
+        inequality_violation = tree_where(
+            # Only count violations if the residual is less than zero
+            # Alternatively transform with slack! # TODO
+            jtu.tree_map(lambda x: jnp.where(x < 0, x, 0.0), inequality_residual),
+            inequality_residual,
+            0.0,
+        )
+        constraint_norm += norm(inequality_violation)
 
     errata = (optimality_error, constraint_norm)
 
@@ -487,7 +491,6 @@ class AbstractIPOPTLike(
         if bounds is None:
             bounds = (tree_full_like(y, -jnp.inf), tree_full_like(y, jnp.inf))
 
-        jax.debug.print("iterate: {}", state.iterate)
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
         y_eval, (equality_dual, inequality_dual), boundary_multipliers = state.iterate
 
@@ -509,7 +512,6 @@ class AbstractIPOPTLike(
         )
 
         def accepted(states):
-            jax.debug.print("Accepted step")
             search_state, descent_state = states
 
             grad = lin_to_grad(lin_fn, y_eval, autodiff_mode=autodiff_mode)
@@ -653,9 +655,6 @@ class AbstractIPOPTLike(
 
         def restore(args):
             del args
-
-            jax.debug.print("Restoring feasibility")
-
             # TODO: make attribute and update the penalty parameter for the feasibility
             # restoration problem based on the barrier parameter.
             boundary_map = ClosestFeasiblePoint(1e-6, BFGS(rtol=1e-3, atol=1e-6))

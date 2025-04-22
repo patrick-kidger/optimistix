@@ -580,7 +580,7 @@ def constraint_inaccessible_region(y):
     x1, x2, x3 = y
     c1 = x1**2 - x2 - 1
     c2 = x1 - x3 - 0.5
-    return (c1, c2), None
+    return jnp.array([c1, c2]), None  # TODO: test PyTree-of-arrays for constraints
 
 
 tricky_geometries__fn_y0_args_constraint_bounds_expected_result = (
