@@ -30,4 +30,6 @@ constrained_problems = (
     # GENHS28(),  # TODO: IPOPTLike currently fails, other solvers not tested
 )
 
-problems_with_inequality_constraints = (FLETCHER(),)
+problems_with_inequality_constraints = (
+    FLETCHER(),  # TODO: IPOPTLike currently fails, other solvers not tested
+)
