@@ -173,10 +173,19 @@ class IPOPTLikeDescent(
         f_info: FunctionInfo.EvalGradHessian,
         state: _IPOPTLikeDescentState,
     ) -> _IPOPTLikeDescentState:
+        assert f_info.bounds is not None
         y, constraint_multipliers, bound_multipliers, barrier_parameter = iterate
 
         # Compute the barrier gradients and Hessians
-        barrier = LogarithmicBarrier(f_info.bounds)  # pyright: ignore (None)
+        # Note Johanna: we're currently computing the gradient of the barrier term twice
+        # (the other time is in the filtered line search). The computation is cheap
+        # (a subtraction, a division, and a multiplication), but I don't love that we
+        # do this in different places. The price to pay to do it all in solver.step,
+        # however, would be to either pass a much more complex f_info to the descent, or
+        # to lose the flexibility of constructing a full, rather than a condensed KKT
+        # system. So I think on balance I'd rather be doing these things twice.
+        # (Ideas very welcome!)
+        barrier = LogarithmicBarrier(f_info.bounds)
 
         barrier_gradients = barrier.grads(y, barrier_parameter)
         lower_barrier_grad, upper_barrier_grad = barrier_gradients
@@ -186,6 +195,7 @@ class IPOPTLikeDescent(
         grad = (f_info.grad**ω + lower_barrier_grad**ω + upper_barrier_grad**ω).ω
         hessian = f_info.hessian + lower_barrier_hessian + upper_barrier_hessian
 
+        # Construct and solve the condensed KKT system
         (equality_dual, inequality_dual) = constraint_multipliers
         equality_jacobian, inequality_jacobian = f_info.constraint_jacobians  # pyright: ignore
         equality_residual, inequality_residual = f_info.constraint_residual  # pyright: ignore
@@ -199,9 +209,10 @@ class IPOPTLikeDescent(
         )
         out = lx.linear_solve(kkt_operator, vector, self.linear_solver)
 
-        y_step, eqdual_step = out.value
+        y_step, equality_multiplier_step = out.value
         result = RESULTS.promote(out.result)
 
+        # Postprocess the result: truncate to feasible step length
         offset = 0.01  # Standard in IPOPT (tau_min)
 
         lower, upper = f_info.bounds  # pyright: ignore
@@ -211,17 +222,20 @@ class IPOPTLikeDescent(
         max_step_size = jnp.min(jnp.array([lower_max_step_size, upper_max_step_size]))
 
         y_step = (max_step_size * y_step**ω).ω
-        eqdual_step = (max_step_size * eqdual_step**ω).ω
+        equality_multiplier_step = (max_step_size * equality_multiplier_step**ω).ω
+        dual_steps = (
+            equality_multiplier_step,
+            tree_full_like(inequality_residual, 0.0),
+        )
 
-        dummy = inequality_residual  # TODO: Not yet used or updated
         # TODO: barrier parameter is an iterate that does not get updated in the descent
 
         # Finally, compute the steps in the bound multipliers from the primal step
         barrier_terms = (barrier_gradients, barrier_hessians, bound_multipliers)
-        b_steps = _bound_multiplier_steps(y_step, *barrier_terms, f_info.bounds, offset)  # pyright: ignore
+        b_steps = _bound_multiplier_steps(y_step, *barrier_terms, f_info.bounds, offset)
         keep_barrier_parameter = tree_full_like(barrier_parameter, 0.0)
 
-        iterate_step = (y_step, (eqdual_step, dummy), b_steps, keep_barrier_parameter)
+        iterate_step = (y_step, dual_steps, b_steps, keep_barrier_parameter)
 
         return _IPOPTLikeDescentState(
             iterate_step,
