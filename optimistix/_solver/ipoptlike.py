@@ -111,6 +111,7 @@ class _IPOPTLikeDescentState(
 
 
 # TODO: Make the documentation a bit more comprehensive here!
+# And also make it a little cleaner :D
 class IPOPTLikeDescent(
     AbstractDescent[Y, FunctionInfo.EvalGradHessian, _IPOPTLikeDescentState],
     strict=True,
@@ -129,6 +130,16 @@ class IPOPTLikeDescent(
     19.3 of Nocedal & Wright, Numerical Optimisation, 2nd edition, page 569, but flips
     the sign convention in the Lagrangian from subtraction of the constraint terms to
     addition to match the IPOPT convention for equality constraints.
+
+    ??? Differences to IPOPT implementation
+
+    This descent is a simplified implementation of the step computation in IPOPT. The
+    modifications are as follows:
+
+    - The steps in the bound multipliers are constrained by the step size in the primal
+        variable `y`, only the computation of the maximum feasible step length is
+        uncoupled from the steps taken in `y`. This would be a simple change, but for
+        now it is not clear what the advantages would be.
 
     ??? cite "References"
 
@@ -151,29 +162,36 @@ class IPOPTLikeDescent(
     """
 
     linear_solver: lx.AbstractLinearSolver = lx.SVD()
+    minimum_offset: ScalarLike = 0.99  # tau_min in IPOPT
 
-    def init(  # pyright: ignore (figuring out what types a descent should take)
+    def init(  # pyright: ignore (iterate)
         self, iterate, f_info_struct: FunctionInfo.EvalGradHessian
     ) -> _IPOPTLikeDescentState:
         if f_info_struct.bounds is None:
             raise ValueError(
                 "IPOPTLikeDescent requires bounds on the optimisation variable `y`. "
                 "To use this descent without bound constraints, pass infinite bounds "
-                "on all elements of `y` instead of specifying `bounds=None`."
+                "on all elements of `y`."
             )
-
         if f_info_struct.constraint_residual is None:
-            raise ValueError  # TODO better errors
+            raise ValueError(
+                "IPOPTLikeDescent requires constraints on the optimisation variable "
+                "`y`. This descent can currently not be used without any constraints, "
+                "but it can be used with either inequality or equality constraints."
+            )
         else:
             return _IPOPTLikeDescentState(iterate, RESULTS.successful)
 
-    def query(  # pyright: ignore  (figuring out what types a descent should take)
+    def query(  # pyright: ignore  (iterate)
         self,
         iterate,
         f_info: FunctionInfo.EvalGradHessian,
         state: _IPOPTLikeDescentState,
     ) -> _IPOPTLikeDescentState:
         assert f_info.bounds is not None
+        assert f_info.constraint_residual is not None
+        assert f_info.constraint_jacobians is not None
+
         y, constraint_multipliers, bound_multipliers, barrier_parameter = iterate
 
         # Compute the barrier gradients and Hessians
@@ -186,7 +204,6 @@ class IPOPTLikeDescent(
         # system. So I think on balance I'd rather be doing these things twice.
         # (Ideas very welcome!)
         barrier = LogarithmicBarrier(f_info.bounds)
-
         barrier_gradients = barrier.grads(y, barrier_parameter)
         lower_barrier_grad, upper_barrier_grad = barrier_gradients
         barrier_hessians = barrier.primal_dual_hessians(y, bound_multipliers)
@@ -197,12 +214,12 @@ class IPOPTLikeDescent(
 
         # Construct and solve the condensed KKT system
         (equality_dual, inequality_dual) = constraint_multipliers
-        equality_jacobian, inequality_jacobian = f_info.constraint_jacobians  # pyright: ignore
-        equality_residual, inequality_residual = f_info.constraint_residual  # pyright: ignore
+        equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
+        equality_residual, inequality_residual = f_info.constraint_residual
         input_structure = jax.eval_shape(lambda: (y, equality_residual))
         kkt_operator = _make_kkt_operator(hessian, equality_jacobian, input_structure)
 
-        dual_term = equality_jacobian.T.mv(equality_dual)  # pyright: ignore  # TODO
+        dual_term = equality_jacobian.T.mv(equality_dual)  # pyright: ignore
         vector = (
             (-(grad**ω) - dual_term**ω).ω,
             (-(equality_residual**ω)).ω,
@@ -213,9 +230,8 @@ class IPOPTLikeDescent(
         result = RESULTS.promote(out.result)
 
         # Postprocess the result: truncate to feasible step length
-        offset = 0.01  # Standard in IPOPT (tau_min)
-
-        lower, upper = f_info.bounds  # pyright: ignore
+        offset = jnp.min(jnp.array([self.minimum_offset, 1 - barrier_parameter]))
+        lower, upper = f_info.bounds
         lower_max_step_size = feasible_step_length(y, lower, y_step, offset=offset)
         upper_max_step_size = feasible_step_length(y, upper, y_step, offset=offset)
 
@@ -245,39 +261,17 @@ class IPOPTLikeDescent(
     def step(
         self, step_size: Scalar, state: _IPOPTLikeDescentState
     ) -> tuple[Y, RESULTS]:
-        # TODO Note that I *am* currently scaling the dual variables for the bounds too
-        # Fixing this would require unpacking the tuple and packing it up again
-        # When very large values for the bounds are used, it does seem restrictive to
-        # couple the boundary multipliers to the evolution of the primal and dual
-        # variables - at least I have some empirical evidence that this can hinder
-        # convergence. Might be useful to match IPOPT behaviour here.
+        # Note: by scaling the complete step with the step size, we do not presently
+        # allow the bound multipliers to remain at their maximum feasible step length,
+        # which is supported in IPOPT. Adding this feature would require unwrapping the
+        # iterate, scaling the primal step and the steps in the constraint multipliers,
+        # and then returning the half-updated step. This is easily done, but for now it
+        # is not clear how much it helps - therefore we leave it be for now.
         return (step_size * state.step**ω).ω, state.result
 
 
-# TODO: why don't we check complementarity for the other dual variables? This does not
-# make sense - unless we expect poor convergence in these? Perhaps due to the linear
-# dependencies of the constraints? Or is it because IPOPT is built with equality
-# constraints in mind, as they state in the paper and thesis? For equality constraints,
-# complementarity does not need to be checked.
 # TODO: I don't support the automatic scaling of the norms yet (and am not sure if I
 # should). In IPOPT, this is factor is at least 100, per the documentation and the paper
-
-
-# TODO: barrier term update. This can be a filter cond at the end of the step, that
-# checks for the following things:
-# - did convergence occur for the given barrier parameter? -> this is true if terminate
-# evaluates to True, so that can be the entry point to the function
-# - if convergence occured, then check if the barrier parameter is already down to its
-# minimum value. If this is True also, then we terminate, otherwise terminate is
-# overwritten. In the latter case, we also need to somehow make the search and descent
-# aware that this is the case, to do the following:
-# - reset the filter with an extra method on the search
-# - update the barrier parameter
-# - update the descent so that it is aware of the barrier parameter. It is quite
-# probably much cleaner to write this into the function info from inside the solver!!
-# (Doesn't it make more sense to write the barrier term into the function info?)
-# Alternatively - and not sure what that means for compile time - we could make the
-# barrier term an attribute of the solver, and do several solves instead...
 
 # TODO: I think we should raise errata when y0 is infeasible with respect to the
 # inequality constraints, since this would mean that we have negative slack values.
@@ -300,16 +294,14 @@ def _error(
     y, (equality_dual, inequality_dual), (lb_dual, ub_dual), barrier = iterate
 
     equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
-    dual_term = equality_jacobian.T.mv(equality_dual)  # pyright: ignore  # TODO
+    dual_term = equality_jacobian.T.mv(equality_dual)  # pyright: ignore
     if inequality_jacobian is not None:
-        dual_term = (
-            dual_term**ω + inequality_jacobian.T.mv(inequality_dual) ** ω  # pyright
-        ).ω
+        dual_term = (dual_term**ω + inequality_jacobian.T.mv(inequality_dual) ** ω).ω
     optimality_error = norm(
         jtu.tree_map(
-            lambda a, b, c, d: a + b - c - d, f_info.grad, dual_term, lb_dual, ub_dual
+            lambda a, b, c, d: a + b - c + d, f_info.grad, dual_term, lb_dual, ub_dual
         )
-    )  # TODO: compare to IPOPT definition (signs of boundary multipliers)
+    )
 
     # TODO: implement support for inequality residuals
     equality_residual, inequality_residual = f_info.constraint_residual
@@ -358,18 +350,7 @@ class _IPOPTLikeState(
     num_accepted_steps: Int[Array, ""]
 
 
-# TODO: update the signs of the constraint functions in the Lagrangian. IPOPT adds the
-# constraint term, rather than subtracting it. In other solvers, a negative sign is used
-# for the constraint term. I prefer this notation, since it is more straightforward for
-# inequality constraints - at least to me it makes more sense that we would want to keep
-# both the slack variables and the multipliers strictly positive. In the interest of
-# modularity and ease of maintainability, enforcing a common convention here is a good
-# choice.
-# TODO: what happens when no bounds are specified? The barrier parameter is meaningless
-# in this case.
-# TODO documentation
 # TODO:
-# - adaptive update of the barrier parameters
 # - testing on a real benchmark problem
 # - adding support for inequality constraints
 # - trajectory optimisation example
@@ -377,9 +358,7 @@ class _IPOPTLikeState(
 # - KKT error minimisation ahead of robust feasibility restoration
 # - inertia correction
 # - second-order correction
-# - merit function as iterate method?
 # - what happens to dual variables after feasibility restoration?
-# - building infrastructure for benchmarking problems with pytest-benchmark
 class AbstractIPOPTLike(
     AbstractMinimiser[Y, Aux, _IPOPTLikeState], Generic[Y, Aux], strict=True
 ):
@@ -416,6 +395,7 @@ class AbstractIPOPTLike(
         AbstractSearch[Y, FunctionInfo.EvalGradHessian, FunctionInfo.Eval, Any]
     ]
     verbose: AbstractVar[frozenset[str]]
+    initial_barrier_parameter: AbstractVar[float]  # TODO: float or ScalarLike?
 
     def init(
         self,
@@ -456,26 +436,11 @@ class AbstractIPOPTLike(
         )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
 
-        # TODO primal dual iterates
-        # TODO: this would need to special case what we do when there is no constraint
-        # TODO: initial bound multipliers can be defined as mu / distance
-        lower, upper = bounds
-        lower_bound_dual = (1 / (y**ω - lower**ω)).ω
-        upper_bound_dual = (1 / (upper**ω - y**ω)).ω
-        lower_bound_dual = tree_where(
-            jtu.tree_map(jnp.isfinite, lower), lower_bound_dual, 0.0
-        )
-        upper_bound_dual = tree_where(
-            jtu.tree_map(jnp.isfinite, upper), upper_bound_dual, 0.0
-        )
-        equality_dual, inequality_dual = constraint_residual
-        equality_dual = tree_full_like(equality_dual, 1.0)
-        inequality_dual = tree_full_like(inequality_dual, -1.0)
         iterate = (
             y,
-            (equality_dual, inequality_dual),
-            (lower_bound_dual, upper_bound_dual),
-            jnp.array(0.1),  # TODO hard-coded initial value for the barrier parameter
+            tree_full_like(constraint_residual, 0.0),
+            tree_full_like(bounds, 1.0),
+            jnp.asarray(self.initial_barrier_parameter),
         )
 
         return _IPOPTLikeState(
@@ -506,7 +471,7 @@ class AbstractIPOPTLike(
             bounds = (tree_full_like(y, -jnp.inf), tree_full_like(y, jnp.inf))
 
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
-        y_eval, duals, boundary_multipliers, barrier = state.iterate
+        y_eval, duals, bound_multipliers, barrier = state.iterate
         (equality_dual, inequality_dual) = duals
 
         evaluated = evaluate_constraint(constraint, y_eval)
@@ -603,7 +568,7 @@ class AbstractIPOPTLike(
             # with a common interface
             # TODO: prototyping to get a descent over a pair (primal, duals...)!!!
             duals = (equality_dual, inequality_dual)
-            iterate = (y_eval, duals, boundary_multipliers, barrier)
+            iterate = (y_eval, duals, bound_multipliers, barrier)
             error = _error(
                 iterate,
                 f_eval_info_,  # pyright: ignore
@@ -620,10 +585,7 @@ class AbstractIPOPTLike(
             # iterate.
 
             terminate = error <= self.atol
-
-            terminate = jnp.where(
-                state.first_step, jnp.array(False), terminate
-            )  # Skip termination on first step
+            terminate = jnp.where(state.first_step, jnp.array(False), terminate)
 
             descent_state = self.descent.query(
                 iterate,
@@ -703,6 +665,7 @@ class AbstractIPOPTLike(
             iterate_eval = (state.iterate**ω + descent_steps**ω).ω
             _, new_dual, new_bounds_iterate_thingy, _ = iterate_eval
             # TODO: barrier update? This takes barrier from outer scope
+            # What happens to the barrier parameter when we restore feasibility?
             new_iterate = (recovered_y, new_dual, new_bounds_iterate_thingy, barrier)
 
             # Re-initialise the search
@@ -816,6 +779,7 @@ class IPOPTLike(AbstractIPOPTLike[Y, Aux], strict=True):
     descent: IPOPTLikeDescent
     search: IPOPTLikeFilteredLineSearch
     verbose: frozenset[str]
+    initial_barrier_parameter: ScalarLike
 
     def __init__(
         self,
@@ -823,6 +787,7 @@ class IPOPTLike(AbstractIPOPTLike[Y, Aux], strict=True):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         verbose: frozenset[str] = frozenset(),
+        initial_barrier_parameter: ScalarLike = 0.1,
     ):
         self.rtol = rtol
         self.atol = atol
@@ -830,6 +795,7 @@ class IPOPTLike(AbstractIPOPTLike[Y, Aux], strict=True):
         self.descent = IPOPTLikeDescent()
         self.search = IPOPTLikeFilteredLineSearch()
         self.verbose = verbose
+        self.initial_barrier_parameter = initial_barrier_parameter
 
 
 IPOPTLike.__init__.__doc__ = """**Arguments:**
@@ -844,4 +810,5 @@ IPOPTLike.__init__.__doc__ = """**Arguments:**
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example 
     `verbose=frozenset({"step_size", "loss"})`.
+- `initial_barrier_parameter`: The initial value of the barrier parameter. 
 """
