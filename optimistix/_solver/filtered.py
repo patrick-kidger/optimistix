@@ -79,13 +79,22 @@ class IPOPTLikeFilteredLineSearch(
         suggested minimum values.
     - The minimum step size is a constant, defined by the product of `gamma_alpha` and
         `gamma_theta` in IPOPT. The gradients of the merit function and the constraint
-        violation are not considered. (In IPOPT these values may be used to accept very
-        small steps.)
+        violation are not considered. (In IPOPT these values may be used to accept even
+        smaller steps without resorting to the feasibility restoration, so long as the
+        direction is a descent direction.)
     - The maximum feasible step length is determined in the descent, not the search.
         Accordingly, accepted steps have length 1.0 from the "point of view" of the
         search. For search/descent interation, see also
         [this Introduction](../introduction.md#search-descent-iteration).
-        TODO this link might not work yet.
+        TODO this link might not work yet (docgen)
+    - We do not support the "watchdog" feature, which tentantively ignores the filter
+        for one iteration. Since previous search states and directions are stored for
+        "backup", this would need to be added in the solver that calls this search.
+    - We do not support the heuristic filter reset, which resets the filter if a
+        proposed step has an acceptable constraint violation, but the previous step
+        was rejected by the filter. At each re-set, filter tolerances become a little
+        more stringent. This feature could be added in this search, by introducing
+        additional state variables.
 
     ??? cite "References"
 
@@ -146,6 +155,8 @@ class IPOPTLikeFilteredLineSearch(
         f_eval_info: FunctionInfo.Eval,
         state: _IPOPTLikeFilteredLineSearchState,
     ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _IPOPTLikeFilteredLineSearchState]:
+        # TODO: initialise filter if first_step
+
         if f_info.bounds is not None:
             # TODO hotfix: Only works if we have nonnegativity constraints.
             log_terms = jtu.tree_map(
@@ -244,14 +255,13 @@ class IPOPTLikeFilteredLineSearch(
             accept, filter = filter_cond(pred, armijo, improve, current_values)
 
             accept = first_step | accept
-
             step_size = jnp.where(
                 accept, self.step_init, self.decrease_factor * state.step_size
             )
 
-            # Invoke feasibility restoration if required
+            # Invoke feasibility restoration if step length becomes tiny
             result = RESULTS.where(
-                step_size >= self.minimum_step_length,
+                step_size >= 1e5 * self.minimum_step_length,  # TODO make trigger-happy
                 RESULTS.successful,
                 RESULTS.feasibility_restoration_required,
             )
