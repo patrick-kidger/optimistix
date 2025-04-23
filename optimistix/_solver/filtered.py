@@ -63,38 +63,55 @@ class IPOPTLikeFilteredLineSearch(
     In either case, the search will then check if the current step is an improvement
     over the previous steps, and reject the step if it is not.
 
-    ??? Info
+    ??? Differences to IPOPT implementation
 
     This search is an implementation of the filtered line search available in IPOPT,
     with minimal modifications. All default values for search parameters are set to
-    values described in the IPOPT implementation paper, where possible.
+    values described in the IPOPT implementation paper, where possible. All core
+    features are supported. This includes step acceptance where minimal improvement is
+    made in either the merit function or the constraint violation, switching to the
+    stricter Armijo condition if the constraint violation is small enough to promote
+    faster convergence, and selectively updating the filter, such that it is always
+    augmented when the switching condition is not met, and otherwise only augmented if
+    the Armijo condition is not met. The search can also request a feasibility
+    restoration if the step length becomes too small.
+
     The modifications are as follows:
     - To respect JAX' static shape requirements, we introduce a buffer size for the
         filter, which defaults to 256 elements, the same as the default number of steps
         in [`optimistix.minimise`][]. If the buffer is full, the largest pairs of (merit
         function, constraint violation) pairs will be booted from the filter, following
         a rule in which the largest value is replaced.
-    - The parameters maximum and acceptable constraint violation are not proportional to
-        the initial value of the constraint violation, but instead default to their
-        suggested minimum values.
+    - The parameters for the maximum and acceptable constraint violation are not set in
+        proportion to the initial value of the constraint violation, but instead default
+        to their suggested minimum values. Since Optimistix solvers are instantiated
+        before any initial values are seen or constraint violations computed, solver
+        parameters cannot depend on these.
+        If a coupling of solver parameters and initial values of the constraint function
+        is desired, the solver can be customised, e.g. with
+        ```python
+        custom_value = 1e4 * constraint(y0)
+        search = IPOPTLikeFilteredLineSearch(maximum_violation=custom_value)
+        solver = optx.IPOPTLike(...)
+        solver = eqx.tree_at(lambda s: s.search, solver, search)
+
+        solution = optx.minimise(fn, solver, y0, ...)
+        ```
+        or by defining a custom solver with desired default values.
     - The minimum step size is a constant, defined by the product of `gamma_alpha` and
         `gamma_theta` in IPOPT. The gradients of the merit function and the constraint
-        violation are not considered. (In IPOPT these values may be used to accept even
-        smaller steps without resorting to the feasibility restoration, so long as the
+        violation are not considered. (In IPOPT these values may be used to accept very
+        small steps without resorting to the feasibility restoration, so long as the
         direction is a descent direction.)
-    - The maximum feasible step length is determined in the descent, not the search.
-        Accordingly, accepted steps have length 1.0 from the "point of view" of the
-        search. For search/descent interation, see also
-        [this Introduction](../introduction.md#search-descent-iteration).
-        TODO this link might not work yet (docgen)
+
+    Both of the following two features are rarely invoked in IPOPT according to the
+    authors, and are not implemented here:
     - We do not support the "watchdog" feature, which tentantively ignores the filter
         for one iteration. Since previous search states and directions are stored for
         "backup", this would need to be added in the solver that calls this search.
     - We do not support the heuristic filter reset, which resets the filter if a
         proposed step has an acceptable constraint violation, but the previous step
-        was rejected by the filter. At each re-set, filter tolerances become a little
-        more stringent. This feature could be added in this search, by introducing
-        additional state variables.
+        was rejected by the filter, while tightening filter requirements at each reset.
 
     ??? cite "References"
 
@@ -261,7 +278,7 @@ class IPOPTLikeFilteredLineSearch(
 
             # Invoke feasibility restoration if step length becomes tiny
             result = RESULTS.where(
-                step_size >= 1e5 * self.minimum_step_length,  # TODO make trigger-happy
+                step_size >= 1e5 * self.minimum_step_length,  # TODO trigger-happy debug
                 RESULTS.successful,
                 RESULTS.feasibility_restoration_required,
             )
