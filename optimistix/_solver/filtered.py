@@ -178,11 +178,11 @@ class IPOPTLikeFilteredLineSearch(
         f = f_info.f
         f_eval = f_eval_info.f
         if f_info.bounds is not None:
-            barrier = LogarithmicBarrier(f_info.bounds, 1e-2)  # Dummy barrier
-            f = f_info.f + barrier(y)
-            f_eval = f_eval_info.f + barrier(y_eval)
+            barrier = LogarithmicBarrier(f_info.bounds)
+            f = f_info.f + barrier(y, 1e-2)  # TODO: get barrier parameter from iterate
+            f_eval = f_eval_info.f + barrier(y_eval, 1e-2)
 
-            lower_grad, upper_grad = barrier.grad(y)
+            lower_grad, upper_grad = barrier.grads(y, 1e-2)
             f_grad = (f_info.grad**ω + lower_grad**ω + upper_grad**ω).ω
         else:
             f = f_info.f
@@ -230,7 +230,6 @@ class IPOPTLikeFilteredLineSearch(
                 constraint_violation**self.power_constraint
             )
             step = (y_eval**ω - y**ω).ω
-            # TODO: this should be the gradient of the merit function, not the objective
             grad_dot = tree_dot(f_grad, step)  # this should be the gradient
             scaled_grad_dot = (-grad_dot) ** self.power_merit
             pred = neglect_constraints & (scaled_grad_dot > scaled_violation)
@@ -268,7 +267,7 @@ class IPOPTLikeFilteredLineSearch(
 
             # Invoke feasibility restoration if step length becomes tiny
             result = RESULTS.where(
-                step_size >= 1e5 * self.minimum_step_length,  # TODO trigger-happy debug
+                step_size >= self.minimum_step_length,
                 RESULTS.successful,
                 RESULTS.feasibility_restoration_required,
             )

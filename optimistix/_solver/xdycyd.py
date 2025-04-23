@@ -114,7 +114,7 @@ class XDYcYdDescent(
             iterate, f_info = iterate__f_info
             # TODO: no support for no constraints yet! And either constraint must be
             # allowed to be None, but we don't handle this case here
-            y, duals, boundary_multipliers = iterate
+            y, duals, boundary_multipliers, barrier = iterate
 
             def make_kkt(jacobians, input_structure):
                 hjac, gjac = jacobians
@@ -139,7 +139,8 @@ class XDYcYdDescent(
             reasonable_duals = jtu.tree_map(lambda x: jnp.abs(x) < 1e3, new_duals)
             new_duals = tree_where(reasonable_duals, new_duals, 0.0)
 
-            new_iterate = (y, new_duals, boundary_multipliers)
+            # TODO: barrier parameter does not get updated here
+            new_iterate = (y, new_duals, boundary_multipliers, barrier)
 
             return new_iterate
 
@@ -152,9 +153,10 @@ class XDYcYdDescent(
 
         # TODO: IPOPTLike defaults no bounds to infinite bounds, but we ignore bounds
         # here. (This anyway needs to be rectified.)
-        y, (equality_dual, inequality_dual), boundary_multipliers = iterate
+        # TODO: a step toward adaptive barrier updates! Now we unpack the barrier here
+        y, (equality_dual, inequality_dual), boundary_multipliers, barrier = iterate
 
-        # TODO: test driving the iterate here
+        # TODO: test driving the iterate here - this needs an update
         _, slack = f_info.constraint_residual  # pyright: ignore
         iterate_ = Iterate.AllAtOnce(
             y=y,
@@ -167,6 +169,7 @@ class XDYcYdDescent(
 
         # TODO: special case for infinite bounds? Right now not doing that
         equality_residual, inequality_residual = f_info.constraint_residual  # pyright: ignore
+        # TODO: this also uses the primal dual Hessian
         barrier_hessian = jtu.tree_map(
             lambda s, d: d / (s + 1e-6), iterate_.slack, iterate_.inequality_dual
         )
@@ -178,11 +181,11 @@ class XDYcYdDescent(
 
             def kkt(inputs):
                 y, slacks, (equality_duals, inequality_duals) = inputs
-                y_step = w.mv(y) + hj.T.mv(equality_duals) + gj.T.mv(inequality_duals)
-                s_step = -z.mv(slacks) + inequality_duals  # TODO is this correct?
-                hl_step = hj.mv(y)
-                gl_step = gj.mv(y) + slacks
-                return y_step, s_step, (hl_step, gl_step)
+                y_pred = w.mv(y) + hj.T.mv(equality_duals) + gj.T.mv(inequality_duals)
+                s_pred = -z.mv(slacks) + inequality_duals
+                hl_pred = hj.mv(y)
+                gl_pred = gj.mv(y) + slacks
+                return y_pred, s_pred, (hl_pred, gl_pred)
 
             return kkt
 
@@ -199,7 +202,6 @@ class XDYcYdDescent(
         kkt_operator = lx.FunctionLinearOperator(kkt_operator_, input_structure)
 
         hj, gj = f_info.constraint_jacobians  # pyright: ignore
-        barrier = 0.01  # TODO
 
         eq_dual = iterate_.equality_dual
         ineq_dual = iterate_.inequality_dual
@@ -239,7 +241,7 @@ class XDYcYdDescent(
         _, inequality_dual_steps = dual_steps
         max_dual_step_size = feasible_step_length(
             inequality_dual,
-            tree_full_like(inequality_dual, 0.0),
+            tree_full_like(inequality_dual, 0.0),  # TODO These are now always negative
             inequality_dual_steps,
             offset=barrier,
         )
@@ -247,7 +249,9 @@ class XDYcYdDescent(
         # TODO boundary multiplier steps
 
         # TODO: boundary multipliers currently do nothing / but not so fake anymore
-        fake_iterate_step = (y_step, dual_steps, boundary_multipliers)
+        # Barrier parameter does not get updated, but it is something that is an iterate
+        no_barrier_step = tree_full_like(barrier, 0.0)
+        fake_iterate_step = (y_step, dual_steps, boundary_multipliers, no_barrier_step)
         fake_iterate_step = (max_step_size * fake_iterate_step**ω).ω
 
         return _XDYcYdDescentState(

@@ -273,7 +273,7 @@ def test_coleman_li(fn, y0, args, bounds, expected_result):
     barrier_values__y0_bounds_barrier_parameter_expected_result,
 )
 def test_logarithmic_barrier(y0, bounds, barrier_parameter, expected_result):
-    barrier = optx.LogarithmicBarrier(bounds, barrier_parameter)
-    result = barrier(y0)
+    barrier = optx.LogarithmicBarrier(bounds)
+    result = barrier(y0, barrier_parameter)
     result = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     assert tree_allclose(result, expected_result)
