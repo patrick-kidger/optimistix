@@ -231,9 +231,10 @@ class IPOPTLikeDescent(
         y_step = (max_step_size * y_step**ω).ω
         eqdual_step = (max_step_size * eqdual_step**ω).ω
 
-        dummy = inequality_residual  # Not yet used or updated
+        dummy = inequality_residual  # TODO: Not yet used or updated
         iterate_step = (y_step, (eqdual_step, dummy), b_steps)
 
+        jax.debug.print("iterate_step: {}", iterate_step)
         return _IPOPTLikeDescentState(
             iterate_step,
             result,
@@ -291,10 +292,10 @@ def _termination(
 
     equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
     dual_term = equality_jacobian.T.mv(equality_dual)  # pyright: ignore  # TODO
-    if inequality_jacobian is not None:
-        dual_term = (
-            dual_term**ω + inequality_jacobian.T.mv(inequality_dual) ** ω  # pyright: ignore
-        ).ω
+    # if inequality_jacobian is not None:
+    #     dual_term = (
+    #         dual_term**ω + inequality_jacobian.T.mv(inequality_dual) ** ω  # pyright
+    #     ).ω
     optimality_error = norm(
         jtu.tree_map(
             lambda a, b, c, d: a + b - c - d, f_info.grad, dual_term, lb_dual, ub_dual
@@ -304,15 +305,15 @@ def _termination(
     # TODO: implement support for inequality residuals
     equality_residual, inequality_residual = f_info.constraint_residual
     constraint_norm = norm(equality_residual)
-    if inequality_residual is not None:
-        inequality_violation = tree_where(
-            # Only count violations if the residual is less than zero
-            # Alternatively transform with slack! # TODO
-            jtu.tree_map(lambda x: jnp.where(x < 0, x, 0.0), inequality_residual),
-            inequality_residual,
-            0.0,
-        )
-        constraint_norm += norm(inequality_violation)
+    # if inequality_residual is not None:
+    #     inequality_violation = tree_where(
+    #         # Only count violations if the residual is less than zero
+    #         # Alternatively transform with slack! # TODO
+    #         jtu.tree_map(lambda x: jnp.where(x < 0, x, 0.0), inequality_residual),
+    #         inequality_residual,
+    #         0.0,
+    #     )
+    #     constraint_norm += norm(inequality_violation)
 
     errata = (optimality_error, constraint_norm)
 
@@ -326,6 +327,11 @@ def _termination(
     lower_error = tree_where(finite_lower, lower_error, 0.0)
     upper_error = tree_where(finite_upper, upper_error, 0.0)
     errata += (norm(lower_error), norm(upper_error))
+
+    jax.debug.print("optimality error: {}", optimality_error)
+    jax.debug.print("constraint norm: {}", constraint_norm)
+    jax.debug.print("lower error: {}", lower_error)
+    jax.debug.print("upper error: {}", upper_error)
 
     return jnp.max(jnp.asarray(errata)) < tol
 
@@ -491,6 +497,8 @@ class AbstractIPOPTLike(
         if bounds is None:
             bounds = (tree_full_like(y, -jnp.inf), tree_full_like(y, jnp.inf))
 
+        jax.debug.print("iterate: {}", state.iterate)
+
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
         y_eval, (equality_dual, inequality_dual), boundary_multipliers = state.iterate
 
@@ -512,6 +520,7 @@ class AbstractIPOPTLike(
         )
 
         def accepted(states):
+            jax.debug.print("accepted step")
             search_state, descent_state = states
 
             grad = lin_to_grad(lin_fn, y_eval, autodiff_mode=autodiff_mode)
@@ -589,9 +598,11 @@ class AbstractIPOPTLike(
                 self.atol,
                 self.norm,  # pyright: ignore
             )
+            jax.debug.print("Termination: {}", terminate)
             terminate = jnp.where(
                 state.first_step, jnp.array(False), terminate
             )  # Skip termination on first step
+            jax.debug.print("Termination w/ first step: {}", terminate)
 
             descent_state = self.descent.query(
                 iterate,
@@ -646,8 +657,6 @@ class AbstractIPOPTLike(
             )
 
         descent_steps, descent_result = self.descent.step(step_size, descent_state)
-        iterate_eval = (state.iterate**ω + descent_steps**ω).ω
-        y_descent, *_ = descent_steps  # TODO: for use in regular_update
 
         requires_restoration = (
             search_result == RESULTS.feasibility_restoration_required
@@ -655,6 +664,10 @@ class AbstractIPOPTLike(
 
         def restore(args):
             del args
+
+            jax.debug.print("Restoring feasibility")
+            jax.debug.print("Constraint violation in FR: {}", constraint_residual)
+
             # TODO: make attribute and update the penalty parameter for the feasibility
             # restoration problem based on the barrier parameter.
             boundary_map = ClosestFeasiblePoint(1e-6, BFGS(rtol=1e-3, atol=1e-6))
@@ -662,40 +675,70 @@ class AbstractIPOPTLike(
             # TODO: Allow feasibility restoration to raise a certificate of
             # infeasibility and error out.
 
+            # TODO: perhaps re-set the dual variables here? So that we could combine
+            # this solver with a descent that does not implement a least-squares
+            # initialisation of the dual variables.
+            iterate_eval = (state.iterate**ω + descent_steps**ω).ω
+            _, new_dual, new_bounds_iterate_thingy = iterate_eval
+            new_iterate = (recovered_y, new_dual, new_bounds_iterate_thingy)
+
             # Re-initialise the search
             f_info_struct = eqx.filter_eval_shape(lambda: state.f_info)
             new_search_state = self.search.init(recovered_y, f_info_struct)
-            # TODO: inelegant to use state.iterate here?
-            new_descent_state = self.descent.init(state.iterate, f_info_struct)
-            return recovered_y, new_search_state, restoration_result, new_descent_state
+
+            # Descent can special-case the first step it takes, e.g. to initialise dual
+            # variables with a least-squares estimate. To enable this, we re-initialise
+            # the descent state here. (Alternative: make descents take a first step
+            # argument, like the searches do.)
+            new_descent_state = self.descent.init(new_iterate, f_info_struct)
+
+            new_solver_state = _IPOPTLikeState(
+                first_step=jnp.array(True),
+                iterate=new_iterate,
+                search_state=new_search_state,
+                f_info=state.f_info,
+                aux=state.aux,
+                descent_state=new_descent_state,
+                terminate=jnp.array(False),
+                result=restoration_result,
+                num_accepted_steps=state.num_accepted_steps,
+            )
+
+            return new_solver_state
 
         def regular_update(args):
-            search_result, search_state, descent_result, descent_state = args
+            search_result, descent_result = args
             result = RESULTS.where(
                 search_result == RESULTS.successful, descent_result, search_result
             )
+
+            # TODO: splice the updates here. This needs to be removed when we have a
+            # fresh API - where solver.step takes Iterate as an argument, not y.
+            iterate_eval = (state.iterate**ω + descent_steps**ω).ω
+            _, new_dual, new_bounds_iterate_thingy = iterate_eval
+
+            y_descent, *_ = descent_steps
             y_eval = (y**ω + y_descent**ω).ω
-            return y_eval, search_state, result, descent_state
 
-        args = (search_result, search_state, descent_result, descent_state)
-        y_eval, search_state, result, descent_state = filter_cond(
-            requires_restoration, restore, regular_update, args
-        )
+            iterate_eval = (y_eval, new_dual, new_bounds_iterate_thingy)
 
-        # I currently update the boundary multipliers and y_eval separately
-        _, new_dual, new_bounds_iterate_thingy = iterate_eval  # TODO: streamline this
-        new_iterate = (y_eval, new_dual, new_bounds_iterate_thingy)
-        state = _IPOPTLikeState(
-            first_step=jnp.array(False),
-            iterate=new_iterate,
-            search_state=search_state,
-            f_info=f_info,
-            aux=aux,
-            descent_state=descent_state,
-            terminate=terminate,
-            result=result,
-            num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
-        )
+            return _IPOPTLikeState(
+                first_step=jnp.array(False),
+                iterate=iterate_eval,
+                search_state=search_state,
+                f_info=f_info,
+                aux=aux_eval,
+                descent_state=descent_state,
+                terminate=terminate,
+                result=result,
+                num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
+            )
+
+        args = (search_result, descent_result)
+        requires_restoration = jnp.array(False)  # TODO: disable while debugging
+        state = filter_cond(requires_restoration, restore, regular_update, args)
+
+        jax.debug.print("")
         return y, state, aux
 
     def terminate(
