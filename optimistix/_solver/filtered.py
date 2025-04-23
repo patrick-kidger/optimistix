@@ -8,7 +8,7 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, Float, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Y
-from .._misc import filter_cond, two_norm
+from .._misc import filter_cond, max_norm
 from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
@@ -39,28 +39,21 @@ class _Filter(eqx.Module, strict=True):
         return jnp.invert(filter_out), _Filter(filter_by)
 
 
-class _FilteredState(eqx.Module, strict=True):
+class _IPOPTLikeFilteredLineSearchState(eqx.Module, strict=True):
     step_size: Scalar
     filter: _Filter
 
 
-# TODO: Perhaps change the name to IPOPTLikeFilteredLineSearch
-# TODO: Implement resetting of the filter when the barrier parameter is updated.
-# TODO: Buffer size. Check docstring of __init__ below.
-# TODO: there are some elements that this search has in common with BacktrackingArmijo.
-# A little further down the line, we could consider an AbstractBacktracking class.
 # TODO: consider FunctionInfo flavors other than EvalGradHessian, Eval once this works
 # well enough. For now I'm restricting myself to this one case to make sure that I won't
 # forget to test the other cases properly later.
-# TODO: come up with a test case where the filter becomes very important to check that
-# we do all the right things there.
-# TODO: once this seach can call for a rescue / request a feasibility restoration, note
-# that this is a result that the line search may return, and that will only be acted
-# upon by specific solvers (IPOPTLike, for now). Alternatively, other solvers could
-# raise a warning or an error if they receive this result. (Building custom solvers is
-# something our power users do, not something the regular users do.)
-class FilteredLineSearch(
-    AbstractSearch[Y, FunctionInfo.EvalGradHessian, FunctionInfo.Eval, _FilteredState],
+class IPOPTLikeFilteredLineSearch(
+    AbstractSearch[
+        Y,
+        FunctionInfo.EvalGradHessian,
+        FunctionInfo.Eval,
+        _IPOPTLikeFilteredLineSearchState,
+    ],
     strict=True,
 ):
     """A filtered line search. At every step, the search will evaluate the Armijo
@@ -69,6 +62,30 @@ class FilteredLineSearch(
     function or the constraint violation.
     In either case, the search will then check if the current step is an improvement
     over the previous steps, and reject the step if it is not.
+
+    ??? Info
+
+    This search is an implementation of the filtered line search available in IPOPT,
+    with minimal modifications. All default values for search parameters are set to
+    values described in the IPOPT implementation paper, where possible.
+    The modifications are as follows:
+    - To respect JAX' static shape requirements, we introduce a buffer size for the
+        filter, which defaults to 256 elements, the same as the default number of steps
+        in [`optimistix.minimise`][]. If the buffer is full, the largest pairs of (merit
+        function, constraint violation) pairs will be booted from the filter, following
+        a rule in which the largest value is replaced.
+    - The parameters maximum and acceptable constraint violation are not proportional to
+        the initial value of the constraint violation, but instead default to their
+        suggested minimum values.
+    - The minimum step size is a constant, defined by the product of `gamma_alpha` and
+        `gamma_theta` in IPOPT. The gradients of the merit function and the constraint
+        violation are not considered. (In IPOPT these values may be used to accept very
+        small steps.)
+    - The maximum feasible step length is determined in the descent, not the search.
+        Accordingly, accepted steps have length 1.0 from the "point of view" of the
+        search. For search/descent interation, see also
+        [this Introduction](../introduction.md#search-descent-iteration).
+        TODO this link might not work yet.
 
     ??? cite "References"
 
@@ -89,36 +106,23 @@ class FilteredLineSearch(
         ```
     """
 
-    # TODO: if we always augment the filter, then we actually may need a larger buffer?
-    # I think the number of steps the solver counts are just the accepted ones.
-    buffer_size: int = 2**6  # TODO hotfix while monkey patching
-    norm: Callable[[PyTree], Scalar] = two_norm
-    decrease_factor: ScalarLike = 0.5
-    slope: ScalarLike = 0.1
-    step_init: ScalarLike = 1.0
+    buffer_size: int = 2**8
+    norm: Callable[[PyTree], Scalar] = max_norm
+    decrease_factor: ScalarLike = 0.5  # alpha_red_factor in IPOPT, in (0, 1)
+    slope: ScalarLike = 1e-4  # ita_phi in IPOPT, in (0, 0.5)
+    step_init: ScalarLike = 1.0  # No specific name in IPOPT, plays role of alpha_0
     constraint_weight: ScalarLike = 1e-5  # gamma_phi in IPOPT, in (0, 1)
     constraint_decrease: ScalarLike = 1e-5  # gamma_theta in IPOPT, in (0, 1)
-    # TODO: now allowing large(-ish) maximum violation. If this is set to low, then the
-    # solver can get stuck - if the first step takes us out of that cushy region and the
-    # subsequent ones are substantial improvements, but not quite there, then we will
-    # never step to these better places. It is better to not constrain this too much
-    # right off the bat, so that we can then let the filter become more stringent
-    # throughout the solve. (Plus I think IPOPT has several thingies for this? They also
-    # scale by some value?)
-    maximum_violation: ScalarLike = 1e3  # theta_max in IPOPT - what to default to?
+    maximum_violation: ScalarLike = 1e4  # theta_max in IPOPT
     acceptable_violation: ScalarLike = 1e-4  # theta_min in IPOPT
     scale_constraint: ScalarLike = 1.0  # delta in IPOPT
     power_merit: ScalarLike = 2.3  # s_phi in IPOPT
     power_constraint: ScalarLike = 1.1  # s_theta in IPOPT
+    minimum_step_length: ScalarLike = 0.05 * 1e-5  # gamma_alpha * gamma_theta
 
-    minimum_step: ScalarLike = 2 ** (-4)  # Backtrack four times at most (1/16)
-
-    # TODO: BacktrackingArmijo uses __post_init__ instead. Would that be better here?
-    # https://docs.kidger.site/equinox/api/module/advanced_fields/#checking-invariants
-    def __check_init__(self):
-        pass
-
-    def init(self, y: Y, f_info_struct: FunctionInfo.EvalGradHessian) -> _FilteredState:
+    def init(
+        self, y: Y, f_info_struct: FunctionInfo.EvalGradHessian
+    ) -> _IPOPTLikeFilteredLineSearchState:
         del f_info_struct
 
         # TODO: the filter needs to be initialised somewhere.
@@ -128,7 +132,7 @@ class FilteredLineSearch(
         previous_values = jnp.broadcast_to(
             jnp.array([1000, self.maximum_violation]), (self.buffer_size, 2)
         )
-        return _FilteredState(
+        return _IPOPTLikeFilteredLineSearchState(
             step_size=jnp.array(self.step_init),
             filter=_Filter(previous_values),
         )
@@ -140,8 +144,8 @@ class FilteredLineSearch(
         y_eval: Y,
         f_info: FunctionInfo.EvalGradHessian,
         f_eval_info: FunctionInfo.Eval,
-        state: _FilteredState,
-    ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _FilteredState]:
+        state: _IPOPTLikeFilteredLineSearchState,
+    ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _IPOPTLikeFilteredLineSearchState]:
         if f_info.bounds is not None:
             # TODO hotfix: Only works if we have nonnegativity constraints.
             log_terms = jtu.tree_map(
@@ -166,8 +170,8 @@ class FilteredLineSearch(
             f_eval = f_eval_info.f
 
         # Hotfix for debugging (there seems to be an issue with the barrier term)
-        f = f_info.f
-        f_eval = f_eval_info.f
+        # f = f_info.f
+        # f_eval = f_eval_info.f
 
         if (
             f_info.constraint_residual is None
@@ -175,9 +179,30 @@ class FilteredLineSearch(
         ):
             raise ValueError("FilteredLineSearch requires a constraint_residual.")
         else:
-            # TODO: re-enable inequality_constraints
-            constraint_violation = self.norm(f_info.constraint_residual)
-            constraint_violation_eval = self.norm(f_eval_info.constraint_residual)
+            # TODO: this should become an attribute of FunctionInfo
+            # It is anyway required for a lot of different solvers, and during
+            # termination too.
+            equality_residual, inequality_residual = f_info.constraint_residual
+            equality_violation = self.norm(equality_residual)
+            inequality_violation = self.norm(
+                jtu.tree_map(lambda x: jnp.where(x < 0, x, 0.0), inequality_residual)
+            )
+            constraint_violation = equality_violation + inequality_violation
+
+            (
+                equality_residual_eval,
+                inequality_residual_eval,
+            ) = f_eval_info.constraint_residual
+            equality_violation_eval = self.norm(equality_residual_eval)
+            inequality_violation_eval = self.norm(
+                jtu.tree_map(
+                    lambda x: jnp.where(x < 0, x, 0.0), inequality_residual_eval
+                )
+            )
+            constraint_violation_eval = (
+                equality_violation_eval + inequality_violation_eval
+            )
+            ### CONSTRUCTION SITE ENDS -------------------------------------------------
 
             # Decide if the constraint violation may be ignored based on gradient values
             # and the constraint violation at the accepted *previous* step y, and the
@@ -187,76 +212,65 @@ class FilteredLineSearch(
                 constraint_violation**self.power_constraint
             )
             step = (y_eval**ω - y**ω).ω
+            # TODO: this should be the gradient of the merit function, not the objective
             grad_dot = f_info.compute_grad_dot(step)  # this should be the gradient
             scaled_grad_dot = (-grad_dot) ** self.power_merit
             pred = neglect_constraints & (scaled_grad_dot > scaled_violation)
 
             def armijo(current_values_):
                 merit_min_eval_, _ = current_values_
+
                 predicted_reduction = self.slope * grad_dot
                 armijo_ = merit_min_eval_ <= f + predicted_reduction
+
                 filtered, filter = state.filter(current_values_, jnp.invert(armijo_))
                 return armijo_ & filtered, filter
 
             def improve(current_values_):  # Checks if get a least a little better
                 merit_min_eval_, constraint_violation_eval_ = current_values_
-                improves_constraints = (
-                    constraint_violation_eval_
-                    <= (1 - self.constraint_decrease) * constraint_violation
-                )
-                improves_merit = (
-                    merit_min_eval_ <= f - self.constraint_weight * constraint_violation
-                )
+
+                constraint_viol_ = (1 - self.constraint_decrease) * constraint_violation
+                improves_constraints = constraint_violation_eval_ <= constraint_viol_
+
+                merit_min_ = f - self.constraint_weight * constraint_violation
+                improves_merit = merit_min_eval_ <= merit_min_
+
                 improves_either = improves_constraints | improves_merit
+
                 filtered, filter = state.filter(current_values_, True)  # Always augment
                 return improves_either & filtered, filter
 
-            # TODO: barrier term gets added here - there must be a better way to do this
             current_values = jnp.array([f_eval, constraint_violation_eval])
             accept, filter = filter_cond(pred, armijo, improve, current_values)
 
-            # TODO: special-case the first step: initialise the filter and accept
             accept = first_step | accept
 
             step_size = jnp.where(
                 accept, self.step_init, self.decrease_factor * state.step_size
             )
 
-            # TODO: check if the step size is accepted and the step size and meets the
-            # minimum required step length, otherwise return a rescue request.
+            # Invoke feasibility restoration if required
             result = RESULTS.where(
-                step_size >= self.minimum_step,
+                step_size >= self.minimum_step_length,
                 RESULTS.successful,
                 RESULTS.feasibility_restoration_required,
             )
-            # TODO: what should I do with the accept? This determines what branch we
-            # end up in. I think I don't need to do anything with it (?), since the
-            # step size would fall below the threshold when we have rejected the step
-            # and decrease the step size.
 
             return (
                 step_size,
                 accept,
                 result,
-                _FilteredState(
+                _IPOPTLikeFilteredLineSearchState(
                     step_size=step_size,
                     filter=filter,
                 ),
             )
 
 
-# TODO: are we copying the filter buffer?
-# TODO: switch where and update
-
-# TODO: buffer size is currently defaulting to the number of steps in the top-level APIs
-# for unconstrained problems. I have so far observed that some constrained searches can
-# require more steps - let's see how that develops and update accordingly. We can
-# probably get away with storing fewer values, if we assume that the higher ones are
-# eventually all superseded anyway.
-FilteredLineSearch.__init__.__doc__ = """**Arguments**:
+IPOPTLikeFilteredLineSearch.__init__.__doc__ = """**Arguments**:
 
 - `buffer_size`: The number of previous values to keep track of in the filter. Default
-    value is 256, the same as the default number of steps.
+    value is 256, the same as the default number of steps in [`optimistix.minimise`][].
 - `norm`: The norm to use when computing the constraint violation. Should be any 
     function `PyTree -> Scalar`. Optimistix includes three built-in norms: 
     [`optimistix.max_norm`][], [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
@@ -288,4 +302,7 @@ FilteredLineSearch.__init__.__doc__ = """**Arguments**:
     exceeded by the predicted reduction in the merit function for the step length to be
     computed using the Armijo condition. See `scale_constraint`. 
     Default value is 1.1.
+- `minimum_step_length`: The minimum step length that is considered acceptable. If the
+    step length is smaller than this value, the search will request a feasibility 
+    restoration. Default value is 0.05 * 1e-5.
 """

@@ -22,7 +22,7 @@ from .coleman_li import (
     ColemanLiDescent as ColemanLiDescent,
 )
 from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
-from .filtered import FilteredLineSearch as FilteredLineSearch
+from .filtered import IPOPTLikeFilteredLineSearch as IPOPTLikeFilteredLineSearch
 from .fixed_point import FixedPointIteration as FixedPointIteration
 from .gauss_newton import (
     AbstractGaussNewton as AbstractGaussNewton,

@@ -43,7 +43,7 @@ class BFGSInteriorFiltered(optx.AbstractBFGS):
     norm: Callable = optx.max_norm
     use_inverse: bool = False
     # TODO(jhaffner): once we settle on how to specify the buffer size, change this here
-    search: optx.AbstractSearch = optx.FilteredLineSearch(2**9)
+    search: optx.AbstractSearch = optx.IPOPTLikeFilteredLineSearch(2**9)
     descent: optx.AbstractDescent = optx.InteriorDescent()
     verbose: frozenset[str] = frozenset()
 

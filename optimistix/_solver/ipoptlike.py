@@ -39,7 +39,7 @@ from .._search import (
 from .._solution import RESULTS
 from .bfgs import BFGS, identity_pytree
 from .boundary_maps import ClosestFeasiblePoint
-from .filtered import FilteredLineSearch
+from .filtered import IPOPTLikeFilteredLineSearch
 
 
 # Some global flags strictly for use during development, these will be removed later.
@@ -747,7 +747,7 @@ class IPOPTLike(AbstractIPOPTLike[Y, Aux], strict=True):
     atol: float
     norm: Callable[[PyTree], Scalar]
     descent: IPOPTLikeDescent
-    search: FilteredLineSearch
+    search: IPOPTLikeFilteredLineSearch
     verbose: frozenset[str]
 
     def __init__(
@@ -761,7 +761,7 @@ class IPOPTLike(AbstractIPOPTLike[Y, Aux], strict=True):
         self.atol = atol
         self.norm = norm
         self.descent = IPOPTLikeDescent()
-        self.search = FilteredLineSearch()
+        self.search = IPOPTLikeFilteredLineSearch()
         self.verbose = verbose
 
 
