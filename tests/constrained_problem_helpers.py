@@ -620,3 +620,26 @@ y__bound__proposed_step__offset__expected_result = (
         jnp.array(1.0),
     ),
 )
+
+
+barrier_values__y0_bounds_barrier_parameter_expected_result = (
+    # y0, bounds, barrier_parameter, expected_result
+    (
+        jnp.ones((2,)),
+        (0 * jnp.ones((2,)), 2 * jnp.ones((2,))),
+        1.0,
+        jnp.array(0.0),
+    ),
+    (
+        0.5 * jnp.ones((2,)),
+        (0 * jnp.ones((2,)), 2 * jnp.ones((2,))),
+        1.0,
+        jnp.array(0.57536414),
+    ),
+    (
+        1.5 * jnp.ones((2,)),
+        (0 * jnp.ones((2,)), 2 * jnp.ones((2,))),
+        1.0,
+        jnp.array(0.57536414),
+    ),
+)

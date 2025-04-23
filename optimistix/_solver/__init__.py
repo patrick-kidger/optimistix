@@ -1,4 +1,8 @@
 from .backtracking import BacktrackingArmijo as BacktrackingArmijo
+from .barrier import (
+    AbstractBarrier as AbstractBarrier,
+    LogarithmicBarrier as LogarithmicBarrier,
+)
 from .best_so_far import (
     BestSoFarFixedPoint as BestSoFarFixedPoint,
     BestSoFarLeastSquares as BestSoFarLeastSquares,

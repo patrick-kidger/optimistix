@@ -74,24 +74,6 @@ def _make_barrier_hessians(
     return lower_hessian, upper_hessian
 
 
-def _make_barrier_gradients(
-    y: Y, bounds: tuple[Y, Y], barrier_parameter: float
-) -> tuple[Y, Y]:
-    """Define the gradient of the merit function. This is the log-barrier gradient,
-    defined as the sum of the gradients of the logarithmic barrier terms for the bound
-    constraints.
-    """
-    lower, upper = bounds
-    finite_lower = jtu.tree_map(jnp.isfinite, lower)
-    finite_upper = jtu.tree_map(jnp.isfinite, upper)
-    dummy_barrier_parameter = 0.01
-    lower_barrier_grad = (dummy_barrier_parameter / (y**ω - lower**ω)).ω
-    upper_barrier_grad = (dummy_barrier_parameter / (upper**ω - y**ω)).ω
-    lower_barrier_grad = tree_where(finite_lower, lower_barrier_grad, 0.0)
-    upper_barrier_grad = tree_where(finite_upper, upper_barrier_grad, 0.0)
-    return lower_barrier_grad, upper_barrier_grad
-
-
 class _XDYcYdDescentState(
     eqx.Module, Generic[Y, EqualityOut, InequalityOut], strict=True
 ):

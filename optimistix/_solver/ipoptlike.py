@@ -37,6 +37,7 @@ from .._search import (
     FunctionInfo,
 )
 from .._solution import RESULTS
+from .barrier import LogarithmicBarrier
 from .bfgs import BFGS, identity_pytree
 from .boundary_maps import ClosestFeasiblePoint
 from .filtered import IPOPTLikeFilteredLineSearch
@@ -46,6 +47,8 @@ from .filtered import IPOPTLikeFilteredLineSearch
 # I'm introducing them here to be able to selectively enable certain special features,
 # for use in testing and debugging.
 SECOND_ORDER_CORRECTION = False
+FEASIBILITY_RESTORATION = False
+FILTERED_LINE_SEARCH = False
 
 
 def _make_kkt_operator(hessian, jacobian, input_structure):
@@ -87,24 +90,6 @@ def _make_barrier_hessians(
     upper_hessian = lx.DiagonalLinearOperator((upper_term**ω * mul_upper**ω).ω)
 
     return lower_hessian, upper_hessian
-
-
-def _make_barrier_gradients(
-    y: Y, bounds: tuple[Y, Y], barrier_parameter: float
-) -> tuple[Y, Y]:
-    """Define the gradient of the merit function. This is the log-barrier gradient,
-    defined as the sum of the gradients of the logarithmic barrier terms for the bound
-    constraints.
-    """
-    lower, upper = bounds
-    finite_lower = jtu.tree_map(jnp.isfinite, lower)
-    finite_upper = jtu.tree_map(jnp.isfinite, upper)
-    dummy_barrier_parameter = 0.01
-    lower_barrier_grad = (dummy_barrier_parameter / (y**ω - lower**ω)).ω
-    upper_barrier_grad = (dummy_barrier_parameter / (upper**ω - y**ω)).ω
-    lower_barrier_grad = tree_where(finite_lower, lower_barrier_grad, 0.0)
-    upper_barrier_grad = tree_where(finite_upper, upper_barrier_grad, 0.0)
-    return lower_barrier_grad, upper_barrier_grad
 
 
 class _IPOPTLikeDescentState(
@@ -151,6 +136,11 @@ class IPOPTLikeDescent(
         f_info: FunctionInfo.EvalGradHessian,
         state: _IPOPTLikeDescentState,
     ) -> _IPOPTLikeDescentState:
+        ### CONSTRUCTION SITE ----------------------------------------------------------
+        # TODO introduce barrier
+        dummy_barrier_parameter = 0.01
+        barrier = LogarithmicBarrier(f_info.bounds, dummy_barrier_parameter)  # pyright: ignore
+
         y, (equality_dual, inequality_dual), boundary_multipliers = iterate
 
         assert f_info.constraint_residual is not None
@@ -163,9 +153,9 @@ class IPOPTLikeDescent(
         )
         lower_barrier_hessian, upper_barrier_hessian = barrier_hessians
         hessian = f_info.hessian + lower_barrier_hessian + upper_barrier_hessian
-        barrier_grads = _make_barrier_gradients(y, f_info.bounds, 0.01)  # pyright: ignore
-        lower_barrier_grad, upper_barrier_grad = barrier_grads
-        grad = (f_info.grad**ω - lower_barrier_grad**ω - upper_barrier_grad**ω).ω
+
+        lower_barrier_grad, upper_barrier_grad = barrier.grad(y)
+        grad = (f_info.grad**ω + lower_barrier_grad**ω + upper_barrier_grad**ω).ω
 
         equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
         equality_residual, inequality_residual = f_info.constraint_residual
@@ -519,9 +509,15 @@ class AbstractIPOPTLike(
             state.search_state,
         )
 
+        if not FILTERED_LINE_SEARCH:  # Mimic behavior of LearningRate(1.0)
+            accept = jnp.array(True)
+            step_size = jnp.array(1.0)
+            search_result = RESULTS.successful
+            search_state = state.search_state  # No update
+
         def accepted(states):
             jax.debug.print("accepted step")
-            search_state, descent_state = states
+            _, descent_state = states
 
             grad = lin_to_grad(lin_fn, y_eval, autodiff_mode=autodiff_mode)
 
@@ -622,6 +618,9 @@ class AbstractIPOPTLike(
         def rejected(states):
             search_state, descent_state = states
 
+            if SECOND_ORDER_CORRECTION:
+                pass
+
             # TODO: SOC with twice the step size as is returned by the first search...
             # Alternatively calling again with state.search_state. This means that we
             # lose the filter augmentation from the first call to the search. We'd like
@@ -657,6 +656,7 @@ class AbstractIPOPTLike(
             )
 
         descent_steps, descent_result = self.descent.step(step_size, descent_state)
+        jax.debug.print("descent_steps: {}", descent_steps)
 
         requires_restoration = (
             search_result == RESULTS.feasibility_restoration_required
@@ -735,7 +735,8 @@ class AbstractIPOPTLike(
             )
 
         args = (search_result, descent_result)
-        requires_restoration = jnp.array(False)  # TODO: disable while debugging
+        if not FEASIBILITY_RESTORATION:  # Disable during debugging of other features
+            requires_restoration = jnp.array(False)
         state = filter_cond(requires_restoration, restore, regular_update, args)
 
         jax.debug.print("")

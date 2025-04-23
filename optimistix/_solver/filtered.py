@@ -1,16 +1,16 @@
 from collections.abc import Callable
 
 import equinox as eqx
-import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Float, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Y
-from .._misc import filter_cond, max_norm
+from .._misc import filter_cond, max_norm, tree_dot
 from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
+from .barrier import LogarithmicBarrier
 
 
 class _Filter(eqx.Module, strict=True):
@@ -174,32 +174,22 @@ class IPOPTLikeFilteredLineSearch(
     ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _IPOPTLikeFilteredLineSearchState]:
         # TODO: initialise filter if first_step
 
+        # CONSTRUCTION SITE: Barrier transformation ------------------------------------
+        f = f_info.f
+        f_eval = f_eval_info.f
         if f_info.bounds is not None:
-            # TODO hotfix: Only works if we have nonnegativity constraints.
-            log_terms = jtu.tree_map(
-                lambda x, b: jnp.where(jnp.isfinite(x), jnp.log(x), 0.0),
-                y,
-                f_info.bounds,  # bounds never get updated
-            )
-            log_terms, _ = jfu.ravel_pytree(log_terms)
-            barrier_term = jnp.sum(log_terms)
-            f = f_info.f - barrier_term  # TODO add multiplier here
-            # Or else do this in the solver itself, before creating the function info
-            log_terms = jtu.tree_map(
-                lambda x, b: jnp.where(jnp.isfinite(x), jnp.log(x), 0.0),
-                y_eval,
-                f_info.bounds,  # bounds never get updated
-            )
-            log_terms, _ = jfu.ravel_pytree(log_terms)
-            barrier_term_eval = jnp.sum(log_terms)
-            f_eval = f_eval_info.f - 0.01 * barrier_term_eval
+            barrier = LogarithmicBarrier(f_info.bounds, 1e-2)  # Dummy barrier
+            f = f_info.f + barrier(y)
+            f_eval = f_eval_info.f + barrier(y_eval)
+
+            lower_grad, upper_grad = barrier.grad(y)
+            f_grad = (f_info.grad**ω + lower_grad**ω + upper_grad**ω).ω
         else:
-            f = f_info.f  # no barrier term without bounds
+            f = f_info.f
             f_eval = f_eval_info.f
 
-        # Hotfix for debugging (there seems to be an issue with the barrier term)
-        # f = f_info.f
-        # f_eval = f_eval_info.f
+            f_grad = f_info.grad
+        # CONSTRUCTION SITE ENDS -------------------------------------------------------
 
         if (
             f_info.constraint_residual is None
@@ -241,7 +231,7 @@ class IPOPTLikeFilteredLineSearch(
             )
             step = (y_eval**ω - y**ω).ω
             # TODO: this should be the gradient of the merit function, not the objective
-            grad_dot = f_info.compute_grad_dot(step)  # this should be the gradient
+            grad_dot = tree_dot(f_grad, step)  # this should be the gradient
             scaled_grad_dot = (-grad_dot) ** self.power_merit
             pred = neglect_constraints & (scaled_grad_dot > scaled_violation)
 

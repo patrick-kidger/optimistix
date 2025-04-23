@@ -6,6 +6,7 @@ import optimistix as optx
 import pytest
 
 from .constrained_problem_helpers import (
+    barrier_values__y0_bounds_barrier_parameter_expected_result,
     bounded_paraboloids,
     constrained_quadratic_solvers,
     convex_constrained_minimisers,
@@ -265,3 +266,14 @@ def test_coleman_li(fn, y0, args, bounds, expected_result):
 
     res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     assert tree_allclose(sol.value, res, rtol=1e-3, atol=1e-6)  # TODO tolerances?
+
+
+@pytest.mark.parametrize(
+    "y0, bounds, barrier_parameter, expected_result",
+    barrier_values__y0_bounds_barrier_parameter_expected_result,
+)
+def test_logarithmic_barrier(y0, bounds, barrier_parameter, expected_result):
+    barrier = optx.LogarithmicBarrier(bounds, barrier_parameter)
+    result = barrier(y0)
+    result = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
+    assert tree_allclose(result, expected_result)
