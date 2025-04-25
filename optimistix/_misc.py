@@ -128,6 +128,7 @@ def tree_clip(
     return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
 
 
+# TODO: do we do the right thing for upper bounds here? I'm not sure about that!
 def feasible_step_length(
     current: PyTree[Array],
     bound: PyTree[Array],
