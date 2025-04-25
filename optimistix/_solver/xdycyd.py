@@ -17,61 +17,125 @@ from .._misc import (
     feasible_step_length,
     filter_cond,
     tree_full_like,
-    tree_where,
 )
 from .._search import (
     AbstractDescent,
     FunctionInfo,
-    Iterate,
 )
 from .._solution import RESULTS
+from .barrier import LogarithmicBarrier
+from .ipoptlike import _interior_tree_clip  # pyright: ignore (private function)
 
 
-# Some global flags strictly for use during development, these will be removed later.
-# I'm introducing them here to be able to selectively enable certain special features,
-# for use in testing and debugging.
-SECOND_ORDER_CORRECTION = False
+# TODO: After feasibility restoration (?) IPOPT apparently sets all multipliers to zero
+# IIUC: https://coin-or.github.io/Ipopt/OPTIONS.html
+# Should we do this here? Then we would need to set separate cutoff values for the
+# initial and subsequent initialisations of the multipliers.
+# They now also support an option to set the bound multipliers to mu/value, as we do
+# below for the slack variables.
+# ...and it turns out that they do their linear least squares solve for all multipliers,
+# not just the equality multipliers. So this would require a change here. I'm tabling
+# this for now though, since its not clear that it makes this much of a difference and
+# other pots are burning, to use a german phrase.
+def _initialise_multipliers(iterate__f_info):
+    """Initialise the multipliers for the equality and inequality constraints. Both are
+    initialised to the value they are expected to take at the optimum, with a safety
+    factor for truncation if the computed values are unexpectedly large.
 
+    The multipliers for the inequality constraints are initialised to the value they are
+    expected to take at the optimum, which is
 
-def _make_kkt_operator(hessian, jacobian, input_structure):
-    def kkt(inputs):
-        y, duals = inputs
-        y_step = (hessian.mv(y) ** ω + jacobian.T.mv(duals) ** ω).ω
-        dual_step = jacobian.mv(y)
-        return y_step, dual_step
+        inequality_multiplier = barrier_parameter / slack
 
-    return lx.FunctionLinearOperator(kkt, input_structure)
+    where the slack variables convert the inequality constraints to equality constraints
+    such that we have
 
+        g(y) - slack = 0.
 
-def _make_barrier_hessians(
-    y: Y,
-    bounds: tuple[Y, Y],
-    bound_multipliers: tuple[Y, Y],
-) -> tuple[lx.DiagonalLinearOperator, lx.DiagonalLinearOperator]:
-    """Construct the "barrier Hessians" for the logarithmic barrier terms in the merit
-    function. They are constructed as a diagonal matrix to be added to the Hessian of
-    the target function, composed of the reciprocals of the distances to finite bounds,
-    multiplied by the Lagrange multipliers for the bound constraints.
+    For an inequality constraint function `g`. The slack variables must always be
+    strictly positive.
+
+    We can then solve for the multipliers of the equality constraints with a linear
+    least squares solve, again assuming optimality of the Lagragian, which means that
+
+        grad Lagrangian = grad f + Jac h^T * l + Jac g^T * m = 0
+
+    for an objective function `f`, equality constraints `h`, and inequality constraints
+    `g`, with inequality constraint multipliers `m` computed as above. We then get
+
+        Jac h^T * l = -grad f - Jac g^T * m
+
+    which we can solve for the equality constraint multipliers `l`. We can do better
+    than that though, since we know that the role of the Lagrangian multipliers is to
+    counterbalance the gradient of the objective function at the optimum. This means
+    that directions of the "constraint gradient" Jac h^T * l that are orthogonal to the
+    gradient of the objective function can be discarded.
+    To accomplish this, we introduce an auxiliary variable `w` that we require to be in
+    the null space of the Jacobian of the equality constraints. We obtain the linear
+    system
+
+        [     I    Jac h^T ] [ w ] = [ -grad f - Jac g^T * m]
+        [ Jac h^T    0     ] [ l ] = [          0           ]
+
+    which we solve by least squares.
+
+    Finally, strong linear dependence of the equality constraints can result in very
+    large values for the multipliers computed in this way. To guard against this, we
+    truncate all multipliers to a cutoff value, including the multipliers for the
+    inequality constraints.
+
+    Note: (TODO): IPOPT supports separate options for the `bound_frac` and `bound_push`
+    parameters of the interior clipping function. Right now we do not support this and
+    instead use a (hard-coded) value of 0.01 for both. The respective values are set as
+    solver options, so patching them through to the descent would need to be figured
+    out. Alternatively the value of the barrier parameter could be used, to make sure
+    that we move the slack variables less as the overall solve progresses. However, this
+    somewhat contradicts the purpose of the initialisation here - which should be
+    robust, since it is done at the start and after every feasibility restoration step.
     """
-    assert jtu.tree_structure(bound_multipliers) == jtu.tree_structure(bounds)
+    iterate, f_info = iterate__f_info
+    y, (equality_multipliers, _), boundary_multipliers, barrier = iterate
+    _, inequality_residual = f_info.constraint_residual
 
-    lower, upper = bounds
-    finite_lower = jtu.tree_map(jnp.isfinite, lower)
-    finite_upper = jtu.tree_map(jnp.isfinite, upper)
+    # TODO: special case for when we don't have any inequality constraints
+    slack = inequality_residual
+    lower = tree_full_like(slack, 0.0)
+    upper = tree_full_like(slack, jnp.inf)
+    slack = _interior_tree_clip(slack, lower, upper, 0.01, 0.01)
+    inequality_multipliers = (barrier / slack**ω).ω
 
-    mul_lower, mul_upper = bound_multipliers
-    # We're adding a safeguard here to avoid special-casing the first step.
-    mul_lower = tree_where(finite_lower, mul_lower, 0.0)
-    mul_upper = tree_where(finite_upper, mul_upper, 0.0)
+    equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
+    inequality_gradient = inequality_jacobian.T.mv(inequality_multipliers)
+    gradient = (-(f_info.grad**ω) - inequality_gradient**ω).ω
+    null = tree_full_like(equality_multipliers, 0.0)
+    vector = (gradient, null)
+    del equality_multipliers
 
-    _ones = tree_full_like(y, 1.0)
-    lower_term = tree_where(finite_lower, (1 / (y**ω - lower**ω)).ω, _ones)
-    upper_term = tree_where(finite_upper, (1 / (upper**ω - y**ω)).ω, _ones)
+    def make_operator(equality_jacobian, input_structure):
+        jac = equality_jacobian  # for brevity
 
-    lower_hessian = lx.DiagonalLinearOperator((lower_term**ω * mul_lower**ω).ω)
-    upper_hessian = lx.DiagonalLinearOperator((upper_term**ω * mul_upper**ω).ω)
+        def operator(inputs):
+            orthogonal_component, parallel_component = inputs
+            r1 = (orthogonal_component**ω + jac.T.mv(parallel_component) ** ω).ω
+            r2 = jac.mv(orthogonal_component)
+            return r1, r2
 
-    return lower_hessian, upper_hessian
+        return lx.FunctionLinearOperator(operator, input_structure)
+
+    operator = make_operator(equality_jacobian, jax.eval_shape(lambda: vector))
+    # TODO: we could allow a different choice of linear solver here
+    out = lx.linear_solve(operator, vector, lx.SVD())
+    _, equality_multipliers = out.value
+
+    # TODO: hard-coded cutoff value for now! In IPOPT this is an option to the solver
+    def truncate(x):
+        return jnp.where(jnp.abs(x) < 1e3, x, 0.0)
+
+    safe_equality_multipliers = jtu.tree_map(truncate, equality_multipliers)
+    safe_inequality_multipliers = jtu.tree_map(truncate, inequality_multipliers)
+    safe_duals = (safe_equality_multipliers, safe_inequality_multipliers)
+
+    return (y, safe_duals, boundary_multipliers, barrier)
 
 
 class _XDYcYdDescentState(
@@ -109,82 +173,41 @@ class XDYcYdDescent(
         f_info: FunctionInfo.EvalGradHessian,
         state: _XDYcYdDescentState,
     ) -> _XDYcYdDescentState:
-        # Handle initialisation of dual variables where required
-        def least_squares_duals(iterate__f_info):
-            iterate, f_info = iterate__f_info
-            # TODO: no support for no constraints yet! And either constraint must be
-            # allowed to be None, but we don't handle this case here
-            y, duals, boundary_multipliers, barrier = iterate
-
-            def make_kkt(jacobians, input_structure):
-                hjac, gjac = jacobians
-
-                def kkt(inputs):
-                    aux_step, (eq_dual_step, ineq_dual_step) = inputs
-                    r1 = aux_step + hjac.T.mv(eq_dual_step) + gjac.T.mv(ineq_dual_step)
-                    r2 = hjac.mv(aux_step)
-                    r3 = gjac.mv(aux_step)
-                    return r1, (r2, r3)
-
-                return lx.FunctionLinearOperator(kkt, input_structure)
-
-            input_structure = jax.eval_shape(lambda: (y, duals))
-            kkt_operator = make_kkt(f_info.constraint_jacobians, input_structure)
-            vector = (-f_info.grad, tree_full_like(duals, 0.0))
-
-            out = lx.linear_solve(kkt_operator, vector, self.linear_solver)
-            _, new_duals = out.value
-
-            # TODO: make the cutoff a descent attribute
-            reasonable_duals = jtu.tree_map(lambda x: jnp.abs(x) < 1e3, new_duals)
-            new_duals = tree_where(reasonable_duals, new_duals, 0.0)
-
-            # TODO: barrier parameter does not get updated here
-            new_iterate = (y, new_duals, boundary_multipliers, barrier)
-
-            return new_iterate
-
-        def keep_duals(iterate__f_info):
+        def keep_multipliers(iterate__f_info):
             iterate, _ = iterate__f_info
             return iterate
 
         args = (iterate, f_info)
-        iterate = filter_cond(state.first_step, least_squares_duals, keep_duals, args)
+        iterate = filter_cond(
+            state.first_step, _initialise_multipliers, keep_multipliers, args
+        )
 
-        # TODO: IPOPTLike defaults no bounds to infinite bounds, but we ignore bounds
-        # here. (This anyway needs to be rectified.)
-        # TODO: a step toward adaptive barrier updates! Now we unpack the barrier here
         y, (equality_dual, inequality_dual), boundary_multipliers, barrier = iterate
-
-        # TODO: test driving the iterate here - this needs an update
         _, slack = f_info.constraint_residual  # pyright: ignore
-        iterate_ = Iterate.AllAtOnce(
-            y=y,
-            bounds=f_info.bounds,
-            slack=slack,
-            equality_dual=equality_dual,
-            inequality_dual=inequality_dual,
-            boundary_multipliers=boundary_multipliers,
+        slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
+        # TODO: values determining truncation to strict interior not used here yet
+        slack = _interior_tree_clip(slack, *slack_bounds, 0.01, 0.01)
+        slack_barrier = LogarithmicBarrier((slack_bounds))
+        barrier_grad, _ = slack_barrier.grads(slack, barrier)
+        barrier_hessian, _ = slack_barrier.primal_dual_hessians(
+            slack, (inequality_dual, inequality_dual)
         )
 
-        # TODO: special case for infinite bounds? Right now not doing that
         equality_residual, inequality_residual = f_info.constraint_residual  # pyright: ignore
-        # TODO: this also uses the primal dual Hessian
-        barrier_hessian = jtu.tree_map(
-            lambda s, d: d / (s + 1e-6), iterate_.slack, iterate_.inequality_dual
-        )
-        barrier_hessian = lx.DiagonalLinearOperator(barrier_hessian)
 
-        # TODO: adapt for PyTrees
         def make_kkt_operator(w, z, jacs):
             hj, gj = jacs
 
             def kkt(inputs):
                 y, slacks, (equality_duals, inequality_duals) = inputs
-                y_pred = w.mv(y) + hj.T.mv(equality_duals) + gj.T.mv(inequality_duals)
-                s_pred = -z.mv(slacks) + inequality_duals
+                y_pred = (
+                    w.mv(y) ** ω
+                    + hj.T.mv(equality_duals) ** ω
+                    + gj.T.mv(inequality_duals) ** ω
+                ).ω
+                s_pred = (-(z.mv(slacks) ** ω) + inequality_duals**ω).ω
                 hl_pred = hj.mv(y)
-                gl_pred = gj.mv(y) + slacks
+                gl_pred = (gj.mv(y) ** ω + slacks**ω).ω
                 return y_pred, s_pred, (hl_pred, gl_pred)
 
             return kkt
@@ -194,69 +217,52 @@ class XDYcYdDescent(
         )
         input_structure = jax.eval_shape(
             lambda: (
-                iterate_.y,
-                iterate_.slack,
-                (iterate_.equality_dual, iterate_.inequality_dual),
+                y,
+                slack,
+                (equality_dual, inequality_dual),
             )
         )
         kkt_operator = lx.FunctionLinearOperator(kkt_operator_, input_structure)
 
         hj, gj = f_info.constraint_jacobians  # pyright: ignore
+        eq_dual = equality_dual
+        ineq_dual = inequality_dual
+        constraint_gradient = (hj.T.mv(eq_dual) ** ω + gj.T.mv(ineq_dual) ** ω).ω  # pyright: ignore
+        upper_rhs = (f_info.grad**ω + constraint_gradient**ω).ω
 
-        eq_dual = iterate_.equality_dual
-        ineq_dual = iterate_.inequality_dual
-        upper_rhs = f_info.grad + hj.T.mv(eq_dual) + gj.T.mv(ineq_dual)  # pyright: ignore
         vector = (
-            -upper_rhs,  # pyright: ignore
-            # TODO: hard-coded barrier parameter here, and hard-coded epsilon
-            -iterate_.inequality_dual + barrier * 1 / (iterate_.slack + 1e-6),  # pyright: ignore
-            (-equality_residual, tree_full_like(inequality_residual, 0.0)),
-            # TODO: no explicit slack variable (0.0) - this is recommended in N & W (!)
-            # (At least that is my interpretation of Chapter 19.)
-            # TODO: residuals - also for constraint function - in f_info
-            # TODO: no boundary multipliers yet
+            upper_rhs,
+            (inequality_dual**ω - barrier_grad**ω).ω,
+            (equality_residual, (inequality_residual**ω - slack**ω).ω),
         )
-        # TODO: what is meant by the last bit? I don't have explicit slack variables
-        # yet, I "initialise" the slack variables as the residuals of the constraints
-        # at each iteration. I think in practice these might deviate!!
 
-        out = lx.linear_solve(kkt_operator, vector, self.linear_solver)
-
-        # TODO: truncate to feasible step size
+        out = lx.linear_solve(kkt_operator, (-(vector**ω)).ω, self.linear_solver)
 
         # Output while I figure out the other steps
         y_step, slack_steps, dual_steps = out.value  # TODO: throw the slack steps away
 
-        dual_steps = (dual_steps**ω).ω  # Flip sign to see if this is enough to get it
-        # to work. The system is now equivalent to the one given in 19.3 of NW on p. 569
-        slack_steps = (
-            -(slack_steps**ω)
-        ).ω  # Only relevant to constrain step length TODO
+        slack_steps = (-(slack_steps**ω)).ω
+        slack_lower_bound, _ = slack_bounds
         max_slack_step_size = feasible_step_length(
-            inequality_residual,
-            tree_full_like(inequality_residual, 0.0),
+            slack,
+            slack_lower_bound,
             slack_steps,
             offset=barrier,
         )
-        _, inequality_dual_steps = dual_steps
-        max_dual_step_size = feasible_step_length(
-            inequality_dual,
-            tree_full_like(inequality_dual, 0.0),  # TODO These are now always negative
-            inequality_dual_steps,
-            offset=barrier,
-        )
-        max_step_size = jnp.min(jnp.array([max_slack_step_size, max_dual_step_size]))
-        # TODO boundary multiplier steps
+
+        # TODO: constrain the step length for the inequality duals! Not sure whether
+        # feasible_step_length does the right thing when the bound is an upper bound.
+        max_step_size = max_slack_step_size
 
         # TODO: boundary multipliers currently do nothing / but not so fake anymore
         # Barrier parameter does not get updated, but it is something that is an iterate
         no_barrier_step = tree_full_like(barrier, 0.0)
-        fake_iterate_step = (y_step, dual_steps, boundary_multipliers, no_barrier_step)
-        fake_iterate_step = (max_step_size * fake_iterate_step**ω).ω
+        iterate_step = (y_step, dual_steps, boundary_multipliers, no_barrier_step)
+        iterate_step = (max_step_size * iterate_step**ω).ω
 
         return _XDYcYdDescentState(
             jnp.array(False),
-            fake_iterate_step,
+            iterate_step,
             RESULTS.promote(out.result),
         )
 
@@ -267,4 +273,6 @@ class XDYcYdDescent(
         # couple the boundary multipliers to the evolution of the primal and dual
         # variables - at least I have some empirical evidence that this can hinder
         # convergence. Might be useful to match IPOPT behaviour here.
+        y_step, *_ = state.step
+        # jax.debug.print("y_step: \n{}", y_step)
         return (step_size * state.step**ω).ω, state.result
