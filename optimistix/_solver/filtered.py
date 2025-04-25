@@ -7,7 +7,7 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, Float, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Y
-from .._misc import filter_cond, max_norm, tree_dot
+from .._misc import filter_cond, max_norm, tree_dot, tree_full_like
 from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 from .barrier import LogarithmicBarrier
@@ -172,11 +172,15 @@ class IPOPTLikeFilteredLineSearch(
         f_eval_info: FunctionInfo.Eval,
         state: _IPOPTLikeFilteredLineSearchState,
     ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _IPOPTLikeFilteredLineSearchState]:
+        msg = "IPOPTLikeFilteredLineSearch requires a constraint residual."
+        if f_info.constraint_residual is None:
+            raise ValueError(msg)
+        if f_eval_info.constraint_residual is None:
+            raise ValueError(msg)
+
         # TODO: initialise filter if first_step
 
         # CONSTRUCTION SITE: Barrier transformation ------------------------------------
-        f = f_info.f
-        f_eval = f_eval_info.f
         if f_info.bounds is not None:
             barrier = LogarithmicBarrier(f_info.bounds)
             f = f_info.f + barrier(y, 1e-2)  # TODO: get barrier parameter from iterate
@@ -187,8 +191,27 @@ class IPOPTLikeFilteredLineSearch(
         else:
             f = f_info.f
             f_eval = f_eval_info.f
-
             f_grad = f_info.grad
+
+        # Add the slack variables to the merit function
+        _, slack = f_info.constraint_residual
+        _, slack_eval = f_eval_info.constraint_residual
+        # jax.debug.print("slack: \n{}", slack)
+        # jax.debug.print("slack eval: \n{}", slack_eval)
+        slack = jtu.tree_map(lambda x: jnp.where(x > 0, x, 1e-10), slack)
+        slack_eval = jtu.tree_map(lambda x: jnp.where(x > 0, x, 1e-10), slack_eval)
+
+        slack_bounds = tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf)
+        slack_barrier = LogarithmicBarrier(slack_bounds)
+
+        # jax.debug.print("slack barrier: \n{}", slack_barrier(slack, 1e-2))
+        # jax.debug.print("slack barrier eval: \n{}", slack_barrier(slack_eval, 1e-2))
+        f += slack_barrier(slack, 1e-2)  # TODO get barrier parameter from iterate
+        f_eval += slack_barrier(slack_eval, 1e-2)
+
+        # TODO: not sure if they get added to the gradient here?
+        # slack_grad, _ = slack_barrier.grads(slack, 1e-2)
+        # f_grad = (f_grad**ω + slack_grad**ω).ω
         # CONSTRUCTION SITE ENDS -------------------------------------------------------
 
         if (
