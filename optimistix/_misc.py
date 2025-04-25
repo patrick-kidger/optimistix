@@ -120,9 +120,10 @@ def tree_where(pred, true, false):
 def tree_clip(
     tree: PyTree[ArrayLike], lower: PyTree[ArrayLike], upper: PyTree[ArrayLike]
 ) -> PyTree[Array]:
-    """Clip tree to values lower, upper. Does not check if lower < upper - this is
-    already checked in the top-level APIs, and since tree_clip is not part of the public
-    API we don't check again here.
+    """Clip tree to values lower, upper. Note that we do not check that the lower bound
+    is actually less than the upper bound. If the upper bound is less than the lower
+    bound, then the values will be clipped to the upper bound, since this is what
+    `jnp.clip` does.
     """
     return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
 
@@ -329,21 +330,6 @@ def checked_bounds(y: Y, bounds: tuple[Y, Y]) -> tuple[Y, Y]:
     if not lower_struct == y_struct or not upper_struct == y_struct:
         raise ValueError(msg.format(lower_struct, upper_struct, y_struct))
 
-    msg = (
-        "The initial value `y0` must be contained in the interval `[lower, upper]`."
-        "Got bounds `lower` {} and `upper` {}, with `y0` {}."
-    )
-    with jax.ensure_compile_time_eval(), jax.numpy_dtype_promotion("standard"):
-        lower_checks = jtu.tree_map(lambda a, b: a >= b, y, lower)
-        lower_checks, _ = jfu.ravel_pytree(lower_checks)
-        upper_checks = jtu.tree_map(lambda a, b: a <= b, y, upper)
-        upper_checks, _ = jfu.ravel_pytree(upper_checks)
-        pred = jnp.concatenate([lower_checks, upper_checks])  # noqa: F841
-    # TODO: I'm not quite sure if this error gets triggered correctly, fix it!
-    # bounds = eqx.error_if(bounds, pred, msg.format(lower, upper, y))
-
-    # Note: returning the bounds to ensure that the runtime error does not get optimized
-    # out as dead code. https://docs.kidger.site/equinox/api/errors/#equinox.error_if
     return bounds
 
 
