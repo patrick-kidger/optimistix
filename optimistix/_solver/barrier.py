@@ -131,8 +131,8 @@ class LogarithmicBarrier(AbstractBarrier[Y], strict=True):
         safe_upper_dist = tree_where(jtu.tree_map(jnp.isfinite, upper), upper_dist, 0.0)
 
         lower_multiplier, upper_multiplier = bound_multipliers
-        lower_hessian = (lower_multiplier * safe_lower_dist**ω).ω
-        upper_hessian = (upper_multiplier * safe_upper_dist**ω).ω
+        lower_hessian = (lower_multiplier**ω * safe_lower_dist**ω).ω
+        upper_hessian = (upper_multiplier**ω * safe_upper_dist**ω).ω
 
         lower_hessian = lx.DiagonalLinearOperator(lower_hessian)
         upper_hessian = lx.DiagonalLinearOperator(upper_hessian)
