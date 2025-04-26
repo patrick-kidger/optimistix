@@ -4,6 +4,7 @@ from typing import Generic
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
+import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
@@ -61,7 +62,7 @@ def _boundary_intercepts(y: Y, f_info: FunctionInfo.EvalGradHessian):  # pyright
     intercepts = jtu.tree_map(
         lambda x, y: jnp.minimum(x, y), lower_intercepts, upper_intercepts
     )
-    intercepts = jnp.array(jtu.tree_leaves(intercepts)).flatten()
+    intercepts, _ = jfu.ravel_pytree(intercepts)
     return intercepts
 
 
