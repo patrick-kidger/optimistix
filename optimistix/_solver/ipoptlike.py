@@ -8,7 +8,7 @@ import jax.tree_util as jtu
 import lineax as lx
 from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, Int, PyTree, Scalar, ScalarLike
+from jaxtyping import Array, ArrayLike, Bool, Int, PyTree, Scalar, ScalarLike
 
 from .._custom_types import (
     Aux,
@@ -27,6 +27,7 @@ from .._misc import (
     filter_cond,
     lin_to_grad,
     max_norm,
+    tree_clip,
     tree_full_like,
     tree_where,
     verbose_print,
@@ -38,7 +39,7 @@ from .._search import (
 )
 from .._solution import RESULTS
 from .barrier import LogarithmicBarrier
-from .bfgs import BFGS, identity_pytree
+from .bfgs import BFGS_B, identity_pytree
 from .boundary_maps import ClosestFeasiblePoint
 from .filtered import IPOPTLikeFilteredLineSearch
 
@@ -50,9 +51,59 @@ from .filtered import IPOPTLikeFilteredLineSearch
 # enabling the feasibility restoration too, since this is currently the only place that
 # the filter gets re-set. (We don't support the heuristic filter reset in the search
 # yet.)
-SECOND_ORDER_CORRECTION = False
-FEASIBILITY_RESTORATION = False
-FILTERED_LINE_SEARCH = False
+SECOND_ORDER_CORRECTION = True
+FEASIBILITY_RESTORATION = True
+FILTERED_LINE_SEARCH = True
+
+
+def _interior_tree_clip(
+    tree: PyTree[ArrayLike],
+    lower: PyTree[ArrayLike],
+    upper: PyTree[ArrayLike],
+    bound_push: ScalarLike,
+    bound_frac: ScalarLike,
+):
+    """Clip the tree to the strict interior of the feasible region, accounting for the
+    value of the bounds and the distance between the bounds.
+
+    The PyTree structures of `tree`, `lower`, and `upper` must match. Infinite bounds
+    are acceptable. Note that this function assumes that upper >= lower for all elements
+    but that is not checked here.
+
+    The offset is determined as follows:
+
+        offset = min( max( 1, abs(bound value) ), bound_frac * width )
+
+    where width is the distance between the bounds, defined as (upper - lower), and we
+    scale the offset by the value of the bounds if that value is larger than 1.0. (This
+    is to ensure that we do not inadvertently clip to a zero bound, in which case the
+    barrier function returns an infinite value.)
+
+    `bound_push` and `bound_frac` correspond to the parameters `kappa_1` and `kappa_2`
+    in the IPOPT implementation paper (doi: 10.1007/s10107-004-0559-y). Here we use the
+    names currently in use in the IPOPT code.
+    """
+    # TODO: add runtime error if upper < lower, since the strict interior is not defined
+    # in that case.
+
+    def offset(x, width):
+        scale = jnp.asarray(bound_push) * jnp.where(jnp.abs(x) < 1, 1, jnp.abs(x))
+        safe_scale = jnp.where(jnp.isfinite(scale), scale, 1.0)
+
+        safe_width = jnp.where(jnp.isfinite(width), width, 1.0)
+        width_factor = jnp.asarray(bound_frac) * safe_width
+
+        offset = jnp.where(width_factor < safe_scale, width_factor, safe_scale)
+        return offset
+
+    width = (upper**ω - lower**ω).ω
+    lower_offset = jtu.tree_map(offset, lower, width)
+    upper_offset = jtu.tree_map(offset, upper, width)
+
+    moved_lower = (tree**ω + lower_offset**ω).ω
+    moved_upper = (tree**ω - upper_offset**ω).ω
+
+    return tree_clip(tree, moved_lower, moved_upper)
 
 
 def _make_kkt_operator(hessian, jacobian, input_structure):
@@ -332,6 +383,14 @@ def _error(
     return jnp.max(jnp.asarray(errata))
 
 
+class Iterate(eqx.Module, Generic[Y, EqualityOut, InequalityOut], strict=True):
+    y_eval: Y  # TODO: or more concisely rename y?
+    slack: InequalityOut
+    multipliers: tuple[EqualityOut, InequalityOut]
+    bound_multipliers: tuple[Y, Y]
+    barrier: ScalarLike
+
+
 class _IPOPTLikeState(
     eqx.Module, Generic[Y, Aux, SearchState, DescentState], strict=True
 ):
@@ -374,7 +433,8 @@ class AbstractIPOPTLike(
     that is really possible with nonlinear constraints.)
 
     If no bounds are provided, this solver defaults to infinite bounds on all elements
-    of `y`.
+    of `y`. If the initial value `y0` is infeasible with respect to the bounds, it is
+    moved to the strict interior of the bounded region.
 
     Note that this solver does not use its `rtol` attribute, only its `atol` attribute.
     # TODO: we follow IPOPT here, they also have only a single scalar tolerance.
@@ -385,6 +445,14 @@ class AbstractIPOPTLike(
         compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
         which is usually more efficient. Changing this can be useful when the target
         function does not support reverse-mode automatic differentiation.
+    - `bound_push`: if the initial point `y0` is infeasible with respect to the bounds,
+        it is moved to the interior of the feasible region. Default value is 0.01. This
+        value should be positive, but we don't check whether it is here.
+    - `bound_frac`: if the initial point `y0` is infeasible with respect to the bounds,
+        it is moved to the interior of the feasible region. If upper and lower bounds
+        are used, this value helps ensure that the point is not moved too close to the
+        upper bound. Default value is 0.01. This value should not exceed 0.5, but this
+        is not checked here.
     """
 
     rtol: AbstractVar[float]
@@ -409,17 +477,35 @@ class AbstractIPOPTLike(
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _IPOPTLikeState:
+        # TODO: Here we modify the initial value y0, to ensure that it is in the strict
+        # interior with respect to the bound constraints. We then write this value into
+        # the `iterate` attribute of the state. The way the solver is currently
+        # constructed, this means that we will only evaluate the target function at
+        # values that are in the strict interior of the bounded region. However, we
+        # never actually overwrite `y`, which would require changing the return type of
+        # solver.init to a tuple (y, state). So doing this here requires the assumption
+        # that `y` is never used again.
+        # Moving this functionality into `solver.step` is not preferable because the
+        # introduction of clipping could mask bugs there, and should not be necessary in
+        # this solver in particular.
+        if bounds is None:
+            bounds = (tree_full_like(y, -jnp.inf), tree_full_like(y, jnp.inf))
+        lower, upper = bounds
+        bound_push = options.get("bound_push", 0.01)
+        bound_frac = options.get("bound_frac", 0.01)
+        y = _interior_tree_clip(y, lower, upper, bound_push, bound_frac)
+
         if constraint is None:
             raise ValueError(
                 "IPOPTLike requires constraints. For unconstrained problems, try "
                 "an unconstrained minimiser, like `optx.BFGS`."
             )
         else:
+            # TODO: this extra evaluation of the constraint can be expensive!
+            # Not great for compilation time, we should avoid this here if we can.
+            # (Not sure that we can, though.)
             evaluated = evaluate_constraint(constraint, y)
             constraint_residual, constraint_bound, constraint_jacobians = evaluated
-
-        if bounds is None:
-            bounds = (tree_full_like(y, -jnp.inf), tree_full_like(y, jnp.inf))
 
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
@@ -436,8 +522,11 @@ class AbstractIPOPTLike(
         )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
 
-        iterate = (
+        # dummy slack variable
+        dummy_slack = tree_full_like(constraint_residual[1], 0.0)
+        iterate = Iterate(
             y,
+            dummy_slack,
             tree_full_like(constraint_residual, 0.0),
             tree_full_like(bounds, 1.0),
             jnp.asarray(self.initial_barrier_parameter),
@@ -466,26 +555,29 @@ class AbstractIPOPTLike(
         state: _IPOPTLikeState,
         tags: frozenset[object],
     ) -> tuple[Y, _IPOPTLikeState, Aux]:
+        # TODO: support autodiff mode for the constraints too
         autodiff_mode = options.get("autodiff_mode", "bwd")
         if bounds is None:
             bounds = (tree_full_like(y, -jnp.inf), tree_full_like(y, jnp.inf))
 
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
-        y_eval, duals, bound_multipliers, barrier = state.iterate
-        (equality_dual, inequality_dual) = duals
+        # y_eval, duals, bound_multipliers, barrier = state.iterate
+        # Iterate with dummy values for the slack
+        # dummy_slack = tree_full_like(duals[1], 0.0)
+        # iterate = Iterate(y_eval, dummy_slack, duals, bound_multipliers, barrier)
 
-        evaluated = evaluate_constraint(constraint, y_eval)
+        evaluated = evaluate_constraint(constraint, state.iterate.y_eval)
         constraint_residual, constraint_bound, constraint_jacobians = evaluated
 
         f_eval, lin_fn, aux_eval = jax.linearize(
-            lambda _y: fn(_y, args), y_eval, has_aux=True
+            lambda _y: fn(_y, args), state.iterate.y_eval, has_aux=True
         )
 
         # TODO: with a second-order correction, all of these become proposed step sizes
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
             y,
-            y_eval,
+            state.iterate.y_eval,
             state.f_info,
             FunctionInfo.Eval(f_eval, bounds, constraint_residual),
             state.search_state,
@@ -497,66 +589,64 @@ class AbstractIPOPTLike(
             search_result = RESULTS.successful
             search_state = state.search_state  # No update
 
+        # TODO: this needs to accept an iterate, too - so we can return it, and also
+        # modify the iterate in the rejected branch.
+        # Right now working around this by having iterate, and iterate_
         def accepted(states):
+            # jax.debug.print("accepted step")
             _, descent_state = states
 
-            grad = lin_to_grad(lin_fn, y_eval, autodiff_mode=autodiff_mode)
+            grad = lin_to_grad(
+                lin_fn, state.iterate.y_eval, autodiff_mode=autodiff_mode
+            )
 
             # TODO: WIP: Hessians of the Lagrangian
-            hessian_, _ = jax.hessian(fn)(y_eval, args)
+            hessian_, _ = jax.hessian(fn)(
+                state.iterate.y_eval, args
+            )  # no Hessian w.r.t. aux
+            out_structure = jax.eval_shape(lambda: state.iterate.y_eval)
+            hessian = lx.PyTreeLinearOperator(hessian_, out_structure)
 
-            def constraint_hessian(_y, _duals, _template):
-                # Template should have the same shape as the hessian of fn, used to
-                # correct the shape of the constraint Hessian ((1, 2, 2) --> (2, 2))
-                equality_dual, inequality_dual = _duals
-                equality_hess, inequality_hess = jax.hessian(constraint)(_y)  # pyright: ignore
+            def constraint_hessian(y, jacobian_operator, multiplier):
+                def apply_reduced_jacobian(_y):
+                    mapped = jacobian_operator.T.mv(multiplier)
+                    return jtu.tree_map(lambda a, b: a * b, mapped, _y)
 
-                summed_hess = _template
-                if equality_dual is not None:
-                    if equality_dual.size == 1:
-                        weighted_contribution = (equality_dual * equality_hess**ω).ω
-                        summed_hess = (summed_hess**ω + weighted_contribution**ω).ω
-                    else:
-                        for d, h in zip(equality_dual, equality_hess):
-                            weighted_contribution = (d * h**ω).ω
-                            summed_hess = (summed_hess**ω + weighted_contribution**ω).ω
-                if inequality_dual is not None:
-                    if inequality_dual.size == 1:
-                        weighted_contribution = (inequality_dual * inequality_hess**ω).ω
-                        summed_hess = (summed_hess**ω + weighted_contribution**ω).ω
-                    else:
-                        for d, h in zip(inequality_dual, inequality_hess):
-                            weighted_contribution = (d * h**ω).ω
-                            summed_hess = (summed_hess**ω + weighted_contribution**ω).ω
+                hessian = jax.jacfwd(apply_reduced_jacobian)(y)
+                out_structure = jax.eval_shape(lambda: y)
+                return lx.PyTreeLinearOperator(hessian, out_structure)
 
-                def match_leaf_shape(x, example):  # (1, 2, 2) --> (2, 2)
-                    # TODO perhaps rename squeeze if needed (and use squeeze)
-                    if x.shape == example.shape:
-                        return x
-                    else:
-                        return jnp.reshape(x, example.shape)
+            equality_jacobian, inequality_jacobian = constraint_jacobians
+            equality_multiplier, inequality_multiplier = state.iterate.multipliers
+            equality_hessian = constraint_hessian(
+                state.iterate.y_eval, equality_jacobian, equality_multiplier
+            )
+            inequality_hessian = constraint_hessian(
+                state.iterate.y_eval, inequality_jacobian, inequality_multiplier
+            )
 
-                summed_hess = jtu.tree_map(match_leaf_shape, summed_hess, _template)
+            # TODO: work with adding the operators directly here? Does not work yet
+            # because we initialise the Hessian in f_info with a specific structure
+            # that composed linear operators do not have and with a positive
+            # semidefinite tag that is also not appropriate here.
 
-                return summed_hess
-
-            dual_ = (equality_dual, inequality_dual)
-            template = tree_full_like(hessian_, 0.0)
-            constraint_hessian_ = constraint_hessian(y_eval, dual_, template)
-
-            # TODO: too large values of the constraint hessian prevent convergence. Why?
-            lagrangian_hessian_ = (hessian_**ω + constraint_hessian_**ω).ω
-            lagrangian_hessian_ = lx.PyTreeLinearOperator(
-                # TODO: start slowly!
-                lagrangian_hessian_,
-                jax.eval_shape(lambda: y_eval),
+            lagrangian_hessian = jtu.tree_map(
+                lambda a, b, c: a + b + c,
+                hessian.pytree,
+                equality_hessian.pytree,
+                inequality_hessian.pytree,
+            )
+            lagrangian_hessian = lx.PyTreeLinearOperator(
+                lagrangian_hessian,
+                # (hessian_**ω).ω,
+                jax.eval_shape(lambda: state.iterate.y_eval),
                 lx.positive_semidefinite_tag,  # TODO Not technically correct!
             )
             f_eval_info_ = FunctionInfo.EvalGradHessian(
                 f_eval,
                 grad,
-                lagrangian_hessian_,
-                y_eval,
+                lagrangian_hessian,
+                state.iterate.y_eval,
                 bounds,
                 constraint_residual,
                 constraint_bound,
@@ -567,20 +657,30 @@ class AbstractIPOPTLike(
             # punted until we make a decision on whether to unify termination criteria
             # with a common interface
             # TODO: prototyping to get a descent over a pair (primal, duals...)!!!
-            duals = (equality_dual, inequality_dual)
-            iterate = (y_eval, duals, bound_multipliers, barrier)
+            iterate_ = (
+                state.iterate.y_eval,
+                state.iterate.multipliers,
+                state.iterate.bound_multipliers,
+                state.iterate.barrier,
+            )
             error = _error(
-                iterate,
+                iterate_,
                 f_eval_info_,  # pyright: ignore
                 0.01,  # This is supposed to be the barrier parameter
                 self.atol,
                 self.norm,  # pyright: ignore
             )
             # TODO: we're introducing new hyperparameters here!
-            converged_at_barrier = error <= 10 * barrier  # TODO: barrier parameter
-            new_barrier = jnp.min(jnp.array([0.2 * barrier, barrier**1.5]))
+            converged_at_barrier = (
+                error <= 10 * state.iterate.barrier
+            )  # TODO: barrier parameter
+            new_barrier = jnp.min(
+                jnp.array([0.2 * state.iterate.barrier, state.iterate.barrier**1.5])
+            )
             new_barrier = jnp.max(jnp.array([new_barrier, self.atol / 10]))
-            new_barrier = jnp.where(converged_at_barrier, new_barrier, barrier)
+            new_barrier = jnp.where(
+                converged_at_barrier, new_barrier, state.iterate.barrier
+            )
             # TODO: I cannot return this barrier update unless I return it through an
             # iterate.
 
@@ -588,13 +688,13 @@ class AbstractIPOPTLike(
             terminate = jnp.where(state.first_step, jnp.array(False), terminate)
 
             descent_state = self.descent.query(
-                iterate,
+                state.iterate,
                 f_eval_info_,  # pyright: ignore
                 descent_state,
             )
 
             return (
-                y_eval,  # TODO: return iterate? - can reconstruct it from descent state
+                state.iterate.y_eval,  # TODO: return iterate?
                 f_eval_info_,
                 aux_eval,
                 search_state,
@@ -607,7 +707,16 @@ class AbstractIPOPTLike(
             search_state, descent_state = states
 
             if SECOND_ORDER_CORRECTION:
-                pass
+                updated_f_info = eqx.tree_at(
+                    lambda f: f.constraint_residual,
+                    state.f_info,
+                    (state.f_info.constraint_residual**ω + constraint_residual**ω).ω,
+                )
+                descent_state = self.descent.query(
+                    state.iterate,
+                    updated_f_info,
+                    descent_state,
+                )
 
             # TODO: SOC with twice the step size as is returned by the first search...
             # Alternatively calling again with state.search_state. This means that we
@@ -622,7 +731,7 @@ class AbstractIPOPTLike(
                 search_state,
                 descent_state,
                 jnp.array(False),
-                barrier,  # No update to barrier parameter
+                state.iterate.barrier,  # No update to barrier parameter
             )
 
         # Branch for normal acceptance / rejection
@@ -640,7 +749,7 @@ class AbstractIPOPTLike(
                 (verbose_loss, "Loss on this step", loss_eval),
                 (verbose_loss, "Loss on the last accepted step", loss),
                 (verbose_step_size, "Step size", step_size),
-                (verbose_y, "y", y_eval),
+                (verbose_y, "y", state.iterate.y_eval),
                 (verbose_y, "y on the last accepted step", y),
             )
 
@@ -654,8 +763,10 @@ class AbstractIPOPTLike(
 
             # TODO: make attribute and update the penalty parameter for the feasibility
             # restoration problem based on the barrier parameter.
-            boundary_map = ClosestFeasiblePoint(1e-6, BFGS(rtol=1e-3, atol=1e-6))
-            recovered_y, restoration_result = boundary_map(y_eval, constraint, bounds)
+            boundary_map = ClosestFeasiblePoint(1e-6, BFGS_B(rtol=1e-3, atol=1e-6))
+            recovered_y, restoration_result = boundary_map(
+                state.iterate.y_eval, constraint, bounds
+            )
             # TODO: Allow feasibility restoration to raise a certificate of
             # infeasibility and error out.
 
@@ -663,10 +774,15 @@ class AbstractIPOPTLike(
             # this solver with a descent that does not implement a least-squares
             # initialisation of the dual variables.
             iterate_eval = (state.iterate**ω + descent_steps**ω).ω
-            _, new_dual, new_bounds_iterate_thingy, _ = iterate_eval
             # TODO: barrier update? This takes barrier from outer scope
             # What happens to the barrier parameter when we restore feasibility?
-            new_iterate = (recovered_y, new_dual, new_bounds_iterate_thingy, barrier)
+            new_iterate = Iterate(
+                recovered_y,
+                state.iterate.slack,  # TODO: still a dummy slack
+                iterate_eval.multipliers,
+                iterate_eval.bound_multipliers,
+                iterate_eval.barrier,
+            )
 
             # Re-initialise the search
             f_info_struct = eqx.filter_eval_shape(lambda: state.f_info)
@@ -692,22 +808,14 @@ class AbstractIPOPTLike(
 
             return new_solver_state
 
+        # TODO: do we still do the right thing? Now its not too clear to me, given that
+        # we do accept a y that is not part of the iterate structure.
         def regular_update(args):
             search_result, descent_result = args
             result = RESULTS.where(
                 search_result == RESULTS.successful, descent_result, search_result
             )
-
-            # TODO: splice the updates here. This needs to be removed when we have a
-            # fresh API - where solver.step takes Iterate as an argument, not y.
             iterate_eval = (state.iterate**ω + descent_steps**ω).ω
-            _, new_dual, new_bounds_iterate_thingy, _ = iterate_eval
-
-            y_descent, *_ = descent_steps
-            y_eval = (y**ω + y_descent**ω).ω
-
-            # TODO barrier update?
-            iterate_eval = (y_eval, new_dual, new_bounds_iterate_thingy, barrier)
 
             return _IPOPTLikeState(
                 first_step=jnp.array(False),
