@@ -473,6 +473,37 @@ class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState], strict=True
         The updated descent state.
         """
 
+    def correct(
+        self, y: _Iterate, f_info: _FnInfo, state: DescentState
+    ) -> DescentState:
+        """A correction step, based on updated function information, to be taken when
+        the search has rejected the current iterate. This is useful in constrained
+        optimisation, where the constraints may be strongly nonlinear, and where the
+        descent direction does not depend on the step-size (i.e. a line search method).
+        With a previously factored KKT system cached in the descent state, we can solve
+        for a corrected direction by updating the right-hand side with the constraint
+        value at the trial iterate. For this use-case, this method may be overridden in
+        the descent class.
+
+        Note that it is generally not intended to be used with updated `expensive` parts
+        of the function information, such as the Hessian of the target function, or the
+        Jacobians of the constraints. Updating these then requires re-solving the linear
+        system, which should be done in `query`.
+
+        **Arguments:**
+
+        - `y`: the value of the current (just accepted) iterate.
+        - `f_info`: An [`optimistix.FunctionInfo`][] describing information about `f`
+            evaluated at `y`, the gradient of `f` at `y`, etc.
+        - `state`: the evolving state of the repeated descents.
+
+        **Returns:**
+
+        The descent state.
+        """
+        del y, f_info
+        return state
+
     @abc.abstractmethod
     def step(self, step_size: Scalar, state: DescentState) -> tuple[_Iterate, RESULTS]:
         """Computes the descent of size `step_size`.
