@@ -24,7 +24,10 @@ from .._search import (
 )
 from .._solution import RESULTS
 from .barrier import LogarithmicBarrier
-from .ipoptlike import _interior_tree_clip  # pyright: ignore (private function)
+from .ipoptlike import (
+    _interior_tree_clip,  # pyright: ignore (private function)
+    Iterate,  # pyright: ignore
+)
 
 
 # TODO: After feasibility restoration (?) IPOPT apparently sets all multipliers to zero
@@ -94,7 +97,7 @@ def _initialise_multipliers(iterate__f_info):
     robust, since it is done at the start and after every feasibility restoration step.
     """
     iterate, f_info = iterate__f_info
-    y, (equality_multipliers, _), boundary_multipliers, barrier = iterate
+    (equality_multipliers, _) = iterate.multipliers
     _, inequality_residual = f_info.constraint_residual
 
     # TODO: special case for when we don't have any inequality constraints
@@ -102,7 +105,7 @@ def _initialise_multipliers(iterate__f_info):
     lower = tree_full_like(slack, 0.0)
     upper = tree_full_like(slack, jnp.inf)
     slack = _interior_tree_clip(slack, lower, upper, 0.01, 0.01)
-    inequality_multipliers = (barrier / slack**ω).ω
+    inequality_multipliers = (iterate.barrier / slack**ω).ω
 
     equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
     inequality_gradient = inequality_jacobian.T.mv(inequality_multipliers)
@@ -135,7 +138,13 @@ def _initialise_multipliers(iterate__f_info):
     safe_inequality_multipliers = jtu.tree_map(truncate, inequality_multipliers)
     safe_duals = (safe_equality_multipliers, safe_inequality_multipliers)
 
-    return (y, safe_duals, boundary_multipliers, barrier)
+    return Iterate(
+        iterate.y_eval,
+        iterate.slack,
+        safe_duals,  # Only multipliers were updated
+        iterate.bound_multipliers,
+        iterate.barrier,
+    )
 
 
 class _XDYcYdDescentState(
@@ -146,6 +155,7 @@ class _XDYcYdDescentState(
     result: RESULTS
 
 
+# TODO: This is not strict anymore, since I'm experimenting with the correct method
 # TODO: This descent implements the XDYcYd descent, as implemented in HiOp. It currently
 # requires that bounds be specified as inequality constraints.
 # TODO: this thing NEEDS a new name, this name is maximally non-descriptive. (It stands
@@ -154,7 +164,6 @@ class _XDYcYdDescentState(
 # inequality constraints.
 class XDYcYdDescent(
     AbstractDescent[Y, FunctionInfo.EvalGradHessian, _XDYcYdDescentState],
-    strict=True,
 ):
     """TODO: add a description here."""
 
@@ -182,7 +191,11 @@ class XDYcYdDescent(
             state.first_step, _initialise_multipliers, keep_multipliers, args
         )
 
-        y, (equality_dual, inequality_dual), boundary_multipliers, barrier = iterate
+        y = iterate.y_eval
+        (equality_dual, inequality_dual) = iterate.multipliers
+        boundary_multipliers = iterate.bound_multipliers
+        barrier = iterate.barrier
+
         _, slack = f_info.constraint_residual  # pyright: ignore
         slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
         # TODO: values determining truncation to strict interior not used here yet
@@ -198,16 +211,18 @@ class XDYcYdDescent(
         def make_kkt_operator(w, z, jacs):
             hj, gj = jacs
 
+            # TODO: WIP: improvised inerta correction to see if this improves things.
             def kkt(inputs):
                 y, slacks, (equality_duals, inequality_duals) = inputs
                 y_pred = (
                     w.mv(y) ** ω
                     + hj.T.mv(equality_duals) ** ω
                     + gj.T.mv(inequality_duals) ** ω
+                    + 0 * y**ω  # TODO: improvised inertia correction
                 ).ω
                 s_pred = (-(z.mv(slacks) ** ω) + inequality_duals**ω).ω
-                hl_pred = hj.mv(y)
-                gl_pred = (gj.mv(y) ** ω + slacks**ω).ω
+                hl_pred = (hj.mv(y) ** ω - 0 * equality_duals**ω).ω
+                gl_pred = (gj.mv(y) ** ω + slacks**ω - 0 * inequality_duals**ω).ω
                 return y_pred, s_pred, (hl_pred, gl_pred)
 
             return kkt
@@ -260,11 +275,24 @@ class XDYcYdDescent(
         iterate_step = (y_step, dual_steps, boundary_multipliers, no_barrier_step)
         iterate_step = (max_step_size * iterate_step**ω).ω
 
+        y_step, dual_steps, boundary_multipliers, no_barrier_step = iterate_step
+        iterate_step = Iterate(
+            y_step, slack_lower_bound, dual_steps, boundary_multipliers, no_barrier_step
+        )
+
         return _XDYcYdDescentState(
             jnp.array(False),
             iterate_step,
             RESULTS.promote(out.result),
         )
+
+    def correct(  # pyright: ignore  (figuring out what types a descent should take)
+        self,
+        iterate,
+        f_info: FunctionInfo.EvalGradHessian,
+        state: _XDYcYdDescentState,
+    ) -> _XDYcYdDescentState:
+        return self.query(iterate, f_info, state)  # TODO: cheaper implementation!
 
     def step(self, step_size: Scalar, state: _XDYcYdDescentState) -> tuple[Y, RESULTS]:
         # TODO Note that I *am* currently scaling the dual variables for the bounds too
@@ -273,6 +301,4 @@ class XDYcYdDescent(
         # couple the boundary multipliers to the evolution of the primal and dual
         # variables - at least I have some empirical evidence that this can hinder
         # convergence. Might be useful to match IPOPT behaviour here.
-        y_step, *_ = state.step
-        # jax.debug.print("y_step: \n{}", y_step)
         return (step_size * state.step**ω).ω, state.result
