@@ -121,11 +121,13 @@ def _make_objective(y, constraint, penalty_parameter):
         residual = constraint(_y)  # TODO: Use least-squares algorithm?
         # residual = jnp.where(residual < 0, -residual, 0)  # Only for inequalities!
         equality_residual, inequality_residual = residual
+        if inequality_residual is not None:
+            inequality_residual = jtu.tree_map(
+                lambda x: jnp.where(x < 0, x, 0), inequality_residual
+            )
         # TODO: enable usage of other kinds of norms
-        # TODO: hotfix, we're currently only testing with equality constraints
-        return two_norm(
-            equality_residual
-        ) + penalty_parameter * squared_scaled_deviation(_y)
+        residuals = (equality_residual, inequality_residual)
+        return two_norm(residuals) + penalty_parameter * squared_scaled_deviation(_y)
 
     return objective
 
