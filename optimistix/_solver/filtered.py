@@ -77,11 +77,13 @@ class IPOPTLikeFilteredLineSearch(
     restoration if the step length becomes too small.
 
     The modifications are as follows:
-    - To respect JAX' static shape requirements, we introduce a buffer size for the
+    - To respect JAX's static shape requirements, we introduce a buffer size for the
         filter, which defaults to 256 elements, the same as the default number of steps
         in [`optimistix.minimise`][]. If the buffer is full, the largest pairs of (merit
         function, constraint violation) pairs will be booted from the filter, following
-        a rule in which the largest value is replaced.
+        a rule in which the largest value is replaced. (Since the filter describes the
+        pareto frontier of the merit function and the constraint violation, only a few
+        good iterates are required to effectively constrain the search.)
     - The parameters for the maximum and acceptable constraint violation are not set in
         proportion to the initial value of the constraint violation, but instead default
         to their suggested minimum values. Since Optimistix solvers are instantiated
@@ -119,7 +121,7 @@ class IPOPTLikeFilteredLineSearch(
 
         ```bibtex
         @article{wachter2006implementation,
-        author = {Wächter, Andreas and Biegler, Lorenz T.},
+            author = {Wächter, Andreas and Biegler, Lorenz T.},
             title = {On the implementation of a primal-dual interior point filter line
                      search algorithm for large-scale nonlinear programming},
             journal = {Mathematical Programming},
@@ -194,24 +196,17 @@ class IPOPTLikeFilteredLineSearch(
             f_grad = f_info.grad
 
         # Add the slack variables to the merit function
+        # TODO: get this value from a structured iterate (and anyway move everything
+        # merit function related to the solver, the search should be able to be
+        # blissfully ignorant of the merit function).
         _, slack = f_info.constraint_residual
         _, slack_eval = f_eval_info.constraint_residual
-        # jax.debug.print("slack: \n{}", slack)
-        # jax.debug.print("slack eval: \n{}", slack_eval)
         slack = jtu.tree_map(lambda x: jnp.where(x > 0, x, 1e-10), slack)
         slack_eval = jtu.tree_map(lambda x: jnp.where(x > 0, x, 1e-10), slack_eval)
-
         slack_bounds = tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf)
         slack_barrier = LogarithmicBarrier(slack_bounds)
-
-        # jax.debug.print("slack barrier: \n{}", slack_barrier(slack, 1e-2))
-        # jax.debug.print("slack barrier eval: \n{}", slack_barrier(slack_eval, 1e-2))
         f += slack_barrier(slack, 1e-2)  # TODO get barrier parameter from iterate
         f_eval += slack_barrier(slack_eval, 1e-2)
-
-        # TODO: not sure if they get added to the gradient here?
-        # slack_grad, _ = slack_barrier.grads(slack, 1e-2)
-        # f_grad = (f_grad**ω + slack_grad**ω).ω
         # CONSTRUCTION SITE ENDS -------------------------------------------------------
 
         if (
