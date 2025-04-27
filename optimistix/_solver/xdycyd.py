@@ -272,6 +272,13 @@ def _postprocess_step_xdycyd(linear_solution, iterate):
     return iterate_step
 
 
+def _leaf_from_struct(x):
+    if isinstance(x, jax.ShapeDtypeStruct):
+        return jnp.zeros(x.shape, x.dtype)
+    else:
+        return x
+
+
 class _XDYcYdDescentState(
     eqx.Module, Generic[Y, EqualityOut, InequalityOut], strict=True
 ):
@@ -298,19 +305,19 @@ class XDYcYdDescent(
     def init(  # pyright: ignore (figuring out what types a descent should take)
         self, iterate, f_info_struct: FunctionInfo.EvalGradHessian
     ) -> _XDYcYdDescentState:
-        operator_struct, vector_struct = eqx.filter_eval_shape(
-            _make_kkt_operator_xdycyd, iterate, f_info_struct
-        )
-        solution_struct = eqx.filter_eval_shape(
-            lx.linear_solve, operator_struct, vector_struct, self.linear_solver
-        )
-        state_struct = solution_struct.state
+        # We want to cache the state of the linear solver for use in corrective steps.
+        # To do this, we first need to construct it - which requires reconstructing the
+        # function information with dummy values, since f_info_struct contains
+        # jax.ShapeDtypeStruct objects where we later need to have arrays.
+        reconstructed_f_info = jtu.tree_map(_leaf_from_struct, f_info_struct)
+        operator, _ = _make_kkt_operator_xdycyd(iterate, reconstructed_f_info)
+        linear_solver_state = self.linear_solver.init(operator, {})
 
         return _XDYcYdDescentState(
             jnp.array(True),
             iterate,
             RESULTS.successful,
-            state_struct,
+            linear_solver_state,
         )
 
     def query(  # pyright: ignore  (figuring out what types a descent should take)
@@ -340,7 +347,7 @@ class XDYcYdDescent(
             jnp.array(False),
             iterate_step,
             result,
-            state.linear_solver_state,
+            out.state,
         )
 
     def correct(  # pyright: ignore  (figuring out what types a descent should take)
@@ -349,7 +356,18 @@ class XDYcYdDescent(
         f_info: FunctionInfo.EvalGradHessian,
         state: _XDYcYdDescentState,
     ) -> _XDYcYdDescentState:
-        return state  # self.query(iterate, f_info, state)
+        operator, vector = _make_kkt_operator_xdycyd(iterate, f_info)
+        out = lx.linear_solve(
+            operator, vector, self.linear_solver, state=state.linear_solver_state
+        )
+        result = RESULTS.promote(out.result)
+        iterate_step = _postprocess_step_xdycyd(out.value, iterate)
+        return _XDYcYdDescentState(
+            jnp.array(False),
+            iterate_step,
+            result,
+            out.state,
+        )
 
     def step(self, step_size: Scalar, state: _XDYcYdDescentState) -> tuple[Y, RESULTS]:
         # TODO Note that I *am* currently scaling the dual variables for the bounds too

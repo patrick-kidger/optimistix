@@ -52,7 +52,7 @@ from .filtered import IPOPTLikeFilteredLineSearch
 # enabling the feasibility restoration too, since this is currently the only place that
 # the filter gets re-set. (We don't support the heuristic filter reset in the search
 # yet.)
-SECOND_ORDER_CORRECTION = False
+SECOND_ORDER_CORRECTION = True
 FEASIBILITY_RESTORATION = True
 FILTERED_LINE_SEARCH = True
 
@@ -630,7 +630,7 @@ class AbstractIPOPTLike(
         # modify the iterate in the rejected branch.
         # Right now working around this by having iterate, and iterate_
         def accepted(states):
-            # jax.debug.print("accepted step")
+            jax.debug.print("accepted step")
             _, descent_state = states
 
             grad = lin_to_grad(
@@ -742,17 +742,18 @@ class AbstractIPOPTLike(
         def rejected(states):
             search_state, descent_state = states
 
-            # if SECOND_ORDER_CORRECTION:
-            #     updated_f_info = eqx.tree_at(
-            #         lambda f: f.constraint_residual,
-            #         state.f_info,
-            #         (state.f_info.constraint_residual**ω + constraint_residual**ω).ω,
-            #     )
-            #     descent_state = self.descent.query(
-            #         state.iterate,
-            #         updated_f_info,
-            #         descent_state,
-            #     )
+            if SECOND_ORDER_CORRECTION:
+                jax.debug.print("rejected step, trying SOC")
+                updated_f_info = eqx.tree_at(
+                    lambda f: f.constraint_residual,
+                    state.f_info,
+                    (state.f_info.constraint_residual**ω + constraint_residual**ω).ω,
+                )
+                descent_state = self.descent.query(
+                    state.iterate,
+                    updated_f_info,
+                    descent_state,
+                )
 
             # TODO: SOC with twice the step size as is returned by the first search...
             # Alternatively calling again with state.search_state. This means that we
