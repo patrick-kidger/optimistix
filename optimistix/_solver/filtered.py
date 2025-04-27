@@ -63,7 +63,7 @@ class IPOPTLikeFilteredLineSearch(
     In either case, the search will then check if the current step is an improvement
     over the previous steps, and reject the step if it is not.
 
-    ??? Differences to IPOPT implementation
+    ??? info "Differences to IPOPT implementation"
 
     This search is an implementation of the filtered line search available in IPOPT,
     with minimal modifications. All default values for search parameters are set to
