@@ -1,4 +1,4 @@
-from typing import Generic
+from typing import Any, Generic
 
 import equinox as eqx
 import jax
@@ -101,6 +101,12 @@ def _initialise_multipliers(iterate__f_info):
     _, inequality_residual = f_info.constraint_residual
 
     # TODO: special case for when we don't have any inequality constraints
+    # TODO: this is currently a bit duplicate with code elsewhere! We initialise a slack
+    # variable here, but this might not be the best idea - this should be done in one
+    # place. And that place is probably not here.
+    # If I'm not initialising the slack variables here, then I also do not need to have
+    # this function be in the know about the truncation to the strict interior.
+    # (So we can remove the hard-coded parameters below.)
     slack = inequality_residual
     lower = tree_full_like(slack, 0.0)
     upper = tree_full_like(slack, jnp.inf)
@@ -140,11 +146,130 @@ def _initialise_multipliers(iterate__f_info):
 
     return Iterate(
         iterate.y_eval,
-        iterate.slack,
+        iterate.slack,  # TODO: we're not currently updating the slack variables here!
         safe_duals,  # Only multipliers were updated
         iterate.bound_multipliers,
         iterate.barrier,
     )
+
+
+# TODO: Find a better name for this system!
+def _make_kkt_operator_xdycyd(iterate, f_info) -> tuple[lx.FunctionLinearOperator, Any]:
+    """Construct the KKT operator for the primal-dual descent.
+
+    This KKT system is equivalent to the `XDYcYd` system used in HiOp.
+
+    ??? cite "References"
+
+        @TECHREPORT{hiop_techrep,
+            title={{HiOp} -- {U}ser {G}uide},
+            author={Petra, Cosmin G. and Chiang, NaiYuan and Jingyi Wang},
+            year={2018},
+            institution = {Center for Applied Scientific Computing,
+                           Lawrence Livermore National Laboratory},
+            number = {LLNL-SM-743591}
+        }
+    """
+
+    slack = iterate.slack
+    slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
+    slack_barrier = LogarithmicBarrier(slack_bounds)
+
+    # Set up the KKT operator
+    equality_multipliers, inequality_multipliers = iterate.multipliers
+    barrier_hessian, _ = slack_barrier.primal_dual_hessians(
+        slack, (inequality_multipliers, inequality_multipliers)
+    )
+
+    hessian = f_info.hessian
+    equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
+
+    def kkt_operator(inputs):
+        y, slacks, (equality_multipliers, inequality_multipliers) = inputs
+        r1 = (
+            hessian.mv(y) ** ω
+            + equality_jacobian.T.mv(equality_multipliers) ** ω
+            + inequality_jacobian.T.mv(inequality_multipliers) ** ω
+            + 1e-6 * tree_full_like(y, 1.0) ** ω
+        ).ω
+        r2 = (-(barrier_hessian.mv(slacks) ** ω) + inequality_multipliers**ω).ω
+        r3 = equality_jacobian.mv(y)
+        r4 = (inequality_jacobian.mv(y) ** ω + slacks**ω).ω
+        return r1, r2, (r3, r4)
+
+    # Set up the right-hand side of the KKT system
+    equality_grad = equality_jacobian.T.mv(equality_multipliers)  # pyright: ignore
+    inequality_grad = inequality_jacobian.T.mv(inequality_multipliers)  # pyright: ignore
+    constraint_gradient = (equality_grad**ω + inequality_grad**ω).ω
+    r1 = (f_info.grad**ω + constraint_gradient**ω).ω
+
+    barrier_grad, _ = slack_barrier.grads(slack, iterate.barrier)  # One-sided for slack
+    r2 = (inequality_multipliers**ω - barrier_grad**ω).ω
+
+    equality_residual, inequality_residual = f_info.constraint_residual
+    r3 = equality_residual
+    r4 = (inequality_residual**ω - slack**ω).ω
+
+    vector = (-((r1, r2, (r3, r4)) ** ω)).ω
+    input_structure = jax.eval_shape(lambda: vector)
+
+    return lx.FunctionLinearOperator(kkt_operator, input_structure), vector
+
+
+def _postprocess_step_xdycyd(linear_solution, iterate):
+    """Postprocess the step to ensure that it is feasible."""
+
+    ## REFACTOR THIS: into a function that truncates the steps ---------------------
+    # This function should also handle all the postprocessing
+    # Challenge: this is also a property of the linear system that we use.
+    # For example, if signs of elements are flipped to make the operator symmetric,
+    # then this will vary depending on how we set up the linear system.
+    # So it might be a good idea to have a class for the linear system, that has
+    # attributes for making the operator, the vector, and for the postprocessing.
+    # This class is then restricted to taking an iterate and a function info object,
+    # but otherwise only specifies the signature of its methods.
+    # The advantage is then that we can have a descent attribute that specifies
+    # which system should be used, and otherwise the descent remains the same.
+    # This would also help us when we might want to iteratively refine on a
+    # different system, and it would be clear where things are tweaked.
+    # The IPOPTLike descent would then always expect that a postprocessed iterate
+    # consists of a feasible iterate.
+    boundary_multipliers = iterate.bound_multipliers
+    barrier = iterate.barrier
+    slack = iterate.slack
+    slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
+
+    y_step, slack_steps, dual_steps = linear_solution
+
+    slack_steps = (-(slack_steps**ω)).ω
+    slack_lower_bound, _ = slack_bounds
+    max_slack_step_size = feasible_step_length(
+        slack,
+        slack_lower_bound,
+        slack_steps,
+        offset=barrier,
+    )
+
+    # TODO: constrain the step length for the inequality duals! Not sure whether
+    # feasible_step_length does the right thing when the bound is an upper bound.
+    max_step_size = max_slack_step_size
+
+    # TODO: boundary multipliers currently do nothing / but not so fake anymore
+    # Barrier parameter does not get updated, but it is something that is an iterate
+    no_barrier_step = tree_full_like(barrier, 0.0)
+    iterate_step = (y_step, dual_steps, boundary_multipliers, no_barrier_step)
+    iterate_step = (max_step_size * iterate_step**ω).ω
+
+    y_step, dual_steps, boundary_multipliers, no_barrier_step = iterate_step
+    iterate_step = Iterate(
+        # Change: return slack steps here!
+        y_step,
+        slack_steps,
+        dual_steps,
+        boundary_multipliers,
+        no_barrier_step,
+    )
+    return iterate_step
 
 
 class _XDYcYdDescentState(
@@ -153,6 +278,7 @@ class _XDYcYdDescentState(
     first_step: Bool[Array, ""]
     step: PyTree
     result: RESULTS
+    linear_solver_state: PyTree  # TODO: how to type this?
 
 
 # TODO: This is not strict anymore, since I'm experimenting with the correct method
@@ -172,9 +298,20 @@ class XDYcYdDescent(
     def init(  # pyright: ignore (figuring out what types a descent should take)
         self, iterate, f_info_struct: FunctionInfo.EvalGradHessian
     ) -> _XDYcYdDescentState:
-        del f_info_struct
-        # TODO: error management here
-        return _XDYcYdDescentState(jnp.array(True), iterate, RESULTS.successful)
+        operator_struct, vector_struct = eqx.filter_eval_shape(
+            _make_kkt_operator_xdycyd, iterate, f_info_struct
+        )
+        solution_struct = eqx.filter_eval_shape(
+            lx.linear_solve, operator_struct, vector_struct, self.linear_solver
+        )
+        state_struct = solution_struct.state
+
+        return _XDYcYdDescentState(
+            jnp.array(True),
+            iterate,
+            RESULTS.successful,
+            state_struct,
+        )
 
     def query(  # pyright: ignore  (figuring out what types a descent should take)
         self,
@@ -182,6 +319,8 @@ class XDYcYdDescent(
         f_info: FunctionInfo.EvalGradHessian,
         state: _XDYcYdDescentState,
     ) -> _XDYcYdDescentState:
+        # Special casing first steps: at the beginning of the optimisation, and after
+        # a feasibility restoration.
         def keep_multipliers(iterate__f_info):
             iterate, _ = iterate__f_info
             return iterate
@@ -191,99 +330,17 @@ class XDYcYdDescent(
             state.first_step, _initialise_multipliers, keep_multipliers, args
         )
 
-        y = iterate.y_eval
-        (equality_dual, inequality_dual) = iterate.multipliers
-        boundary_multipliers = iterate.bound_multipliers
-        barrier = iterate.barrier
-
-        _, slack = f_info.constraint_residual  # pyright: ignore
-        slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
-        # TODO: values determining truncation to strict interior not used here yet
-        slack = _interior_tree_clip(slack, *slack_bounds, 0.01, 0.01)
-        slack_barrier = LogarithmicBarrier((slack_bounds))
-        barrier_grad, _ = slack_barrier.grads(slack, barrier)
-        barrier_hessian, _ = slack_barrier.primal_dual_hessians(
-            slack, (inequality_dual, inequality_dual)
-        )
-
-        equality_residual, inequality_residual = f_info.constraint_residual  # pyright: ignore
-
-        def make_kkt_operator(w, z, jacs):
-            hj, gj = jacs
-
-            # TODO: WIP: improvised inerta correction to see if this improves things.
-            def kkt(inputs):
-                y, slacks, (equality_duals, inequality_duals) = inputs
-                y_pred = (
-                    w.mv(y) ** ω
-                    + hj.T.mv(equality_duals) ** ω
-                    + gj.T.mv(inequality_duals) ** ω
-                    + 0 * y**ω  # TODO: improvised inertia correction
-                ).ω
-                s_pred = (-(z.mv(slacks) ** ω) + inequality_duals**ω).ω
-                hl_pred = (hj.mv(y) ** ω - 0 * equality_duals**ω).ω
-                gl_pred = (gj.mv(y) ** ω + slacks**ω - 0 * inequality_duals**ω).ω
-                return y_pred, s_pred, (hl_pred, gl_pred)
-
-            return kkt
-
-        kkt_operator_ = make_kkt_operator(
-            f_info.hessian, barrier_hessian, f_info.constraint_jacobians
-        )
-        input_structure = jax.eval_shape(
-            lambda: (
-                y,
-                slack,
-                (equality_dual, inequality_dual),
-            )
-        )
-        kkt_operator = lx.FunctionLinearOperator(kkt_operator_, input_structure)
-
-        hj, gj = f_info.constraint_jacobians  # pyright: ignore
-        eq_dual = equality_dual
-        ineq_dual = inequality_dual
-        constraint_gradient = (hj.T.mv(eq_dual) ** ω + gj.T.mv(ineq_dual) ** ω).ω  # pyright: ignore
-        upper_rhs = (f_info.grad**ω + constraint_gradient**ω).ω
-
-        vector = (
-            upper_rhs,
-            (inequality_dual**ω - barrier_grad**ω).ω,
-            (equality_residual, (inequality_residual**ω - slack**ω).ω),
-        )
-
-        out = lx.linear_solve(kkt_operator, (-(vector**ω)).ω, self.linear_solver)
-
-        # Output while I figure out the other steps
-        y_step, slack_steps, dual_steps = out.value  # TODO: throw the slack steps away
-
-        slack_steps = (-(slack_steps**ω)).ω
-        slack_lower_bound, _ = slack_bounds
-        max_slack_step_size = feasible_step_length(
-            slack,
-            slack_lower_bound,
-            slack_steps,
-            offset=barrier,
-        )
-
-        # TODO: constrain the step length for the inequality duals! Not sure whether
-        # feasible_step_length does the right thing when the bound is an upper bound.
-        max_step_size = max_slack_step_size
-
-        # TODO: boundary multipliers currently do nothing / but not so fake anymore
-        # Barrier parameter does not get updated, but it is something that is an iterate
-        no_barrier_step = tree_full_like(barrier, 0.0)
-        iterate_step = (y_step, dual_steps, boundary_multipliers, no_barrier_step)
-        iterate_step = (max_step_size * iterate_step**ω).ω
-
-        y_step, dual_steps, boundary_multipliers, no_barrier_step = iterate_step
-        iterate_step = Iterate(
-            y_step, slack_lower_bound, dual_steps, boundary_multipliers, no_barrier_step
-        )
+        operator, vector = _make_kkt_operator_xdycyd(iterate, f_info)
+        # TODO: regularisation / inertia correction comes in here
+        out = lx.linear_solve(operator, vector, self.linear_solver)
+        result = RESULTS.promote(out.result)
+        iterate_step = _postprocess_step_xdycyd(out.value, iterate)
 
         return _XDYcYdDescentState(
             jnp.array(False),
             iterate_step,
-            RESULTS.promote(out.result),
+            result,
+            state.linear_solver_state,
         )
 
     def correct(  # pyright: ignore  (figuring out what types a descent should take)
@@ -292,7 +349,7 @@ class XDYcYdDescent(
         f_info: FunctionInfo.EvalGradHessian,
         state: _XDYcYdDescentState,
     ) -> _XDYcYdDescentState:
-        return self.query(iterate, f_info, state)  # TODO: cheaper implementation!
+        return state  # self.query(iterate, f_info, state)
 
     def step(self, step_size: Scalar, state: _XDYcYdDescentState) -> tuple[Y, RESULTS]:
         # TODO Note that I *am* currently scaling the dual variables for the bounds too
