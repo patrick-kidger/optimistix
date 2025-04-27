@@ -3,6 +3,7 @@ from typing import Any, Generic, Union
 
 import equinox as eqx
 import jax
+import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
@@ -51,7 +52,7 @@ from .filtered import IPOPTLikeFilteredLineSearch
 # enabling the feasibility restoration too, since this is currently the only place that
 # the filter gets re-set. (We don't support the heuristic filter reset in the search
 # yet.)
-SECOND_ORDER_CORRECTION = True
+SECOND_ORDER_CORRECTION = False
 FEASIBILITY_RESTORATION = True
 FILTERED_LINE_SEARCH = True
 
@@ -332,6 +333,8 @@ class IPOPTLikeDescent(
 # we do not in fact know for sure that we do the right thing in this case.
 
 
+# TODO: I think it would make sense to have an `AbstractTermination` that just takes
+# an iterate, and a function info, and has a norm.
 def _error(
     iterate: PyTree,  # pyright: ignore   # TODO API for termination criteria
     f_info: FunctionInfo.EvalGradHessian,
@@ -367,6 +370,35 @@ def _error(
         )
         constraint_norm += norm(inequality_violation)
 
+    ### TO BE REFACTORED (made a separate optx.one_norm) -------------------------------
+    def _one_norm(x):
+        absolute_values = jnp.where(jnp.isfinite(x), jnp.abs(x), 0.0)
+        return jnp.sum(absolute_values)
+
+    multiplier_norm = jtu.tree_map(_one_norm, (equality_dual, inequality_dual))
+    multiplier_norm, _ = jfu.ravel_pytree(multiplier_norm)
+    multiplier_norm = jnp.sum(multiplier_norm)
+
+    num_multipliers = jtu.tree_map(jnp.isfinite, (equality_dual, inequality_dual))
+    num_multipliers, _ = jfu.ravel_pytree(num_multipliers)
+    num_multipliers = jnp.sum(num_multipliers)
+
+    bound_multiplier_norm = jtu.tree_map(_one_norm, (lb_dual, ub_dual))
+    bound_multiplier_norm, _ = jfu.ravel_pytree(bound_multiplier_norm)
+    bound_multiplier_norm = jnp.sum(bound_multiplier_norm)
+
+    num_bounds = jtu.tree_map(jnp.isfinite, (lb_dual, ub_dual))  # Or check bounds
+    num_bounds, _ = jfu.ravel_pytree(num_bounds)
+    num_bounds = jnp.sum(num_bounds)
+    # ----------------------------------------------------------------------------------
+
+    summed_norms = multiplier_norm + bound_multiplier_norm
+    summed_scaled_norm = summed_norms / (num_multipliers + num_bounds)
+    scaling = jnp.where(summed_scaled_norm > 100.0, summed_scaled_norm, 100.0) / 100.0
+
+    optimality_error = optimality_error / scaling
+
+    # Aggregate errata - probably move this for better flow
     errata = (optimality_error, constraint_norm)
 
     lower, upper = f_info.bounds  # pyright: ignore (bounds not None)  # TODO
@@ -378,6 +410,10 @@ def _error(
     finite_upper = jtu.tree_map(jnp.isfinite, upper)
     lower_error = tree_where(finite_lower, lower_error, 0.0)
     upper_error = tree_where(finite_upper, upper_error, 0.0)
+
+    # TODO: scale the lower error
+
+    # TODO question: lower and upper error separat or joint?
     errata += (norm(lower_error), norm(upper_error))
 
     return jnp.max(jnp.asarray(errata))
@@ -522,11 +558,12 @@ class AbstractIPOPTLike(
         )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
 
-        # dummy slack variable
-        dummy_slack = tree_full_like(constraint_residual[1], 0.0)
+        _, slack = constraint_residual
+        slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
+        slack = _interior_tree_clip(slack, *slack_bounds, bound_push, bound_frac)
         iterate = Iterate(
             y,
-            dummy_slack,
+            slack,
             tree_full_like(constraint_residual, 0.0),
             tree_full_like(bounds, 1.0),
             jnp.asarray(self.initial_barrier_parameter),
@@ -656,7 +693,8 @@ class AbstractIPOPTLike(
             # TODO: something going on here with the permitted types, fixing this is
             # punted until we make a decision on whether to unify termination criteria
             # with a common interface
-            # TODO: prototyping to get a descent over a pair (primal, duals...)!!!
+            # TODO: update to structured iterate
+            # TODO: include slack in termination condition
             iterate_ = (
                 state.iterate.y_eval,
                 state.iterate.multipliers,
@@ -671,9 +709,7 @@ class AbstractIPOPTLike(
                 self.norm,  # pyright: ignore
             )
             # TODO: we're introducing new hyperparameters here!
-            converged_at_barrier = (
-                error <= 10 * state.iterate.barrier
-            )  # TODO: barrier parameter
+            converged_at_barrier = error <= 10 * state.iterate.barrier
             new_barrier = jnp.min(
                 jnp.array([0.2 * state.iterate.barrier, state.iterate.barrier**1.5])
             )
@@ -706,17 +742,17 @@ class AbstractIPOPTLike(
         def rejected(states):
             search_state, descent_state = states
 
-            if SECOND_ORDER_CORRECTION:
-                updated_f_info = eqx.tree_at(
-                    lambda f: f.constraint_residual,
-                    state.f_info,
-                    (state.f_info.constraint_residual**ω + constraint_residual**ω).ω,
-                )
-                descent_state = self.descent.query(
-                    state.iterate,
-                    updated_f_info,
-                    descent_state,
-                )
+            # if SECOND_ORDER_CORRECTION:
+            #     updated_f_info = eqx.tree_at(
+            #         lambda f: f.constraint_residual,
+            #         state.f_info,
+            #         (state.f_info.constraint_residual**ω + constraint_residual**ω).ω,
+            #     )
+            #     descent_state = self.descent.query(
+            #         state.iterate,
+            #         updated_f_info,
+            #         descent_state,
+            #     )
 
             # TODO: SOC with twice the step size as is returned by the first search...
             # Alternatively calling again with state.search_state. This means that we
@@ -734,7 +770,8 @@ class AbstractIPOPTLike(
                 state.iterate.barrier,  # No update to barrier parameter
             )
 
-        # Branch for normal acceptance / rejection
+        # Branch for normal acceptance / rejection: but rejection also handles SOC
+        # TODO: barrier currently unused?
         y, f_info, aux, search_state, descent_state, terminate, barrier = filter_cond(
             accept, accepted, rejected, (search_state, state.descent_state)
         )
@@ -759,6 +796,7 @@ class AbstractIPOPTLike(
         ) | (descent_result == RESULTS.feasibility_restoration_required)
 
         def restore(args):
+            jax.debug.print("restoring feasibility")
             del args
 
             # TODO: make attribute and update the penalty parameter for the feasibility
@@ -776,12 +814,23 @@ class AbstractIPOPTLike(
             iterate_eval = (state.iterate**ω + descent_steps**ω).ω
             # TODO: barrier update? This takes barrier from outer scope
             # What happens to the barrier parameter when we restore feasibility?
+            # TODO: re-evaluate the constraint function to update the slack?
+            # We're currently losing information by re-initialising the slack value
+            # in the descent, which then does not get taken into account when updating
+            # the slack variable! (I think? Does the slack get returned by the
+            # initialisation method for the multipliers?)
+
+            # TODO: now we're calling expensive functions again! not great
+            _, slack = constraint(recovered_y)  # pyright: ignore (constraint not None)
+            slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
+            slack = _interior_tree_clip(slack, *slack_bounds, 0.01, 0.01)
+
             new_iterate = Iterate(
                 recovered_y,
-                state.iterate.slack,  # TODO: still a dummy slack
+                slack,
                 iterate_eval.multipliers,
                 iterate_eval.bound_multipliers,
-                iterate_eval.barrier,
+                barrier,
             )
 
             # Re-initialise the search
@@ -816,6 +865,9 @@ class AbstractIPOPTLike(
                 search_result == RESULTS.successful, descent_result, search_result
             )
             iterate_eval = (state.iterate**ω + descent_steps**ω).ω
+
+            # TODO: remove this hack once the accepted branch returns an iterate
+            iterate_eval = eqx.tree_at(lambda i: i.barrier, iterate_eval, barrier)
 
             return _IPOPTLikeState(
                 first_step=jnp.array(False),
@@ -862,6 +914,7 @@ class AbstractIPOPTLike(
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
+        jax.debug.print("final barrier: {}", state.iterate.barrier)
         return y, aux, {}
 
 
