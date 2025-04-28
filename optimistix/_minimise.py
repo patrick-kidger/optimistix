@@ -121,6 +121,7 @@ def minimise(
         bounds = checked_bounds(y0, jtu.tree_map(inexact_asarray, bounds))
 
     if constraint is not None:
+        # TODO(jhaffner): allow constraints to take arguments
         constraint = OutAsArray(constraint)
         constraint = eqx.filter_closure_convert(constraint, y0)
         constraint = cast(Constraint[Y, EqualityOut, InequalityOut], constraint)
