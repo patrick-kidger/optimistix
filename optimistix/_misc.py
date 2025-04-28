@@ -128,26 +128,62 @@ def tree_clip(
     return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
 
 
-# TODO: do we do the right thing for upper bounds here? I'm not sure about that!
 def feasible_step_length(
     current: PyTree[Array],
-    bound: PyTree[Array],
     proposed_step: PyTree[Array],
+    lower_bound: PyTree[Array],
+    upper_bound: PyTree[Array],
     *,
     offset: ScalarLike = jnp.array(0.0),
 ) -> ScalarLike:
-    """Returns the maximum feasible step length for any current value, its bound, and a
+    """Returns the maximum feasible step length for any current value, its bounds, and a
     proposed step. The current value can be an instance of an optimisation variable `y`,
     a dual variable, or a slack variable.
+
+    If the proposed step has a positive sign, then it is limited by the distance to the
+    upper bound. If the proposed step has a negative sign, then it is limited by the
+    distance to the lower bound. When we're at the boundary or outside of it, steps that
+    improve upon this are allowed - e.g. when (upper - y) is negative, then we may take
+    a step in the direction of -y. Similarly, if (upper - y) is zero, steps in the
+    direction of -y are allowed.
+    As such, this utility function does not check whether the current value is within
+    the bounds and does not raise an error if it is not. It will, however, not make the
+    problem worse either. This means that it is up to the  solvers how this case is
+    handled or prevented.
+    (In certain active set methods, when values are allowed to be at the bounds, small
+    deviations outside of the bounds may be due to numerical errors.)
+
+    The distance to the bounds is computed as (1 - offset) * (x - lower) for the lower
+    bound, and (1 - offset) * (upper - x) for the upper bound. The offset can be used to
+    ensure that the step taken remains in the strict interior of the feasible set. (This
+    is required for interior point methods, where e.g. slack variables are required to
+    be strictly positive.)
+
     The current value, its bound and the proposed step must all have the same PyTree
-    structure. (Raising errata for mismatches is deferred to jtu.tree_map and ω.)
+    structure. (Raising errata for mismatches is deferred to jtu.tree_map.)
     """
-    distance = ((1 - offset) * (current**ω - bound**ω)).ω
-    ratios = (-(distance**ω) / (proposed_step**ω)).ω
-    safe_ratios = tree_where(jtu.tree_map(jnp.isfinite, ratios), ratios, jnp.inf)
-    positive_ratios = jtu.tree_map(lambda x: jnp.where(x >= 0, x, jnp.inf), safe_ratios)
-    step_lengths, _ = jfu.ravel_pytree(positive_ratios)
-    return jnp.min(jnp.hstack([step_lengths, jnp.ones(1)]))
+
+    # TODO: do we actually not make it worse when outside of bounds?
+    def max_step(x, dx, lower, upper):
+        distance_to_lower = (1 - offset) * (x - lower)
+        distance_to_upper = (1 - offset) * (upper - x)
+
+        max_to_lower = jnp.asarray(jnp.where(dx < 0, -distance_to_lower / dx, jnp.inf))
+        max_to_upper = jnp.asarray(jnp.where(dx > 0, distance_to_upper / dx, jnp.inf))
+
+        # negative distances when we're outside the bounds can result in step size < 0
+        # this means that we would worsen our current position, which we don't want
+        safe_max_to_lower = jnp.where(max_to_lower > 0, max_to_lower, 0.0)
+        safe_max_to_upper = jnp.where(max_to_upper > 0, max_to_upper, 0.0)
+
+        min_to_lower = jnp.min(jnp.asarray(safe_max_to_lower))  # TODO: remove asarray
+        min_to_upper = jnp.min(jnp.asarray(safe_max_to_upper))
+
+        return jnp.min(jnp.array([min_to_lower, min_to_upper, 1.0]))
+
+    max_steps = jtu.tree_map(max_step, current, proposed_step, lower_bound, upper_bound)
+    flat_max_steps, _ = jfu.ravel_pytree(max_steps)
+    return jnp.min(flat_max_steps)
 
 
 def resolve_rcond(rcond, n, m, dtype):
@@ -170,18 +206,22 @@ class NoneAux(eqx.Module):
         return self.fn(*args, **kwargs), None
 
 
-class OutAsArray(eqx.Module):
-    """Wrap a minimisation/root-find/etc. function so that its mathematical outputs are
+class OutAsArray(eqx.Module, strict=True):
+    """Wrap a function that returns two arguments so that its mathematical outputs are
     all inexact arrays, and its auxiliary outputs are all arrays.
+    For a minimisation function, the first return argument is the function value, and
+    the second argument is any auxiliary output. For a constraint function, the first
+    argument are the evaluated equality constraints, and the second argument are the
+    evaluated inequality constraints.
     """
 
     fn: Callable
 
     def __call__(self, *args, **kwargs):
-        out, aux = self.fn(*args, **kwargs)
-        out = jtu.tree_map(inexact_asarray, out)
-        aux = jtu.tree_map(asarray, aux)
-        return out, aux
+        first, second = self.fn(*args, **kwargs)
+        first = jtu.tree_map(inexact_asarray, first)
+        second = jtu.tree_map(asarray, second)
+        return first, second
 
 
 def lin_to_grad(lin_fn, y_eval, autodiff_mode=None):

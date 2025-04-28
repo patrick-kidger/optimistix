@@ -596,28 +596,97 @@ tricky_geometries__fn_y0_args_constraint_bounds_expected_result = (
 )
 
 
-y__bound__proposed_step__offset__expected_result = (
-    (jnp.array(3), jnp.array(5), jnp.array(1.0), None, jnp.array(1.0)),
-    (jnp.array(3), jnp.array(5), jnp.array(4.0), None, jnp.array(0.5)),
-    (jnp.array(3), jnp.array(5), jnp.array(-1.0), None, jnp.array(1.0)),
-    (jnp.array(3), jnp.array(-5), jnp.array(-4.0), None, jnp.array(1.0)),
-    (jnp.array(3), jnp.array(-1), jnp.array(-8.0), None, jnp.array(0.5)),
-    (jnp.array(3), jnp.array(5), jnp.array(1.0), jnp.array(0.5), jnp.array(1.0)),
-    (jnp.array(3), jnp.array(5), jnp.array(4.0), jnp.array(0.5), jnp.array(0.25)),
-    (jnp.array(3), jnp.array(3), jnp.array(1.0), None, jnp.array(0.0)),
+y__bounds__step__offset__expected_result = (
+    (
+        jnp.array(3.0),
+        (jnp.array(0.0), jnp.array(5.0)),
+        jnp.array(1.0),
+        None,
+        jnp.array(1.0),
+    ),
+    (
+        jnp.array(3),
+        (jnp.array(3.0), jnp.array(5)),  # initial point on boundary
+        jnp.array(4.0),  # step toward allowed region
+        None,
+        jnp.array(0.5),
+    ),
+    (
+        jnp.array(3),
+        (jnp.array(3.0), jnp.array(5)),  # initial point on boundary
+        -jnp.array(4.0),  # step outside allowed region
+        None,
+        jnp.array(0.0),
+    ),
+    (
+        jnp.array(3),
+        (-jnp.array(jnp.inf), jnp.array(5)),
+        jnp.array(-1.0),
+        None,
+        jnp.array(1.0),
+    ),
+    (
+        jnp.array(3),
+        (jnp.array(-5), jnp.array(jnp.inf)),
+        jnp.array(-4.0),
+        None,
+        jnp.array(1.0),
+    ),
+    (
+        jnp.array(3),
+        (jnp.array(-1), jnp.array(jnp.inf)),
+        jnp.array(-8.0),
+        None,
+        jnp.array(0.5),
+    ),
+    (
+        jnp.array(3),
+        (-jnp.array(jnp.inf), jnp.array(5)),
+        jnp.array(1.0),
+        jnp.array(0.5),
+        jnp.array(1.0),
+    ),
+    (
+        jnp.array(3),
+        (-jnp.array(jnp.inf), jnp.array(5)),
+        jnp.array(4.0),
+        jnp.array(0.5),
+        jnp.array(0.25),
+    ),
+    (
+        jnp.array(3),
+        (-jnp.array(jnp.inf), jnp.array(3)),
+        jnp.array(1.0),
+        None,
+        jnp.array(0.0),
+    ),
     (
         jnp.array([1.0, 2.0]),
-        jnp.array([3.0, 4.0]),
+        (-jnp.array([jnp.inf, jnp.inf]), jnp.array([3.0, 4.0])),
         jnp.array([1.0, 2.0]),
         None,
         jnp.array(1.0),
     ),
     (
-        (jnp.array(1), jnp.array(2)),
-        (jnp.array(3), jnp.array(4)),
+        (jnp.array(1), jnp.array(2)),  # simply pytree structure
+        ((-jnp.array(jnp.inf), -jnp.array(jnp.inf)), (jnp.array(3), jnp.array(4))),
         (jnp.array(1), jnp.array(2)),
         None,
         jnp.array(1.0),
+    ),
+    (
+        jnp.array(-0.5),  # initial point outside bounds
+        (jnp.array(0.0), jnp.array(5.0)),
+        jnp.array(1.0),  # step takes us back into bounded region
+        None,
+        jnp.array(1.0),
+    ),
+    (
+        jnp.array(-0.5),  # initial point outside bounds
+        (jnp.array(0.0), jnp.array(5.0)),
+        jnp.array(-1.0),  # step takes us further outside bounded region
+        None,
+        jnp.array(0.0),
     ),
 )
 

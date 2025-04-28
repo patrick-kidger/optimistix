@@ -6,7 +6,7 @@ import pytest
 
 from .constrained_problem_helpers import (
     trees_to_clip,
-    y__bound__proposed_step__offset__expected_result,
+    y__bounds__step__offset__expected_result,
 )
 from .helpers import tree_allclose
 
@@ -52,12 +52,14 @@ def test_checked_bounds(y, lower, upper, _):
 
 
 @pytest.mark.parametrize(
-    "y, bound, proposed_step, offset, expected_result",
-    y__bound__proposed_step__offset__expected_result,
+    "y, bounds, step, offset, expected_result",
+    y__bounds__step__offset__expected_result,
 )
-def test_feasible_step_length(y, bound, proposed_step, offset, expected_result):
+def test_feasible_step_length(y, bounds, step, offset, expected_result):
     if offset is None:
-        result = optx_misc.feasible_step_length(y, bound, proposed_step)
+        result = optx_misc.feasible_step_length(y, step, *bounds)
+        jax.debug.print("result, expected: {}", (result, expected_result))
     else:
-        result = optx_misc.feasible_step_length(y, bound, proposed_step, offset=offset)
+        result = optx_misc.feasible_step_length(y, step, *bounds, offset=offset)
+        jax.debug.print("result, expected: {}", (result, expected_result))
     assert tree_allclose(result, expected_result)
