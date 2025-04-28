@@ -216,9 +216,7 @@ def cauchy_newton_step(y, f_info, linear_solver):
     cauchy_newton, _ = out.value
     result = RESULTS.promote(out.result)
 
-    max_to_lower = feasible_step_length(y, lower, cauchy_newton)
-    max_to_upper = feasible_step_length(y, upper, cauchy_newton)
-    max_step_size = jnp.min(jnp.array([max_to_lower, max_to_upper, 1.0]))
+    max_step_size = feasible_step_length(y, cauchy_newton, lower, upper)
     cauchy_newton = (max_step_size * cauchy_newton**ω).ω
 
     return cauchy_newton, result
