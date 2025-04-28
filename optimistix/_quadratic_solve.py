@@ -353,6 +353,7 @@ def quadratic_solve(
             bounds = checked_bounds(y0, jtu.tree_map(inexact_asarray, bounds))
 
         if constraint is not None:
+            constraint = OutAsArray(constraint)
             constraint = eqx.filter_closure_convert(constraint, y0)
             constraint = cast(Constraint[Y, EqualityOut, InequalityOut], constraint)
 
