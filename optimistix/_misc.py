@@ -163,7 +163,6 @@ def feasible_step_length(
     structure. (Raising errata for mismatches is deferred to jtu.tree_map.)
     """
 
-    # TODO: do we actually not make it worse when outside of bounds?
     def max_step(x, dx, lower, upper):
         distance_to_lower = (1 - offset) * (x - lower)
         distance_to_upper = (1 - offset) * (upper - x)
