@@ -39,7 +39,10 @@ from .ipoptlike import (
 # ...and it turns out that they do their linear least squares solve for all multipliers,
 # not just the equality multipliers. So this would require a change here. I'm tabling
 # this for now though, since its not clear that it makes this much of a difference and
-# other pots are burning, to use a german phrase.
+# other pots are burning, to use a german phrase. The inequality multipliers are also
+# restricted with respect to the values they may take (currently strictly negative), so
+# this would require a non-negative least squares solve for them, or some other kind of
+# correction.
 def _initialise_multipliers(iterate__f_info):
     """Initialise the multipliers for the equality and inequality constraints. Both are
     initialised to the value they are expected to take at the optimum, with a safety
@@ -111,7 +114,9 @@ def _initialise_multipliers(iterate__f_info):
     lower = tree_full_like(slack, 0.0)
     upper = tree_full_like(slack, jnp.inf)
     slack = _interior_tree_clip(slack, lower, upper, 0.01, 0.01)
-    inequality_multipliers = (iterate.barrier / slack**ω).ω
+    inequality_multipliers = (-iterate.barrier / slack**ω).ω
+    # jax.debug.print("slack: {}", slack)
+    # jax.debug.print("inequality multipliers: {}", inequality_multipliers)
 
     equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
     inequality_gradient = inequality_jacobian.T.mv(inequality_multipliers)
@@ -138,7 +143,7 @@ def _initialise_multipliers(iterate__f_info):
 
     # TODO: hard-coded cutoff value for now! In IPOPT this is an option to the solver
     def truncate(x):
-        return jnp.where(jnp.abs(x) < 1e3, x, 0.0)
+        return jnp.where(jnp.abs(x) > 1e3, x, 0.0)
 
     safe_equality_multipliers = jtu.tree_map(truncate, equality_multipliers)
     safe_inequality_multipliers = jtu.tree_map(truncate, inequality_multipliers)
@@ -235,41 +240,46 @@ def _postprocess_step_xdycyd(linear_solution, iterate):
     # The IPOPTLike descent would then always expect that a postprocessed iterate
     # consists of a feasible iterate.
     boundary_multipliers = iterate.bound_multipliers
-    barrier = iterate.barrier
-    slack = iterate.slack
-    slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
 
     y_step, slack_steps, dual_steps = linear_solution
 
     slack_steps = (-(slack_steps**ω)).ω
-    slack_lower_bound, _ = slack_bounds
     max_slack_step_size = feasible_step_length(
-        slack,
-        slack_lower_bound,
+        iterate.slack,
         slack_steps,
-        offset=barrier,
+        lower_bound=tree_full_like(iterate.slack, 0.0),
+        upper_bound=tree_full_like(iterate.slack, jnp.inf),
+        offset=iterate.barrier,
     )
 
-    # TODO: constrain the step length for the inequality duals! Not sure whether
-    # feasible_step_length does the right thing when the bound is an upper bound.
-    max_step_size = max_slack_step_size
+    _, inequality_multipliers = iterate.multipliers
+    _, inequality_multiplier_steps = dual_steps
+    max_multiplier_step_size = feasible_step_length(
+        inequality_multipliers,
+        inequality_multiplier_steps,
+        lower_bound=tree_full_like(inequality_multipliers, -jnp.inf),
+        upper_bound=tree_full_like(inequality_multipliers, 0.0),
+        offset=iterate.barrier,  # TODO: adaptive offset, I think that got lost (tau)
+    )
 
-    # TODO: boundary multipliers currently do nothing / but not so fake anymore
-    # Barrier parameter does not get updated, but it is something that is an iterate
-    no_barrier_step = tree_full_like(barrier, 0.0)
-    iterate_step = (y_step, dual_steps, boundary_multipliers, no_barrier_step)
-    iterate_step = (max_step_size * iterate_step**ω).ω
+    step_sizes = jnp.array([max_slack_step_size, max_multiplier_step_size])
+    max_step_size = jnp.min(step_sizes)  # Monkey patch
 
-    y_step, dual_steps, boundary_multipliers, no_barrier_step = iterate_step
-    iterate_step = Iterate(
-        # Change: return slack steps here!
+    result = RESULTS.where(
+        jnp.asarray(max_step_size) > 0.0,  # TODO: some cutoff value
+        RESULTS.successful,  # use result from linear solve here
+        RESULTS.feasibility_restoration_required,
+    )
+
+    iterate_step_ = Iterate(
         y_step,
         slack_steps,
         dual_steps,
-        boundary_multipliers,
-        no_barrier_step,
+        tree_full_like(boundary_multipliers, 0.0),  # TODO: not yet part of this descent
+        tree_full_like(iterate.barrier, 0.0),
     )
-    return iterate_step
+
+    return (max_step_size * iterate_step_**ω).ω, result
 
 
 def _leaf_from_struct(x):
@@ -289,6 +299,7 @@ class _XDYcYdDescentState(
 
 
 # TODO: This is not strict anymore, since I'm experimenting with the correct method
+# (@John this means we're not using a strict Equinox module)
 # TODO: This descent implements the XDYcYd descent, as implemented in HiOp. It currently
 # requires that bounds be specified as inequality constraints.
 # TODO: this thing NEEDS a new name, this name is maximally non-descriptive. (It stands
@@ -341,7 +352,18 @@ class XDYcYdDescent(
         # TODO: regularisation / inertia correction comes in here
         out = lx.linear_solve(operator, vector, self.linear_solver)
         result = RESULTS.promote(out.result)
-        iterate_step = _postprocess_step_xdycyd(out.value, iterate)
+
+        # TODO: result: if max step size is 0, request feasibility restoration
+        # now I need to decide which result should take precedence
+        # step sizes of zero are not detected by the search, the search step size is
+        # only a relative scaling of y_descent, so if y_descent is zero or near zero,
+        # then the search will not detect this in our setup.
+        # For unconstrained minimisation, this would not be a problem since it indicates
+        # convergence and the solver terminates if it detects it. Here, I let the
+        # function that handles postprocessing of the step request a feasibility
+        # restoration if the step size is too small. We should think about where this
+        # would be best placed.
+        iterate_step, result = _postprocess_step_xdycyd(out.value, iterate)
 
         return _XDYcYdDescentState(
             jnp.array(False),

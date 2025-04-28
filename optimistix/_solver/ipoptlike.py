@@ -31,6 +31,7 @@ from .._misc import (
     tree_clip,
     tree_full_like,
     tree_where,
+    two_norm,
     verbose_print,
 )
 from .._search import (
@@ -52,9 +53,9 @@ from .filtered import IPOPTLikeFilteredLineSearch
 # enabling the feasibility restoration too, since this is currently the only place that
 # the filter gets re-set. (We don't support the heuristic filter reset in the search
 # yet.)
-SECOND_ORDER_CORRECTION = True
-FEASIBILITY_RESTORATION = True
-FILTERED_LINE_SEARCH = True
+SECOND_ORDER_CORRECTION = False
+FEASIBILITY_RESTORATION = False
+FILTERED_LINE_SEARCH = False
 
 
 def _interior_tree_clip(
@@ -101,8 +102,8 @@ def _interior_tree_clip(
     lower_offset = jtu.tree_map(offset, lower, width)
     upper_offset = jtu.tree_map(offset, upper, width)
 
-    moved_lower = (tree**ω + lower_offset**ω).ω
-    moved_upper = (tree**ω - upper_offset**ω).ω
+    moved_lower = (lower**ω + lower_offset**ω).ω
+    moved_upper = (upper**ω - upper_offset**ω).ω
 
     return tree_clip(tree, moved_lower, moved_upper)
 
@@ -145,9 +146,14 @@ def _bound_multiplier_steps(
     lower_step = multiplier_update(lower_mult, lower_grad, lower_hess.mv(y_step), lower)
     upper_step = multiplier_update(upper_mult, upper_grad, upper_hess.mv(y_step), upper)
 
-    _zero = tree_full_like(lower, 0.0)
-    lower_step_size = feasible_step_length(lower_mult, _zero, lower_step, offset=offset)
-    upper_step_size = feasible_step_length(upper_mult, _zero, upper_step, offset=offset)
+    # Both multipliers must be strictly positive
+    mult_bounds = tree_full_like(lower, 0.0), tree_full_like(lower, jnp.inf)
+    lower_step_size = feasible_step_length(
+        lower_mult, lower_step, *mult_bounds, offset=offset
+    )
+    upper_step_size = feasible_step_length(
+        upper_mult, upper_step, *mult_bounds, offset=offset
+    )
 
     max_step_size = jnp.min(jnp.array([lower_step_size, upper_step_size]))
     lower_step = (max_step_size * lower_step**ω).ω
@@ -284,10 +290,7 @@ class IPOPTLikeDescent(
         # Postprocess the result: truncate to feasible step length
         offset = jnp.min(jnp.array([self.minimum_offset, 1 - barrier_parameter]))
         lower, upper = f_info.bounds
-        lower_max_step_size = feasible_step_length(y, lower, y_step, offset=offset)
-        upper_max_step_size = feasible_step_length(y, upper, y_step, offset=offset)
-
-        max_step_size = jnp.min(jnp.array([lower_max_step_size, upper_max_step_size]))
+        max_step_size = feasible_step_length(y, y_step, lower, upper, offset=offset)
 
         y_step = (max_step_size * y_step**ω).ω
         equality_multiplier_step = (max_step_size * equality_multiplier_step**ω).ω
@@ -561,6 +564,7 @@ class AbstractIPOPTLike(
         _, slack = constraint_residual
         slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
         slack = _interior_tree_clip(slack, *slack_bounds, bound_push, bound_frac)
+
         iterate = Iterate(
             y,
             slack,
@@ -630,7 +634,6 @@ class AbstractIPOPTLike(
         # modify the iterate in the rejected branch.
         # Right now working around this by having iterate, and iterate_
         def accepted(states):
-            jax.debug.print("accepted step")
             _, descent_state = states
 
             grad = lin_to_grad(
@@ -749,11 +752,16 @@ class AbstractIPOPTLike(
                     state.f_info,
                     (state.f_info.constraint_residual**ω + constraint_residual**ω).ω,
                 )
-                descent_state = self.descent.query(
+                _previous_step = descent_state.step
+                descent_state_ = self.descent.query(
                     state.iterate,
                     updated_f_info,
                     descent_state,
                 )
+                _corrected_step = descent_state_.step
+                _step_diff = (_corrected_step**ω - _previous_step**ω).ω
+                jax.debug.print("norm of step diff: {}", two_norm(_step_diff))
+                del _step_diff
 
             # TODO: SOC with twice the step size as is returned by the first search...
             # Alternatively calling again with state.search_state. This means that we
@@ -886,7 +894,6 @@ class AbstractIPOPTLike(
         if not FEASIBILITY_RESTORATION:  # Disable during debugging of other features
             requires_restoration = jnp.array(False)
         state = filter_cond(requires_restoration, restore, regular_update, args)
-
         return y, state, aux
 
     def terminate(
@@ -916,6 +923,9 @@ class AbstractIPOPTLike(
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
         jax.debug.print("final barrier: {}", state.iterate.barrier)
+        _, final_inequality_multipliers = state.iterate.multipliers
+        check = jtu.tree_map(lambda x: jnp.all(x <= 0), final_inequality_multipliers)
+        jax.debug.print("final inequality multipliers negative: {}", check)
         return y, aux, {}
 
 
