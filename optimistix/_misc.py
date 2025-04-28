@@ -158,10 +158,14 @@ def feasible_step_length(
     ensure that the step taken remains in the strict interior of the feasible set. (This
     is required for interior point methods, where e.g. slack variables are required to
     be strictly positive.)
+    Note that this function can return a feasible step length of 0.0, and this case
+    should be handled where this function is used.
 
     The current value, its bound and the proposed step must all have the same PyTree
     structure. (Raising errata for mismatches is deferred to jtu.tree_map.)
     """
+    # TODO: runtime error if lower > upper for any element?
+    # TODO: return a boolean array to indicate whether the feasible step length is > 0?
 
     def max_step(x, dx, lower, upper):
         distance_to_lower = (1 - offset) * (x - lower)
@@ -175,7 +179,7 @@ def feasible_step_length(
         safe_max_to_lower = jnp.where(max_to_lower > 0, max_to_lower, 0.0)
         safe_max_to_upper = jnp.where(max_to_upper > 0, max_to_upper, 0.0)
 
-        min_to_lower = jnp.min(jnp.asarray(safe_max_to_lower))  # TODO: remove asarray
+        min_to_lower = jnp.min(jnp.asarray(safe_max_to_lower))
         min_to_upper = jnp.min(jnp.asarray(safe_max_to_upper))
 
         return jnp.min(jnp.array([min_to_lower, min_to_upper, 1.0]))
