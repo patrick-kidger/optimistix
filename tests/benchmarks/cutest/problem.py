@@ -9,8 +9,7 @@ _Out = Union[Scalar, PyTree[ArrayLike]]
 
 
 class AbstractProblem(eqx.Module, strict=True):
-    """Abstract base class for benchmark problems.
-    """
+    """Abstract base class for benchmark problems."""
 
     def name(self):
         """Returns the name of the benchmark problem, which should be the same as the
