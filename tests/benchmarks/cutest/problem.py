@@ -9,9 +9,7 @@ _Out = Union[Scalar, PyTree[ArrayLike]]
 
 
 class AbstractProblem(eqx.Module, strict=True):
-    """Abstract base class for benchmark problems. All benchmark problems should have
-    attributes indicating if they have bound constraints on the variables, and if the
-    problem is constrained or unconstrained.
+    """Abstract base class for benchmark problems.
     """
 
     def name(self):
