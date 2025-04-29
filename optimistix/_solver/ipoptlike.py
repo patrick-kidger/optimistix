@@ -31,7 +31,6 @@ from .._misc import (
     tree_clip,
     tree_full_like,
     tree_where,
-    two_norm,
     verbose_print,
 )
 from .._search import (
@@ -746,7 +745,6 @@ class AbstractIPOPTLike(
             search_state, descent_state = states
 
             if SECOND_ORDER_CORRECTION:
-                jax.debug.print("rejected step, trying SOC")
                 updated_f_info = eqx.tree_at(
                     lambda f: f.constraint_residual,
                     state.f_info,
@@ -760,7 +758,6 @@ class AbstractIPOPTLike(
                 )
                 _corrected_step = descent_state_.step
                 _step_diff = (_corrected_step**ω - _previous_step**ω).ω
-                jax.debug.print("norm of step diff: {}", two_norm(_step_diff))
                 del _step_diff
 
             # TODO: SOC with twice the step size as is returned by the first search...
@@ -805,7 +802,6 @@ class AbstractIPOPTLike(
         ) | (descent_result == RESULTS.feasibility_restoration_required)
 
         def restore(args):
-            jax.debug.print("restoring feasibility")
             del args
 
             # TODO: make attribute and update the penalty parameter for the feasibility
@@ -922,10 +918,6 @@ class AbstractIPOPTLike(
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        jax.debug.print("final barrier: {}", state.iterate.barrier)
-        _, final_inequality_multipliers = state.iterate.multipliers
-        check = jtu.tree_map(lambda x: jnp.all(x <= 0), final_inequality_multipliers)
-        jax.debug.print("final inequality multipliers negative: {}", check)
         return y, aux, {}
 
 
