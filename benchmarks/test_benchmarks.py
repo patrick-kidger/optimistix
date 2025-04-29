@@ -1,18 +1,12 @@
-# Running benchmarks to test the performance of our solvers, using the pytest
-# benchmarking extension.
-#
-# To run the benchmarks, simply run `pytest benchmarks` from the root directory.
-# If you'd like to save the results, the flag `--benchmark-save=<file_path>` can be used
-# to save a .json file with stats and additional custom metrics. (Useful to compare
-# performance across versions.)
-
-
 import equinox as eqx
 import jax.tree_util as jtu
 import optimistix as optx
 import pytest
 
 from .cutest import unconstrained_problems
+
+
+extensive = pytest.mark.skipif("not config.getoption('extensive')")
 
 
 def block_tree_until_ready(x):
@@ -25,6 +19,7 @@ def block_tree_until_ready(x):
 unconstrained_minimisers = (optx.BFGS(rtol=1e-3, atol=1e-6),)
 
 
+@extensive
 @pytest.mark.benchmark
 @pytest.mark.parametrize("fn, y0, args, expected_result", unconstrained_problems)
 @pytest.mark.parametrize("minimiser", unconstrained_minimisers)
