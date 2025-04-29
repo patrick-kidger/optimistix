@@ -42,6 +42,7 @@ dev = [
   "optax>=0.2.4",
   "pyright>=1.1.399",
   "pytest>=8.3.5",
+  "pytest-benchmark>=5.1.0",
   "ruff>=0.11.6",
 ]
 docs = [

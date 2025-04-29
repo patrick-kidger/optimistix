@@ -38,6 +38,15 @@ pip install -e '.[dev]'
 pytest
 ```
 
+If your changes could affect solver (or compilation) performance, please run the
+benchmark tests with 
+
+```bash
+pytest --extensive
+```
+
+You can also save benchmarking results - more on this in benchmarks/README.md.
+
 Then push your changes back to your fork of the repository:
 
 ```bash
