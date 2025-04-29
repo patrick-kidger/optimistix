@@ -45,7 +45,7 @@ benchmark tests with
 pytest --extensive
 ```
 
-You can also save benchmarking results - more on this in benchmarks/README.md.
+You can also save benchmarking results - more on this in tests/benchmarks/README.md.
 
 Then push your changes back to your fork of the repository:
 
