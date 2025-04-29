@@ -41,11 +41,7 @@ from ._search import (
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solver import (
-<<<<<<< HEAD
-=======
     AbstractBarrier as AbstractBarrier,
-    AbstractBFGS as AbstractBFGS,
->>>>>>> fe58d14 (introduce abstract barrier function and begin replacing makeshift barrier terms)
     AbstractBoundaryMap as AbstractBoundaryMap,
     AbstractGaussNewton as AbstractGaussNewton,
     AbstractGradientDescent as AbstractGradientDescent,

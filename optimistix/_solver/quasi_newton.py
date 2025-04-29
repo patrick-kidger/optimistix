@@ -11,7 +11,16 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
-from .._custom_types import Aux, DescentState, Fn, SearchState, Y
+from .._custom_types import (
+    Aux,
+    Constraint,
+    DescentState,
+    EqualityOut,
+    Fn,
+    InequalityOut,
+    SearchState,
+    Y,
+)
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
@@ -169,7 +178,9 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
             # in this case `hessian` is the new inverse hessian
             return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian)
         else:
-            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian)
+            return FunctionInfo.EvalGradHessian(
+                f_eval, grad, hessian, None, None, None, None, None
+            )
 
 
 class DFPUpdate(_AbstractBFGSDFPUpdate):
@@ -329,6 +340,8 @@ class AbstractQuasiNewton(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
@@ -340,7 +353,16 @@ class AbstractQuasiNewton(
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, hessian_inv)
         else:
             hessian = _identity_pytree(y)
-            f_info = FunctionInfo.EvalGradHessian(f, grad, hessian)
+            f_info = FunctionInfo.EvalGradHessian(
+                f,
+                grad,
+                hessian,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
         return _QuasiNewtonState(
             first_step=jnp.array(True),
@@ -360,6 +382,8 @@ class AbstractQuasiNewton(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _QuasiNewtonState,
         tags: frozenset[object],
     ) -> tuple[Y, _QuasiNewtonState, Aux]:
@@ -372,7 +396,7 @@ class AbstractQuasiNewton(
             y,
             state.y_eval,
             state.f_info,
-            FunctionInfo.Eval(f_eval),
+            FunctionInfo.Eval(f_eval, None, None),
             state.search_state,
         )
 
@@ -383,7 +407,7 @@ class AbstractQuasiNewton(
                 y,
                 state.y_eval,
                 state.f_info,
-                FunctionInfo.EvalGrad(f_eval, grad),
+                FunctionInfo.EvalGrad(f_eval, grad, None),
             )
 
             descent_state = self.descent.query(
@@ -447,6 +471,8 @@ class AbstractQuasiNewton(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _QuasiNewtonState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -459,6 +485,8 @@ class AbstractQuasiNewton(
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
+        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
+        bounds: Union[tuple[Y, Y], None],
         state: _QuasiNewtonState,
         tags: frozenset[object],
         result: RESULTS,

@@ -9,7 +9,7 @@ from .best_so_far import (
     BestSoFarMinimiser as BestSoFarMinimiser,
     BestSoFarRootFinder as BestSoFarRootFinder,
 )
-from .bfgs import AbstractBFGS as AbstractBFGS, BFGS as BFGS, BFGS_B as BFGS_B
+from .bfgs import BFGS_B as BFGS_B
 from .bisection import Bisection as Bisection
 from .boundary_maps import (
     AbstractBoundaryMap as AbstractBoundaryMap,
@@ -64,6 +64,7 @@ from .nonlinear_cg import (
     polak_ribiere as polak_ribiere,
 )
 from .optax import OptaxMinimiser as OptaxMinimiser
+from .proximal_projected import ProjectedGradientDescent as ProjectedGradientDescent
 from .quasi_newton import (
     AbstractQuasiNewton as AbstractQuasiNewton,
     AbstractQuasiNewtonUpdate as AbstractQuasiNewtonUpdate,
@@ -71,7 +72,7 @@ from .quasi_newton import (
     BFGSUpdate as BFGSUpdate,
     DFP as DFP,
     DFPUpdate as DFPUpdate,
-from .proximal_projected import ProjectedGradientDescent as ProjectedGradientDescent
+)
 from .sequential import (
     QuadraticSubproblemDescent as QuadraticSubproblemDescent,
     SLSQP as SLSQP,
