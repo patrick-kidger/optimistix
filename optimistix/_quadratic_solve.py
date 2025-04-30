@@ -123,13 +123,6 @@ class AbstractQuadraticSolver(
             jnp.zeros(f_struct.shape, f_struct.dtype),
             y,  # Shape equivalent with grad
             hessian,
-            # Inside the quadratic solve, y isn't actually relevant, since we assume
-            # that the quadratic approximation to the target function holds everywhere.
-            # It is part of FunctionInfo.EvalGradHessian, because it allows us to create
-            # a callable quadratic approximation from the function information of a
-            # higher-order solver, like BFGS.
-            # Since this flavor of FunctionInfo is shared with higher-order solvers, we
-            # write y into the function info here.
             y,
             bounds,
             constraint_residual,
