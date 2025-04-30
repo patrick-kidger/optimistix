@@ -178,8 +178,11 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
             # in this case `hessian` is the new inverse hessian
             return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian)
         else:
+            # TODO: dummy values - I want to sort out the API for FunctionInfo before
+            # introducing that here. (SLSQP, L-BFGS...)
+            null_y = tree_full_like(y, 0.0)
             return FunctionInfo.EvalGradHessian(
-                f_eval, grad, hessian, None, None, None, None, None
+                f_eval, grad, hessian, null_y, None, None, None, None
             )
 
 
@@ -346,6 +349,10 @@ class AbstractQuasiNewton(
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> _QuasiNewtonState:
+        # TODO: introduce support for constrained optimisation in QuasiNewton
+        assert constraint is None
+        assert bounds is None
+
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
         if self.hessian_update.use_inverse:
@@ -357,7 +364,7 @@ class AbstractQuasiNewton(
                 f,
                 grad,
                 hessian,
-                None,
+                y,
                 None,
                 None,
                 None,
@@ -407,7 +414,7 @@ class AbstractQuasiNewton(
                 y,
                 state.y_eval,
                 state.f_info,
-                FunctionInfo.EvalGrad(f_eval, grad, None),
+                FunctionInfo.EvalGrad(f_eval, grad, bounds),
             )
 
             descent_state = self.descent.query(
