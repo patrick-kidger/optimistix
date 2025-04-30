@@ -11,7 +11,7 @@ import optimistix as optx
 from .helpers import himmelblau, scalar_rosenbrock
 
 
-class BFGSInterior(optx.AbstractQuasiNewton):
+class BFGSInterior(optx.AbstractOldBFGS):
     """BFGS Hessian + interior point update."""
 
     rtol: float
@@ -20,11 +20,10 @@ class BFGSInterior(optx.AbstractQuasiNewton):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.BacktrackingArmijo()
     descent: optx.AbstractDescent = optx.InteriorDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSInteriorLearningRate(optx.AbstractQuasiNewton):
+class BFGSInteriorLearningRate(optx.AbstractOldBFGS):
     """BFGS Hessian + interior point update + learning rate."""
 
     rtol: float
@@ -33,11 +32,10 @@ class BFGSInteriorLearningRate(optx.AbstractQuasiNewton):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.LearningRate(1.0)
     descent: optx.AbstractDescent = optx.InteriorDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSInteriorFiltered(optx.AbstractQuasiNewton):
+class BFGSInteriorFiltered(optx.AbstractOldBFGS):
     """BFGS Hessian + interior point update + filtered line search."""
 
     rtol: float
@@ -47,7 +45,6 @@ class BFGSInteriorFiltered(optx.AbstractQuasiNewton):
     # TODO(jhaffner): once we settle on how to specify the buffer size, change this here
     search: optx.AbstractSearch = optx.IPOPTLikeFilteredLineSearch(2**9)
     descent: optx.AbstractDescent = optx.InteriorDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 

@@ -160,7 +160,7 @@ _Hessian = TypeVar(
 )
 
 
-class _BFGSState(
+class _OldBFGSState(
     eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian], strict=True
 ):
     # Updated every search step
@@ -178,8 +178,8 @@ class _BFGSState(
     num_accepted_steps: Int[Array, ""]
 
 
-class AbstractBFGS(
-    AbstractMinimiser[Y, Aux, _BFGSState], Generic[Y, Aux, _Hessian], strict=True
+class AbstractOldBFGS(
+    AbstractMinimiser[Y, Aux, _OldBFGSState], Generic[Y, Aux, _Hessian], strict=True
 ):
     """Abstract BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
@@ -219,7 +219,7 @@ class AbstractBFGS(
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _BFGSState:
+    ) -> _OldBFGSState:
         clip = options.get("clip", False)
         if clip and bounds is None:
             raise ValueError("If clip is True, bounds must be provided.")
@@ -248,7 +248,7 @@ class AbstractBFGS(
                 constraint_jacobians,  # pyright: ignore  # TODO fix this!!
             )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
-        return _BFGSState(
+        return _OldBFGSState(
             first_step=jnp.array(True),
             y_eval=y,
             search_state=self.search.init(y, f_info_struct),
@@ -268,9 +268,9 @@ class AbstractBFGS(
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
         bounds: Union[tuple[Y, Y], None],
-        state: _BFGSState,
+        state: _OldBFGSState,
         tags: frozenset[object],
-    ) -> tuple[Y, _BFGSState, Aux]:
+    ) -> tuple[Y, _OldBFGSState, Aux]:
         autodiff_mode = options.get("autodiff_mode", "bwd")
         clip = options.get("clip", False)
 
@@ -363,7 +363,7 @@ class AbstractBFGS(
             search_result == RESULTS.successful, descent_result, search_result
         )
 
-        state = _BFGSState(
+        state = _OldBFGSState(
             first_step=jnp.array(False),
             y_eval=y_eval,
             search_state=search_state,
@@ -384,7 +384,7 @@ class AbstractBFGS(
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
         bounds: Union[tuple[Y, Y], None],
-        state: _BFGSState,
+        state: _OldBFGSState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         return state.terminate, state.result
@@ -398,14 +398,18 @@ class AbstractBFGS(
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
         bounds: Union[tuple[Y, Y], None],
-        state: _BFGSState,
+        state: _OldBFGSState,
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
         return y, aux, {}
 
 
-class BFGS(AbstractBFGS[Y, Aux, _Hessian], strict=True):
+# TODO: retire AbstractBFGS and inherit from AbstractQuasiNewton instead. Now not doing
+# that to avoid cluttering up QuasiNewton with support for constrained FunctionInfo
+# stuff until we have settled on an API for that.
+# (Several composed constrained optimisers that we test inherit from AbstractBFGS.)
+class OldBFGS(AbstractOldBFGS[Y, Aux, _Hessian], strict=True):
     """BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
@@ -449,7 +453,7 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian], strict=True):
         self.verbose = verbose
 
 
-BFGS.__init__.__doc__ = """**Arguments:**
+OldBFGS.__init__.__doc__ = """**Arguments:**
 
 - `rtol`: Relative tolerance for terminating the solve.
 - `atol`: Absolute tolerance for terminating the solve.
@@ -474,7 +478,8 @@ BFGS.__init__.__doc__ = """**Arguments:**
 """
 
 
-class BFGS_B(AbstractBFGS[Y, Aux, FunctionInfo.EvalGradHessian], strict=True):
+# TODO: inherit from AbstractQuasiNewton here
+class BFGS_B(AbstractOldBFGS[Y, Aux, FunctionInfo.EvalGradHessian], strict=True):
     """Bounded BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way

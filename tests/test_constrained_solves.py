@@ -170,6 +170,9 @@ def test_slsqp_cauchy_newton(fn, y0, args, constraint, expected_result):
     assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
 
 
+@pytest.mark.skip(
+    reason="New BFGS (inheriting from AbstractQuasiNewton) does not support clipping."
+)
 @pytest.mark.parametrize(
     "solver", gauss_newton_optimisers + [optx.BFGS(rtol=1e-04, atol=1e-08)]
 )
@@ -193,6 +196,12 @@ def test_gauss_newton_bfgs_clip(solver, fn, y0, args, bounds):
 
 # TODO: reverse the boundary map: we're only supporting clipping here
 # TODO: do something about the solution.result?
+@pytest.mark.skip(
+    reason=(
+        "BFGS now inherits from AbstractQuasiNewton and does not support clipping. "
+        "(This feature can be resurrected.)"
+    )
+)
 @pytest.mark.parametrize(
     "fn, y0, args, bounds, expected_result", minimise_bounded_with_local_minima
 )

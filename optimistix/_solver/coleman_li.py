@@ -14,7 +14,7 @@ from .._misc import max_norm
 from .._search import AbstractDescent, FunctionInfo
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
-from .bfgs import AbstractBFGS
+from .bfgs import AbstractOldBFGS
 
 
 # TODO: I think the Coleman-Li approach can be slightly simplified (Notes below).
@@ -118,12 +118,12 @@ class ColemanLiDescent(
 
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
-    def init(self, y: Y, f_info_struct: FunctionInfo) -> _ColemanLiDescentState:
+    def init(self, y: Y, f_info_struct: FunctionInfo) -> _ColemanLiDescentState:  # pyright: ignore
         del f_info_struct
         # Dummy values of the right shape; unused.
         return _ColemanLiDescentState(y, RESULTS.successful)
 
-    def query(
+    def query(  # pyright: ignore
         self,
         y: Y,
         f_info: FunctionInfo.EvalGradHessian,
@@ -157,7 +157,7 @@ ColemanLiDescent.__init__.__doc__ = """**Arguments**:
 # be dramatically different from the one computed in the original space, but willing to
 # convince myself otherwise with pen and paper.)
 # Reference for this solver: https://link.springer.com/article/10.1007/BF01582221
-class ColemanLi(AbstractBFGS[Y, Aux, FunctionInfo.EvalGradHessian], strict=True):
+class ColemanLi(AbstractOldBFGS[Y, Aux, FunctionInfo.EvalGradHessian], strict=True):
     """Coleman-Li solver for bounded optimisation problems. This solver uses the
     distance to the bounds to define a scaling operator for the Hessian and gradient
     before computing the direction in the transformed space. This results in a search

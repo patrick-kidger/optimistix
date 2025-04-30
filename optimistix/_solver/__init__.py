@@ -9,7 +9,11 @@ from .best_so_far import (
     BestSoFarMinimiser as BestSoFarMinimiser,
     BestSoFarRootFinder as BestSoFarRootFinder,
 )
-from .bfgs import BFGS_B as BFGS_B
+from .bfgs import (
+    AbstractOldBFGS as AbstractOldBFGS,
+    BFGS_B as BFGS_B,
+    OldBFGS as OldBFGS,
+)
 from .bisection import Bisection as Bisection
 from .boundary_maps import (
     AbstractBoundaryMap as AbstractBoundaryMap,

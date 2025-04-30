@@ -11,7 +11,7 @@ from .._quadratic_solve import AbstractQuadraticSolver, quadratic_solve
 from .._search import AbstractDescent, FunctionInfo
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
-from .bfgs import AbstractBFGS
+from .bfgs import AbstractOldBFGS
 from .interior_point import InteriorPoint
 
 
@@ -35,14 +35,14 @@ class QuadraticSubproblemDescent(
 
     quadratic_solver: AbstractQuadraticSolver
 
-    def init(
+    def init(  # pyright: ignore
         self, y: Y, f_info_struct: FunctionInfo
     ) -> _QuadraticSubproblemDescentState:
         del f_info_struct
         # Dummy values of the right shape
         return _QuadraticSubproblemDescentState(y, RESULTS.successful)
 
-    def query(
+    def query(  # pyright: ignore
         self, y: Y, f_info: FunctionInfo, state: _QuadraticSubproblemDescentState
     ) -> _QuadraticSubproblemDescentState:
         if isinstance(f_info, FunctionInfo.EvalGradHessian):
@@ -80,7 +80,7 @@ QuadraticSubproblemDescent.__init__.__doc__ = """**Arguments**:
 """
 
 
-class SLSQP(AbstractBFGS):
+class SLSQP(AbstractOldBFGS):
     """SLSQP (Sequential Least Squares Quadratic Programming) algorithm for constrained
     optimisation. Makes a BFGS approximation to the target function and linearises the
     constraints at each iterate, then solves the quadratic subproblem as part of its
