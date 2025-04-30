@@ -1,26 +1,33 @@
-import equinox as eqx
 import jax.numpy as jnp
-from jaxtyping import ScalarLike
+
+from .problem import AbstractConstrainedMinimisation
 
 
-class BT2(eqx.Module):
+class BT2(AbstractConstrainedMinimisation):
     """The BT2 problem from the CUTEST collection of benchmark problems.
-    Original source: https://www.jstor.org/stable/2157674?seq=21, page 620. Similar in
-    spirit to BT1 - the objective contours look roughly similar to the constraint
-    manifold locally, but the cross-sections of both are shifted from one another.
-    Three starting values are documented in the original paper - a vector of all ones,
-    all tens and all hundreds. In the official CUTEST collection, this value defaults to
-    all tens, so we match that here.
+
+    Source: problem 2 in
+    P.T. Boggs and J.W. Tolle,
+    "A strategy for global convergence in a sequential quadratic programming algorithm",
+    SINUM 26(3), pp. 600-623, 1989.
+    Also available at: https://www.jstor.org/stable/2157674?seq=21, page 620.
+
+    Note J.Haffner: --------------------------------------------------------------------
+    I think this problem tests for (slow) convergence with objective and constraint
+    functions that have locally similar shapes, but are shifted against each other.
+    ------------------------------------------------------------------------------------
+
+    SIF input: Ph. Toint, June 1993.
+    Classification QQR2-AY-3-1
     """
 
-    multiply_y0: ScalarLike = 10.0
-
     def objective(self, y, args):
+        del args
         x1, x2, x3 = y
         return (x1 - 1) ** 2 + (x1 - x2) ** 2 + (x2 - x3) ** 4
 
     def y0(self):
-        return self.multiply_y0 * jnp.ones(3)
+        return jnp.array([10.0, 10.0, 10.0])
 
     def args(self):
         return None
@@ -33,6 +40,7 @@ class BT2(eqx.Module):
         return None
 
     def expected_result(self):
-        return jnp.array([1.1049, 1.1967, 1.5353])
+        return None
 
-    # TODO: add expected objective value: 0.032568200
+    def expected_objective_value(self):
+        return jnp.array([0.032568200])

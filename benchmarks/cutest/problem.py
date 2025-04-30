@@ -38,11 +38,9 @@ class AbstractProblem(eqx.Module, strict=True):
         """Additional arguments for the objective function."""
 
     @abc.abstractmethod
-    def expected_result(self) -> Union[PyTree[ArrayLike], None]:
+    def expected_result(self) -> PyTree[ArrayLike]:
         """Expected result of the optimization problem. Should be a PyTree of arrays
-        with the same structure as `y0`. However, this is rarely available, usually only
-        the expected objective value is available in the SIF files.
-        """
+        with the same structure as `y0`."""
 
     @abc.abstractmethod
     def expected_objective_value(self) -> _Out:

@@ -1,8 +1,9 @@
-import equinox as eqx
 import jax.numpy as jnp
 
+from .problem import AbstractConstrainedMinimisation
 
-class HS35(eqx.Module):
+
+class HS35(AbstractConstrainedMinimisation, strict=True):
     """The HS35 problem from the CUTEST collection of benchmark problems.
 
     Source: Problem 35 in W. Hock and K. Schittkowski,

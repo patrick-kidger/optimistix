@@ -1,4 +1,4 @@
-from .flt import FLT as FLT
+from .bt2 import BT2 as BT2
 from .problem import (
     AbstractBoundedMinimisation as AbstractBoundedMinimisation,
     AbstractConstrainedMinimisation as AbstractConstrainedMinimisation,
@@ -7,4 +7,7 @@ from .problem import (
 from .rosenbr import ROSENBR as ROSENBR
 
 
-problems = (ROSENBR(), FLT())
+problems = (
+    ROSENBR,
+    BT2,
+)

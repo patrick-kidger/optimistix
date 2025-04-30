@@ -1,8 +1,9 @@
-import equinox as eqx
 import jax.numpy as jnp
 
+from .problem import AbstractConstrainedMinimisation
 
-class FLT(eqx.Module):
+
+class FLT(AbstractConstrainedMinimisation, strict=True):
     """The FLT problem from the CUTEST collection of benchmark problems.
 
     Source: A troublesome problem for filter methods
@@ -50,5 +51,4 @@ class FLT(eqx.Module):
         return jnp.array([0.0, -1.0])
 
     def expected_objective_value(self):
-        # From OBJECT BOUND section, LO SOLTN value
-        return 0.0
+        return jnp.array(0.0)
