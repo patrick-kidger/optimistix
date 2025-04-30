@@ -45,6 +45,10 @@ from .boundary_maps import ClosestFeasiblePoint
 from .filtered import IPOPTLikeFilteredLineSearch
 
 
+# TODO: conceptually the tolerance here is closer to an rtol, so we should probably
+# change it to that (currently we only use atol)
+
+
 # Some global flags strictly for use during development, these will be removed later.
 # I'm introducing them here to be able to selectively enable certain special features,
 # for use in testing and debugging.
@@ -249,7 +253,10 @@ class IPOPTLikeDescent(
         assert f_info.constraint_residual is not None
         assert f_info.constraint_jacobians is not None
 
-        y, constraint_multipliers, bound_multipliers, barrier_parameter = iterate
+        y = iterate.y_eval
+        constraint_multipliers = iterate.multipliers
+        bound_multipliers = iterate.bound_multipliers
+        barrier_parameter = iterate.barrier
 
         # Compute the barrier gradients and Hessians
         # Note Johanna: we're currently computing the gradient of the barrier term twice
@@ -305,7 +312,9 @@ class IPOPTLikeDescent(
         b_steps = _bound_multiplier_steps(y_step, *barrier_terms, f_info.bounds, offset)
         keep_barrier_parameter = tree_full_like(barrier_parameter, 0.0)
 
-        iterate_step = (y_step, dual_steps, b_steps, keep_barrier_parameter)
+        iterate_step = Iterate(
+            y_step, None, dual_steps, b_steps, keep_barrier_parameter
+        )
 
         return _IPOPTLikeDescentState(
             iterate_step,
@@ -640,44 +649,37 @@ class AbstractIPOPTLike(
             )
 
             # TODO: WIP: Hessians of the Lagrangian
-            hessian_, _ = jax.hessian(fn)(
+            lagrangian_hessian, _ = jax.hessian(fn)(
                 state.iterate.y_eval, args
             )  # no Hessian w.r.t. aux
-            out_structure = jax.eval_shape(lambda: state.iterate.y_eval)
-            hessian = lx.PyTreeLinearOperator(hessian_, out_structure)
 
             def constraint_hessian(y, jacobian_operator, multiplier):
                 def apply_reduced_jacobian(_y):
                     mapped = jacobian_operator.T.mv(multiplier)
                     return jtu.tree_map(lambda a, b: a * b, mapped, _y)
 
-                hessian = jax.jacfwd(apply_reduced_jacobian)(y)
-                out_structure = jax.eval_shape(lambda: y)
-                return lx.PyTreeLinearOperator(hessian, out_structure)
+                return jax.jacfwd(apply_reduced_jacobian)(y)
 
             equality_jacobian, inequality_jacobian = constraint_jacobians
             equality_multiplier, inequality_multiplier = state.iterate.multipliers
-            equality_hessian = constraint_hessian(
-                state.iterate.y_eval, equality_jacobian, equality_multiplier
-            )
-            inequality_hessian = constraint_hessian(
-                state.iterate.y_eval, inequality_jacobian, inequality_multiplier
-            )
+            if equality_jacobian is not None:
+                equality_hessian = constraint_hessian(
+                    state.iterate.y_eval, equality_jacobian, equality_multiplier
+                )
+                lagrangian_hessian = (lagrangian_hessian**ω + equality_hessian**ω).ω
+            if inequality_jacobian is not None:
+                inequality_hessian = constraint_hessian(
+                    state.iterate.y_eval, inequality_jacobian, inequality_multiplier
+                )
+                lagrangian_hessian = (lagrangian_hessian**ω + inequality_hessian**ω).ω
 
             # TODO: work with adding the operators directly here? Does not work yet
             # because we initialise the Hessian in f_info with a specific structure
             # that composed linear operators do not have and with a positive
             # semidefinite tag that is also not appropriate here.
 
-            lagrangian_hessian = jtu.tree_map(
-                lambda a, b, c: a + b + c,
-                hessian.pytree,
-                equality_hessian.pytree,
-                inequality_hessian.pytree,
-            )
             lagrangian_hessian = lx.PyTreeLinearOperator(
                 lagrangian_hessian,
-                # (hessian_**ω).ω,
                 jax.eval_shape(lambda: state.iterate.y_eval),
                 lx.positive_semidefinite_tag,  # TODO Not technically correct!
             )
