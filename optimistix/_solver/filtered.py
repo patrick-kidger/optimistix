@@ -210,8 +210,10 @@ class IPOPTLikeFilteredLineSearch(
         slack_eval = jtu.tree_map(lambda x: jnp.where(x > 0, x, 1e-10), slack_eval)
         slack_bounds = tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf)
         slack_barrier = LogarithmicBarrier(slack_bounds)
-        f += slack_barrier(slack, 1e-2)  # TODO get barrier parameter from iterate
-        f_eval += slack_barrier(slack_eval, 1e-2)
+
+        _barrier = jnp.array(1e-2)  # TODO get barrier parameter from iterate
+        f = f + slack_barrier(slack, _barrier)
+        f_eval = f_eval + slack_barrier(slack_eval, _barrier)
         # CONSTRUCTION SITE ENDS -------------------------------------------------------
 
         if (
