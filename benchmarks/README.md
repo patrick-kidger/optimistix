@@ -6,13 +6,13 @@ performance of new solvers and new features, and to catch any regressions early.
 Benchmarks can be run with 
 
 ```
-pytest --extensive
+pytest --cutest
 ```
 
 and will be skipped otherwise. With the option 
 
 ```
-pytest --extensive --benchmark-save=<file_path>
+pytest --cutest --benchmark-save=<file_path>
 ```
 
 benchmark results can be saved in a .json file. Additional custom metrics (e.g. the
