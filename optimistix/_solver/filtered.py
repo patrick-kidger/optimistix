@@ -13,6 +13,11 @@ from .._solution import RESULTS
 from .barrier import LogarithmicBarrier
 
 
+# TODO: We must implement a filter reset within the filtered line search itself,
+# otherwise this is not usable with a solver that is not IPOPTLike - since its filter
+# would never reset, it would just request a feasibility restoration that never comes.
+
+
 class _Filter(eqx.Module, strict=True):
     """Implements a filter for the filtered line search. The filter is a buffer that
     contains previous values of the objective function and the constraint violation at
