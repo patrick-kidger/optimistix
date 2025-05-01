@@ -25,3 +25,9 @@ CUTEST problems: sourced from https://bitbucket.org/optrove/sif/wiki/Home and pa
 into a JAX-friendly format with the help of an LLM. They are then checked and compared
 against known results, primary literature or other CUTEST interfaces by a human (yours 
 truly) and corrected if necessary.
+
+To add to the benchmark collection, provide the desired problem structure (the abstract
+classes) or an example problem to your LLM of choice and give it a SIF problem to parse.
+Then check against the SIF file (sometimes these are hard to make sense of) and look up
+the primary literature - there you can often find a concise and human-readable problem
+description.
