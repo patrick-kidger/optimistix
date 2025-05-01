@@ -14,7 +14,21 @@ _ConstraintOut = Union[
 
 
 class AbstractProblem(eqx.Module, strict=True):
-    """Abstract base class for benchmark problems."""
+    """Abstract base class for benchmark problems. Allows the specification of several
+    initial values, which are provided for some CUTEST problems. The initial value used
+    can be indicated with an integer `y0_iD` attribute, which should be used in the `y0`
+    method to select the appropriate initial value if more than one is available.
+    """
+
+    y0_iD: int = 0
+    provided_y0s: frozenset = frozenset({0})
+
+    def __check_init__(self):
+        if self.y0_iD not in self.provided_y0s:
+            raise ValueError(
+                "y0_iD {} is not one of the accepted values for problem {}. Accepted "
+                "values are {}.".format(self.y0_iD, self.name(), self.provided_y0s)
+            )
 
     def name(self):
         """Returns the name of the benchmark problem, which should be the same as the
@@ -40,7 +54,12 @@ class AbstractProblem(eqx.Module, strict=True):
     @abc.abstractmethod
     def expected_result(self) -> PyTree[ArrayLike]:
         """Expected result of the optimization problem. Should be a PyTree of arrays
-        with the same structure as `y0`."""
+        with the same structure as `y0`. This is rarely available, usually solutions of
+        CUTEST problems are assessed by comparing the value of the objective function at
+        the solution. That value is usually provided. Nevertheless, if the value of `y`
+        at the optimum is known (or reported in the primary literature), then we do
+        include it here.
+        """
 
     @abc.abstractmethod
     def expected_objective_value(self) -> _Out:
