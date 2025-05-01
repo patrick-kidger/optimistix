@@ -67,11 +67,21 @@ class AbstractUnconstrainedMinimisation(AbstractProblem, strict=True):
         """
 
 
-class AbstractBoundedMinimisation(AbstractUnconstrainedMinimisation, strict=True):
+class AbstractBoundedMinimisation(AbstractProblem, strict=True):
     """Abstract base class for bounded minimisation problems. The objective
     function for these problems returns a single scalar value, they specify bounds on
     the variable `y` but no other constraints.
     """
+
+    @abc.abstractmethod
+    def objective(self, y, args) -> Scalar:
+        """Objective function to be minimized. Must return a scalar value."""
+
+    @abc.abstractmethod
+    def expected_objective_value(self) -> Scalar:
+        """Expected value of the objective function at the optimal solution. For a
+        minimisation function, this is a scalar value.
+        """
 
     @abc.abstractmethod
     def bounds(self) -> PyTree[ArrayLike]:
@@ -80,13 +90,23 @@ class AbstractBoundedMinimisation(AbstractUnconstrainedMinimisation, strict=True
         """
 
 
-class AbstractConstrainedMinimisation(AbstractUnconstrainedMinimisation, strict=True):
+class AbstractConstrainedMinimisation(AbstractProblem, strict=True):
     """Abstract base class for constrained minimisation problems. These can have both
     equality or inequality constraints, and they may also have bounds on `y`. We do not
     differentiate between bounded constrained problems and constrained optimisation
     problems without bounds, as we do expect our solvers to do the right thing in each
     of these cases.
     """
+
+    @abc.abstractmethod
+    def objective(self, y, args) -> Scalar:
+        """Objective function to be minimized. Must return a scalar value."""
+
+    @abc.abstractmethod
+    def expected_objective_value(self) -> Scalar:
+        """Expected value of the objective function at the optimal solution. For a
+        minimisation function, this is a scalar value.
+        """
 
     @abc.abstractmethod
     def bounds(self) -> Union[PyTree[ArrayLike], None]:
