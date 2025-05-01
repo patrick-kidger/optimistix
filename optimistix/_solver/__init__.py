@@ -42,6 +42,7 @@ from .gradient_methods import (
     GradientDescent as GradientDescent,
     SteepestDescent as SteepestDescent,
 )
+from .interior import NewInteriorDescent as NewInteriorDescent
 from .interior_point import (
     InteriorDescent as InteriorDescent,
     InteriorPoint as InteriorPoint,

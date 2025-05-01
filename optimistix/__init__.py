@@ -88,6 +88,7 @@ from ._solver import (
     LinearTrustRegion as LinearTrustRegion,
     LogarithmicBarrier as LogarithmicBarrier,
     NelderMead as NelderMead,
+    NewInteriorDescent as NewInteriorDescent,
     Newton as Newton,
     NewtonDescent as NewtonDescent,
     NonlinearCG as NonlinearCG,
