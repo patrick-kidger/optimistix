@@ -94,3 +94,56 @@ class BT2(AbstractConstrainedMinimisation):
 
     def expected_objective_value(self):
         return jnp.array([0.032568200])
+
+
+class BT4(AbstractConstrainedMinimisation):
+    """The BT4 problem from the CUTEST collection of benchmark problems.
+
+    The original problem seems to be unbounded. The contribution of x3 in the first
+    constraint has been squared instead of cubed. (Modification done in SIF collection.)
+    The problem is not convex.
+
+    Note J.Haffner: --------------------------------------------------------------------
+    Original reference: https://www.jstor.org/stable/2157674?seq=21, page 620.
+    ------------------------------------------------------------------------------------
+
+    SIF input: Ph. Toint, June 1993.
+    Classification: QQR2-AN-3-2
+    """
+
+    y0_iD: int = 0
+    provided_y0s: frozenset = frozenset({0, 1, 2})
+
+    def objective(self, y, args):
+        del args
+        x1, x2, _ = y
+        return x1 - x2 + x2**3
+
+    def y0(self):
+        if self.y0_iD == 0:
+            return jnp.array([3.1494, 1.4523, -3.6017])
+        elif self.y0_iD == 1:
+            return jnp.array([3.122, 1.489, -3.611])
+        elif self.y0_iD == 2:
+            return jnp.array([-0.94562, -2.35984, 4.30546])
+        else:
+            raise ValueError("Invalid start point ID. Valid iDs are 0, 1, or 2.")
+
+    def args(self):
+        return None
+
+    def constraint(self, y):
+        x1, x2, x3 = y
+        con1 = x1**2 + x2**2 + x3**2 - 25.0
+        con2 = x1 + x2 + x3 - 1.0
+        return jnp.array([con1, con2]), None
+
+    def bounds(self):
+        # From BOUNDS section: all variables are free (FR)
+        return None
+
+    def expected_result(self):
+        return None
+
+    def expected_objective_value(self):
+        return jnp.array([3.28903771])

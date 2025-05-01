@@ -1,4 +1,4 @@
-from .bt import BT1 as BT1, BT2 as BT2
+from .bt import BT1 as BT1, BT2 as BT2, BT4 as BT4
 from .flt import FLT as FLT
 from .problem import (
     AbstractBoundedMinimisation as AbstractBoundedMinimisation,
@@ -8,4 +8,4 @@ from .problem import (
 from .rosenbr import ROSENBR as ROSENBR
 
 
-problems = (ROSENBR(), FLT(), BT1(), BT2())
+problems = (ROSENBR(), FLT(), BT1(), BT2(), *(BT4(i) for i in BT4().provided_y0s))
