@@ -32,7 +32,6 @@ def newton_step(
     f_info: Union[
         FunctionInfo.EvalGradHessian,
         FunctionInfo.EvalGradHessianInv,
-        FunctionInfo.LimitedMemHessianInv,
         FunctionInfo.ResidualJac,
     ],
     linear_solver: lx.AbstractLinearSolver,

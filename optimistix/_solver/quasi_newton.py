@@ -127,7 +127,8 @@ def _lim_mem_hess_inv_operator(
     return lx.FunctionLinearOperator(
         operator_func,
         jax.eval_shape(lambda: jtu.tree_map(lambda x: x[0], residual_par)),
-        tags=lx.positive_semidefinite_tag)
+        tags=lx.positive_semidefinite_tag
+    )
 
 
 def _outer(tree1, tree2):
@@ -138,7 +139,7 @@ def _outer(tree1, tree2):
 
 
 _Hessian = TypeVar(
-    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv, FunctionInfo.LimitedMemHessianInv,
+    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv,
 )
 
 
