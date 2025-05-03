@@ -56,7 +56,6 @@ class FunctionInfo(eqx.Module):
     EvalGrad: ClassVar[type["EvalGrad"]]
     EvalGradHessian: ClassVar[type["EvalGradHessian"]]
     EvalGradHessianInv: ClassVar[type["EvalGradHessianInv"]]
-    LimitedMemHessianInv: ClassVar[type["LimitedMemHessianInv"]]
     Residual: ClassVar[type["Residual"]]
     ResidualJac: ClassVar[type["ResidualJac"]]
 
@@ -131,25 +130,6 @@ class EvalGradHessianInv(FunctionInfo, Generic[Y]):
         return tree_dot(self.grad, y)
 
 
-class LimitedMemHessianInv(FunctionInfo, Generic[Y], strict=True):
-    """As [`optimistix.FunctionInfo.HessianInv`][], but records the auxiliary variables
-    for computing the descent direction in LBFGS.
-    Has `.f` and `.grad` and `.params_residuals`, `grad_residuals` attributes.
-    """
-
-    f: Scalar
-    grad: Y
-    params_residuals: Y
-    grad_residuals: Y
-    idx_start: int
-
-    def as_min(self):
-        return self.f
-
-    def compute_grad_dot(self, y: Y):
-        return tree_dot(self.grad, y)
-
-
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
 class Residual(FunctionInfo, Generic[Out]):
     """Has a `.residual` attribute describing `fn(y)`. Used with least squares problems,
@@ -209,14 +189,12 @@ EvalGradHessian.__qualname__ = "FunctionInfo.EvalGradHessian"
 EvalGradHessianInv.__qualname__ = "FunctionInfo.EvalGradHessianInv"
 Residual.__qualname__ = "FunctionInfo.Residual"
 ResidualJac.__qualname__ = "FunctionInfo.ResidualJac"
-LimitedMemHessianInv.__qualname__ = "FunctionInfo.ResidualJac"
 FunctionInfo.Eval = Eval
 FunctionInfo.EvalGrad = EvalGrad
 FunctionInfo.EvalGradHessian = EvalGradHessian
 FunctionInfo.EvalGradHessianInv = EvalGradHessianInv
 FunctionInfo.Residual = Residual
 FunctionInfo.ResidualJac = ResidualJac
-FunctionInfo.LimitedMemHessianInv = LimitedMemHessianInv
 
 Eval.__init__.__doc__ = """**Arguments:**
 
