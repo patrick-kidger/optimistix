@@ -66,6 +66,70 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
     )
 
 
+def _lim_mem_hess_inv_operator(
+        residual_par: PyTree[Array],
+        residual_grad: PyTree[Array],
+        rho: Array,
+        index_start: int = 0
+):
+    """Define a `lineax` linear operator implementing the L-BFGS inverse Hessian approximation.
+
+    This operator computes the action of the approximate inverse Hessian on a vector `pytree`
+    using the limited-memory BFGS (L-BFGS) two-loop recursion. It does not materialize the matrix
+    explicitly but returns a `lineax.FunctionLinearOperator`.
+
+    - `residual_par`: History of parameter updates `s_k = x_{k+1} - x_k`
+    - `residual_grad`: History of gradient updates `y_k = g_{k+1} - g_k`
+    - `rho`: Reciprocal dot products `rho_k = 1 / ⟨s_k, y_k⟩`
+    - `index_start`: Index of the most recent update in the circular buffer
+
+    Returns a `lineax.FunctionLinearOperator` with input and output shape matching a single element
+    of `residual_par`.
+
+    """
+    history_len = rho.shape[0]
+    circ_index = (jnp.arange(history_len) + index_start) % history_len
+
+    # First loop: iterate backwards and compute alpha coefficients
+    def backward_iter(q, indx):
+        dy, dg, r = jtu.tree_map(lambda x: x[indx], (residual_par, residual_grad, rho))
+        alpha = r * tree_dot(dy, q)
+        q = (q ** ω - alpha * dg ** ω).ω
+        return q, alpha
+
+    # Second loop: iterate forwards and apply correction using stored alpha
+    def forward_iter(args, indx):
+        q, alpha = args
+        ai = alpha[indx]
+        r = rho[circ_index[indx]]
+        dy, dg = jtu.tree_map(
+            lambda x: x[circ_index[indx]],
+            (residual_par, residual_grad)
+        )
+        bi = r * tree_dot(dg, q)
+        q = (q ** ω + (dy ** ω * (ai - bi))).ω
+        return (q, alpha), None
+
+    # This is the linear operator to be applied when multiplying with a vector
+    def operator_func(pytree):
+        q, alpha = jax.lax.scan(backward_iter, pytree, circ_index, reverse=True)
+        dym, dgm = jtu.tree_map(
+            lambda x: x[index_start % history_len],
+            (residual_par, residual_grad)
+        )
+        dyg = tree_dot(dym, dgm)
+        dgg = tree_dot(dgm, dgm)
+        gamma_k = jnp.where(dgg > 1e-10, dyg / dgg, 1.0)
+        q = (gamma_k * q ** ω).ω
+        (q, _), _ = jax.lax.scan(forward_iter, (q, alpha), jnp.arange(history_len), reverse=False)
+        return q
+
+    return lx.FunctionLinearOperator(
+        operator_func,
+        jax.eval_shape(lambda: jtu.tree_map(lambda x: x[0], residual_par)),
+        tags=lx.positive_semidefinite_tag)
+
+
 def _outer(tree1, tree2):
     def leaf_fn(x):
         return jtu.tree_map(lambda leaf: jnp.tensordot(x, leaf, axes=0), tree2)
@@ -74,7 +138,7 @@ def _outer(tree1, tree2):
 
 
 _Hessian = TypeVar(
-    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv
+    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv, FunctionInfo.LimitedMemHessianInv,
 )
 
 
