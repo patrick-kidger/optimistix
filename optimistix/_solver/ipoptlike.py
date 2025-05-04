@@ -46,6 +46,11 @@ from .filtered import IPOPTLikeFilteredLineSearch
 
 # TODO: conceptually the tolerance here is closer to an rtol, so we should probably
 # change it to that (currently we only use atol)
+# TODO: test what happens if inequality constraints have infinite bounds
+# TODO: I observe that during the solve for some of the benchmark problems, a lot of
+# tiny steps are taken (even if all steps are accepted), until suddently a large step is
+# taken. This could bode well for second-order corrections! Maybe they would help on
+# these problems. (HATFLDH comes to mind.)
 
 
 # Some global flags strictly for use during development, these will be removed later.
