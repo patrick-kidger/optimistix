@@ -40,8 +40,7 @@ from .._search import (
 )
 from .._solution import RESULTS
 from .barrier import LogarithmicBarrier
-from .bfgs import BFGS_B, identity_pytree
-from .boundary_maps import ClosestFeasiblePoint
+from .bfgs import identity_pytree
 from .filtered import IPOPTLikeFilteredLineSearch
 
 
@@ -88,8 +87,15 @@ def _interior_tree_clip(
     in the IPOPT implementation paper (doi: 10.1007/s10107-004-0559-y). Here we use the
     names currently in use in the IPOPT code.
     """
-    # TODO: add runtime error if upper < lower, since the strict interior is not defined
-    # in that case.
+    msg = (
+        "The bounds for `y` are misspecified: `lower` must be strictly less than "
+        "`upper` for all elements of the PyTree, since the feasible region otherwise "
+        "does not have a strict interior."
+    )
+    proper_interval = jtu.tree_map(lambda l, u: jnp.all(l < u), lower, upper)
+    interval_checks, _ = jfu.ravel_pytree(proper_interval)
+    pred = jnp.all(interval_checks)
+    lower, upper = eqx.error_if((lower, upper), jnp.invert(pred), msg)
 
     def offset(x, width):
         scale = jnp.asarray(bound_push) * jnp.where(jnp.abs(x) < 1, 1, jnp.abs(x))
@@ -353,58 +359,89 @@ def _error(
     tol,
     norm,
 ):
-    assert f_info.constraint_residual is not None
-    assert f_info.constraint_jacobians is not None
+    y, multipliers, bound_multipliers, barrier = iterate  # TODO structured iterate
 
-    y, (equality_dual, inequality_dual), (lb_dual, ub_dual), barrier = iterate
+    # Construction site: lagrangian gradients ------------------------------------------
+    # We need to have a specific module for Lagrangian utilities, I think!
+    lagrangian_gradient = f_info.grad  # TODO reuse this! We have a function for this
+    if f_info.constraint_jacobians is not None:
+        equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
+        equality_multiplier, inequality_multiplier = multipliers
+        if equality_jacobian is not None:
+            equality_gradient = equality_jacobian.T.mv(equality_multiplier)
+            lagrangian_gradient = (lagrangian_gradient**ω + equality_gradient**ω).ω
+        if inequality_jacobian is not None:
+            inequality_gradient = inequality_jacobian.T.mv(inequality_multiplier)
+            lagrangian_gradient = (lagrangian_gradient**ω + inequality_gradient**ω).ω
+    if f_info.bounds is not None:
+        lb_dual, ub_dual = bound_multipliers  # TODO name
+        lower, upper = f_info.bounds
+        finite_lower = jtu.tree_map(jnp.isfinite, lower)
+        finite_upper = jtu.tree_map(jnp.isfinite, upper)
+        lb_dual = tree_where(finite_lower, lb_dual, 0.0)  # Safety: should be redundant
+        ub_dual = tree_where(finite_upper, ub_dual, 0.0)
+        lagrangian_gradient = (lagrangian_gradient**ω - lb_dual**ω + ub_dual**ω).ω
+    optimality_error = norm(lagrangian_gradient)
+    # CONSTRUCTION SITE ends: Lagrangian gradients
+    # ----------------------------------------------------------------------------------
 
-    equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
-    dual_term = equality_jacobian.T.mv(equality_dual)  # pyright: ignore
-    if inequality_jacobian is not None:
-        dual_term = (dual_term**ω + inequality_jacobian.T.mv(inequality_dual) ** ω).ω
-    optimality_error = norm(
-        jtu.tree_map(
-            lambda a, b, c, d: a + b - c + d, f_info.grad, dual_term, lb_dual, ub_dual
-        )
-    )
-
-    # TODO: implement support for inequality residuals
-    equality_residual, inequality_residual = f_info.constraint_residual
-    constraint_norm = norm(equality_residual)
-    if inequality_residual is not None:
-        inequality_violation = tree_where(
-            # Only count violations if the residual is less than zero
-            # Alternatively transform with slack! # TODO
-            jtu.tree_map(lambda x: jnp.where(x < 0, x, 0.0), inequality_residual),
-            inequality_residual,
-            0.0,
-        )
-        constraint_norm += norm(inequality_violation)
+    # ANOTHER CONSTRUCTION SITE BEGINS: ------------------------------------------------
+    # Constraint norms
+    constraint_norm = jnp.array(0.0)  # Should not affect max if no constraints
+    if f_info.constraint_residual is not None:
+        equality_residual, inequality_residual = f_info.constraint_residual
+        if equality_residual is not None:
+            # TODO: implement support for inequality residuals
+            equality_residual, inequality_residual = f_info.constraint_residual
+            constraint_norm += norm(equality_residual)
+        if inequality_residual is not None:
+            inequality_violation = tree_where(
+                # Only count violations if the residual is less than zero
+                # Alternatively transform with slack! # TODO
+                jtu.tree_map(  # TODO use slacks here?
+                    lambda x: jnp.where(x < 0, x, 0.0), inequality_residual
+                ),
+                inequality_residual,
+                0.0,
+            )
+            constraint_norm += norm(inequality_violation)
+    # CONSTRUCTION SITE ENDS: ----------------------------------------------------------
 
     ### TO BE REFACTORED (made a separate optx.one_norm) -------------------------------
     def _one_norm(x):
         absolute_values = jnp.where(jnp.isfinite(x), jnp.abs(x), 0.0)
         return jnp.sum(absolute_values)
 
-    multiplier_norm = jtu.tree_map(_one_norm, (equality_dual, inequality_dual))
-    multiplier_norm, _ = jfu.ravel_pytree(multiplier_norm)
-    multiplier_norm = jnp.sum(multiplier_norm)
+    if multipliers is not None:
+        multiplier_norm = jtu.tree_map(_one_norm, multipliers)
+        multiplier_norm, _ = jfu.ravel_pytree(multiplier_norm)
+        multiplier_norm = jnp.sum(multiplier_norm)
 
-    num_multipliers = jtu.tree_map(jnp.isfinite, (equality_dual, inequality_dual))
-    num_multipliers, _ = jfu.ravel_pytree(num_multipliers)
-    num_multipliers = jnp.sum(num_multipliers)
+        num_multipliers = jtu.tree_map(jnp.isfinite, multipliers)
+        num_multipliers, _ = jfu.ravel_pytree(num_multipliers)
+        num_multipliers = jnp.sum(num_multipliers)
+    else:
+        multiplier_norm = jnp.array(0.0)
+        num_multipliers = jnp.array(0.0)  # Needs safe division down below
 
-    bound_multiplier_norm = jtu.tree_map(_one_norm, (lb_dual, ub_dual))
-    bound_multiplier_norm, _ = jfu.ravel_pytree(bound_multiplier_norm)
-    bound_multiplier_norm = jnp.sum(bound_multiplier_norm)
+    if bound_multipliers is not None:
+        bound_multiplier_norm = jtu.tree_map(_one_norm, bound_multipliers)
+        bound_multiplier_norm, _ = jfu.ravel_pytree(bound_multiplier_norm)
+        bound_multiplier_norm = jnp.sum(bound_multiplier_norm)
 
-    num_bounds = jtu.tree_map(jnp.isfinite, (lb_dual, ub_dual))  # Or check bounds
-    num_bounds, _ = jfu.ravel_pytree(num_bounds)
-    num_bounds = jnp.sum(num_bounds)
+        num_bounds = jtu.tree_map(jnp.isfinite, bound_multipliers)  # Or check bounds
+        num_bounds, _ = jfu.ravel_pytree(num_bounds)
+        num_bounds = jnp.sum(num_bounds)
+    else:
+        bound_multiplier_norm = jnp.array(0.0)
+        num_bounds = jnp.array(0.0)
     # ----------------------------------------------------------------------------------
 
+    # TODO: This scaling thing should also be moved I think -- and it smax now hard-code
     summed_norms = multiplier_norm + bound_multiplier_norm
-    summed_scaled_norm = summed_norms / (num_multipliers + num_bounds)
+    denominator = num_multipliers + num_bounds
+    safe_denominator = jnp.where(denominator > 1.0, denominator, 1.0)
+    summed_scaled_norm = summed_norms / safe_denominator
     scaling = jnp.where(summed_scaled_norm > 100.0, summed_scaled_norm, 100.0) / 100.0
 
     optimality_error = optimality_error / scaling
@@ -412,29 +449,51 @@ def _error(
     # Aggregate errata - probably move this for better flow
     errata = (optimality_error, constraint_norm)
 
-    lower, upper = f_info.bounds  # pyright: ignore (bounds not None)  # TODO
-    lower_diff = (y**ω - lower**ω).ω
-    upper_diff = (upper**ω - y**ω).ω
-    lower_error = (lower_diff**ω * lb_dual**ω - barrier).ω
-    upper_error = (upper_diff**ω * ub_dual**ω - barrier).ω
-    finite_lower = jtu.tree_map(jnp.isfinite, lower)
-    finite_upper = jtu.tree_map(jnp.isfinite, upper)
-    lower_error = tree_where(finite_lower, lower_error, 0.0)
-    upper_error = tree_where(finite_upper, upper_error, 0.0)
+    if f_info.bounds is not None:
+        lower, upper = f_info.bounds  # pyright: ignore (bounds not None)  # TODO
+        lower_diff = (y**ω - lower**ω).ω
+        upper_diff = (upper**ω - y**ω).ω
+        lb_dual, ub_dual = bound_multipliers
+        lower_error = (lower_diff**ω * lb_dual**ω - barrier).ω
+        upper_error = (upper_diff**ω * ub_dual**ω - barrier).ω
+        finite_lower = jtu.tree_map(jnp.isfinite, lower)
+        finite_upper = jtu.tree_map(jnp.isfinite, upper)
+        lower_error = tree_where(finite_lower, lower_error, 0.0)
+        upper_error = tree_where(finite_upper, upper_error, 0.0)
 
-    # TODO: scale the lower error
+        # TODO refactor: scaling the bound errata --------------------------------------
+        finite_lower, _ = jfu.ravel_pytree(finite_lower)
+        finite_upper, _ = jfu.ravel_pytree(finite_upper)
+        num_lower = jnp.sum(finite_lower)
+        num_upper = jnp.sum(finite_upper)
 
-    # TODO question: lower and upper error separat or joint?
-    errata += (norm(lower_error), norm(upper_error))
+        lower_bound_scale = jnp.where(
+            num_lower > 0, _one_norm(lb_dual) / num_lower, 0.0
+        )
+        upper_bound_scale = jnp.where(
+            num_upper > 0, _one_norm(ub_dual) / num_upper, 0.0
+        )
+
+        lower_bound_scale = (
+            jnp.where(lower_bound_scale > 100.0, lower_bound_scale, 100.0) / 100.0
+        )
+        upper_bound_scale = (
+            jnp.where(upper_bound_scale > 100.0, upper_bound_scale, 100.0) / 100.0
+        )
+
+        lower_error_ = norm(lower_error) / lower_bound_scale
+        upper_error_ = norm(upper_error) / upper_bound_scale
+
+        errata += (lower_error_, upper_error_)
 
     return jnp.max(jnp.asarray(errata))
 
 
 class Iterate(eqx.Module, Generic[Y, EqualityOut, InequalityOut], strict=True):
     y_eval: Y  # TODO: or more concisely rename y?
-    slack: InequalityOut
+    slack: InequalityOut | None
     multipliers: tuple[EqualityOut, InequalityOut]
-    bound_multipliers: tuple[Y, Y]
+    bound_multipliers: tuple[Y, Y] | None
     barrier: ScalarLike
 
 
@@ -535,24 +594,35 @@ class AbstractIPOPTLike(
         # Moving this functionality into `solver.step` is not preferable because the
         # introduction of clipping could mask bugs there, and should not be necessary in
         # this solver in particular.
-        if bounds is None:
-            bounds = (tree_full_like(y, -jnp.inf), tree_full_like(y, jnp.inf))
-        lower, upper = bounds
         bound_push = options.get("bound_push", 0.01)
         bound_frac = options.get("bound_frac", 0.01)
-        y = _interior_tree_clip(y, lower, upper, bound_push, bound_frac)
 
-        if constraint is None:
-            raise ValueError(
-                "IPOPTLike requires constraints. For unconstrained problems, try "
-                "an unconstrained minimiser, like `optx.BFGS`."
-            )
-        else:
+        if bounds is not None:
+            lower, upper = bounds
+            y = _interior_tree_clip(y, lower, upper, bound_push, bound_frac)
+
+        if constraint is not None:
             # TODO: this extra evaluation of the constraint can be expensive!
             # Not great for compilation time, we should avoid this here if we can.
             # (Not sure that we can, though.)
             evaluated = evaluate_constraint(constraint, y)
             constraint_residual, constraint_bound, constraint_jacobians = evaluated
+
+            _, inequality_residual = constraint_residual
+            if inequality_residual is not None:
+                slack = inequality_residual
+                slack_bounds = (
+                    tree_full_like(slack, 0.0),
+                    tree_full_like(slack, jnp.inf),
+                )
+                slack = _interior_tree_clip(
+                    slack, *slack_bounds, bound_push, bound_frac
+                )
+            else:
+                slack = None
+        else:
+            constraint_residual = constraint_bound = constraint_jacobians = None
+            slack = None
 
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
@@ -569,15 +639,24 @@ class AbstractIPOPTLike(
         )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
 
-        _, slack = constraint_residual
-        slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
-        slack = _interior_tree_clip(slack, *slack_bounds, bound_push, bound_frac)
+        # CONSTRUCTION SITE: Initialisation of bound multipliers -----------------------
+        if bounds is not None:
+            lower, upper = bounds
+            lower_multipliers = tree_full_like(lower, 1.0)
+            upper_multipliers = tree_full_like(upper, 1.0)
+            finite_lower = jtu.tree_map(jnp.isfinite, lower)
+            finite_upper = jtu.tree_map(jnp.isfinite, upper)
+            lower_multipliers = tree_where(finite_lower, lower_multipliers, 0.0)
+            upper_multipliers = tree_where(finite_upper, upper_multipliers, 0.0)
+            bound_multipliers = (lower_multipliers, upper_multipliers)
+        else:
+            bound_multipliers = None
 
         iterate = Iterate(
             y,
             slack,
             tree_full_like(constraint_residual, 0.0),
-            tree_full_like(bounds, 1.0),
+            bound_multipliers,  # pyright: ignore
             jnp.asarray(self.initial_barrier_parameter),
         )
 
@@ -606,8 +685,6 @@ class AbstractIPOPTLike(
     ) -> tuple[Y, _IPOPTLikeState, Aux]:
         # TODO: support autodiff mode for the constraints too
         autodiff_mode = options.get("autodiff_mode", "bwd")
-        if bounds is None:
-            bounds = (tree_full_like(y, -jnp.inf), tree_full_like(y, jnp.inf))
 
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
         # y_eval, duals, bound_multipliers, barrier = state.iterate
@@ -615,8 +692,11 @@ class AbstractIPOPTLike(
         # dummy_slack = tree_full_like(duals[1], 0.0)
         # iterate = Iterate(y_eval, dummy_slack, duals, bound_multipliers, barrier)
 
-        evaluated = evaluate_constraint(constraint, state.iterate.y_eval)
-        constraint_residual, constraint_bound, constraint_jacobians = evaluated
+        if constraint is not None:
+            evaluated = evaluate_constraint(constraint, state.iterate.y_eval)
+            constraint_residual, constraint_bound, constraint_jacobians = evaluated
+        else:
+            constraint_residual = constraint_bound = constraint_jacobians = None
 
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.iterate.y_eval, has_aux=True
@@ -660,18 +740,21 @@ class AbstractIPOPTLike(
 
                 return jax.jacfwd(apply_reduced_jacobian)(y)
 
-            equality_jacobian, inequality_jacobian = constraint_jacobians
-            equality_multiplier, inequality_multiplier = state.iterate.multipliers
-            if equality_jacobian is not None:
-                equality_hessian = constraint_hessian(
-                    state.iterate.y_eval, equality_jacobian, equality_multiplier
-                )
-                lagrangian_hessian = (lagrangian_hessian**ω + equality_hessian**ω).ω
-            if inequality_jacobian is not None:
-                inequality_hessian = constraint_hessian(
-                    state.iterate.y_eval, inequality_jacobian, inequality_multiplier
-                )
-                lagrangian_hessian = (lagrangian_hessian**ω + inequality_hessian**ω).ω
+            if constraint_jacobians is not None:
+                equality_jacobian, inequality_jacobian = constraint_jacobians
+                equality_multiplier, inequality_multiplier = state.iterate.multipliers
+                if equality_jacobian is not None:
+                    equality_hessian = constraint_hessian(
+                        state.iterate.y_eval, equality_jacobian, equality_multiplier
+                    )
+                    lagrangian_hessian = (lagrangian_hessian**ω + equality_hessian**ω).ω
+                if inequality_jacobian is not None:
+                    inequality_hessian = constraint_hessian(
+                        state.iterate.y_eval, inequality_jacobian, inequality_multiplier
+                    )
+                    lagrangian_hessian = (
+                        lagrangian_hessian**ω + inequality_hessian**ω
+                    ).ω
 
             # TODO: work with adding the operators directly here? Does not work yet
             # because we initialise the Hessian in f_info with a specific structure
@@ -804,61 +887,67 @@ class AbstractIPOPTLike(
         ) | (descent_result == RESULTS.feasibility_restoration_required)
 
         def restore(args):
-            del args
+            search_result, descent_result = args
+            # del args
 
-            # TODO: make attribute and update the penalty parameter for the feasibility
-            # restoration problem based on the barrier parameter.
-            boundary_map = ClosestFeasiblePoint(1e-6, BFGS_B(rtol=1e-3, atol=1e-6))
-            recovered_y, restoration_result = boundary_map(
-                state.iterate.y_eval, constraint, bounds
-            )
-            # TODO: Allow feasibility restoration to raise a certificate of
-            # infeasibility and error out.
+            # # TODO: make attribute and update the penalty parameter for the feasibilit
+            # # restoration problem based on the barrier parameter.
+            # boundary_map = ClosestFeasiblePoint(1e-6, BFGS_B(rtol=1e-3, atol=1e-6))
+            # recovered_y, restoration_result = boundary_map(
+            #     state.iterate.y_eval, constraint, bounds
+            # )
+            # # TODO: Allow feasibility restoration to raise a certificate of
+            # # infeasibility and error out.
 
-            # TODO: perhaps re-set the dual variables here? So that we could combine
-            # this solver with a descent that does not implement a least-squares
-            # initialisation of the dual variables.
+            # # TODO: perhaps re-set the dual variables here? So that we could combine
+            # # this solver with a descent that does not implement a least-squares
+            # # initialisation of the dual variables.
             iterate_eval = (state.iterate**ω + descent_steps**ω).ω
-            # TODO: barrier update? This takes barrier from outer scope
-            # What happens to the barrier parameter when we restore feasibility?
-            # TODO: re-evaluate the constraint function to update the slack?
-            # We're currently losing information by re-initialising the slack value
-            # in the descent, which then does not get taken into account when updating
-            # the slack variable! (I think? Does the slack get returned by the
-            # initialisation method for the multipliers?)
+            # # TODO: barrier update? This takes barrier from outer scope
+            # # What happens to the barrier parameter when we restore feasibility?
+            # # TODO: re-evaluate the constraint function to update the slack?
+            # # We're currently losing information by re-initialising the slack value
+            # # in the descent, which then does not get taken into account when updating
+            # # the slack variable! (I think? Does the slack get returned by the
+            # # initialisation method for the multipliers?)
 
-            # TODO: now we're calling expensive functions again! not great
-            _, slack = constraint(recovered_y)  # pyright: ignore (constraint not None)
-            slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf))
-            slack = _interior_tree_clip(slack, *slack_bounds, 0.01, 0.01)
+            # # TODO: now we're calling expensive functions again! not great
+            # _, slack = constraint(recovered_y)  # pyright: ignore (constraint not None
+            # slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf)
+            # slack = _interior_tree_clip(slack, *slack_bounds, 0.01, 0.01)
 
-            new_iterate = Iterate(
-                recovered_y,
-                slack,
-                iterate_eval.multipliers,
-                iterate_eval.bound_multipliers,
-                barrier,
+            # new_iterate = Iterate(
+            #     recovered_y,
+            #     slack,
+            #     iterate_eval.multipliers,
+            #     iterate_eval.bound_multipliers,
+            #     barrier,
+            # )
+
+            # # Re-initialise the search
+            # f_info_struct = eqx.filter_eval_shape(lambda: state.f_info)
+            # new_search_state = self.search.init(recovered_y, f_info_struct)
+
+            # # Descent can special-case the first step it takes, e.g. to initialise dua
+            # # variables with a least-squares estimate. To enable this, we re-initialis
+            # # the descent state here. (Alternative: make descents take a first step
+            # # argument, like the searches do.)
+            # new_descent_state = self.descent.init(new_iterate, f_info_struct)
+
+            result = RESULTS.where(
+                search_result == RESULTS.successful, descent_result, search_result
             )
 
-            # Re-initialise the search
-            f_info_struct = eqx.filter_eval_shape(lambda: state.f_info)
-            new_search_state = self.search.init(recovered_y, f_info_struct)
-
-            # Descent can special-case the first step it takes, e.g. to initialise dual
-            # variables with a least-squares estimate. To enable this, we re-initialise
-            # the descent state here. (Alternative: make descents take a first step
-            # argument, like the searches do.)
-            new_descent_state = self.descent.init(new_iterate, f_info_struct)
-
+            # TODO: completely turned off feasibility restoration for now
             new_solver_state = _IPOPTLikeState(
                 first_step=jnp.array(True),
-                iterate=new_iterate,
-                search_state=new_search_state,
+                iterate=iterate_eval,
+                search_state=search_state,
                 f_info=state.f_info,
                 aux=state.aux,
-                descent_state=new_descent_state,
+                descent_state=descent_state,
                 terminate=jnp.array(False),
-                result=restoration_result,
+                result=result,
                 num_accepted_steps=state.num_accepted_steps,
             )
 
