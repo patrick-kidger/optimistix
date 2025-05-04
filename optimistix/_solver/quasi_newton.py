@@ -1,6 +1,6 @@
 import abc
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar, Union
+from typing import Any, Generic, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -70,7 +70,7 @@ def _lim_mem_hess_inv_operator(
         residual_par: PyTree[Array],
         residual_grad: PyTree[Array],
         rho: Array,
-        index_start: int = 0
+        index_start: Array
 ):
     """Define a `lineax` linear operator implementing the L-BFGS inverse Hessian approximation.
 
@@ -161,7 +161,8 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
         y_eval: Y,
         f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
         f_eval_info: FunctionInfo.EvalGrad,
-    ) -> Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv]:
+        hess_update_state: dict,
+    ) -> tuple[Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv], dict]:
         """Called whenever we want to update the Hessian approximation. This is usually
         in the `accepted` branch of the `step` method of an
         [`optimistix.AbstractQuasiNewton`][] minimiser.
@@ -208,7 +209,8 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
         y_eval: Y,
         f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
         f_eval_info: FunctionInfo.EvalGrad,
-    ) -> Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv]:
+        hess_update_state: dict,
+    ) -> tuple[Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv], dict]:
         f_eval = f_eval_info.f
         grad = f_eval_info.grad
         y_diff = (y_eval**ω - y**ω).ω
@@ -232,9 +234,9 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
         )
         if self.use_inverse:
             # in this case `hessian` is the new inverse hessian
-            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian)
+            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), {}
         else:
-            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian)
+            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), {}
 
 
 class DFPUpdate(_AbstractBFGSDFPUpdate, strict=True):
@@ -357,6 +359,9 @@ class _QuasiNewtonState(
     result: RESULTS
     # Used in compat.py
     num_accepted_steps: Int[Array, ""]
+    # update state
+    hess_update_state: dict[Array]
+
 
 
 class AbstractQuasiNewton(
@@ -400,13 +405,31 @@ class AbstractQuasiNewton(
     ) -> _QuasiNewtonState:
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
+        hess_update_state = dict()
         if self.hessian_update.use_inverse:
-            hessian_inv = _identity_pytree(y)
+            if isinstance(self, LBFGS):
+                hess_update_state = dict(
+                    history_len=10,
+                    start_index=jnp.array(0),
+                    residual_y=jtu.tree_map(lambda y: jnp.zeros((10, *y.shape)), y),
+                    residual_grad=jtu.tree_map(lambda y: jnp.zeros((10, *y.shape)), y),
+                    rho=jnp.zeros(10)
+                )
+                hessian_inv = _lim_mem_hess_inv_operator(
+                    hess_update_state["residual_y"],
+                    hess_update_state["residual_grad"],
+                    hess_update_state["rho"],
+                    hess_update_state["start_index"]
+                )
+            else:
+                hessian_inv = _identity_pytree(y)
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, hessian_inv)
         else:
             hessian = _identity_pytree(y)
             f_info = FunctionInfo.EvalGradHessian(f, grad, hessian)
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
+
+
         return _QuasiNewtonState(
             first_step=jnp.array(True),
             y_eval=y,
@@ -417,6 +440,7 @@ class AbstractQuasiNewton(
             terminate=jnp.array(False),
             result=RESULTS.successful,
             num_accepted_steps=jnp.array(0),
+            hess_update_state=hess_update_state
         )
 
     def step(
@@ -444,11 +468,12 @@ class AbstractQuasiNewton(
         def accepted(descent_state):
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
-            f_eval_info = self.hessian_update(
+            f_eval_info, hess_update_state = self.hessian_update(
                 y,
                 state.y_eval,
                 state.f_info,
                 FunctionInfo.EvalGrad(f_eval, grad),
+                state.hess_update_state
             )
 
             descent_state = self.descent.query(
@@ -464,12 +489,12 @@ class AbstractQuasiNewton(
             terminate = jnp.where(
                 state.first_step, jnp.array(False), terminate
             )  # Skip termination on first step
-            return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
+            return state.y_eval, f_eval_info, aux_eval, descent_state, terminate, hess_update_state
 
         def rejected(descent_state):
-            return y, state.f_info, state.aux, descent_state, jnp.array(False)
+            return y, state.f_info, state.aux, descent_state, jnp.array(False), state.hess_update_state
 
-        y, f_info, aux, descent_state, terminate = filter_cond(
+        y, f_info, aux, descent_state, terminate, hess_update_state = filter_cond(
             accept, accepted, rejected, state.descent_state
         )
 
@@ -503,6 +528,7 @@ class AbstractQuasiNewton(
             terminate=terminate,
             result=result,
             num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
+            hess_update_state=hess_update_state,
         )
         return y, state, aux
 
@@ -668,3 +694,112 @@ DFP.__init__.__doc__ = """**Arguments:**
     Valid entries are `step_size`, `loss`, `y`. For example
     `verbose=frozenset({"step_size", "loss"})`.
 """
+
+
+class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
+    """Private intermediate class for LBFGS updates."""
+
+    use_inverse = True
+
+    def no_update(self, inner, grad_diff, y_diff, f_info, start_index):
+        return f_info.hessian_inv, 0
+
+    def update(self, inner, grad_diff, y_diff, f_info, start_index):
+        assert isinstance(f_info, FunctionInfo.EvalGradHessianInv)
+        # update the start index
+        return _lim_mem_hess_inv_operator(
+            y_diff,
+            grad_diff,
+            inner,
+            start_index,
+        ), 1
+
+    def __call__(
+        self,
+        y: Y,
+        y_eval: Y,
+        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
+        f_eval_info: FunctionInfo.EvalGrad,
+        hess_update_state: dict,
+    ) -> tuple[FunctionInfo.EvalGradHessianInv, dict]:
+        f_eval = f_eval_info.f
+        grad = f_eval_info.grad
+        y_diff = (y_eval**ω - y**ω).ω
+        grad_diff = (grad**ω - f_info.grad**ω).ω
+
+        history_len = hess_update_state["history_len"]
+        residual_y = hess_update_state["residual_y"]
+        residual_grad = hess_update_state["residual_grad"]
+        start_index = hess_update_state["start_index"]
+        rho = hess_update_state["rho"]
+
+        # update states
+        residual_y = residual_y.at[start_index].set(y_diff)
+        residual_grad = residual_grad.at[start_index].set(grad_diff)
+        rho = rho.at[start_index].set(1. / tree_dot(y_diff, grad_diff))
+        rho = jnp.where(jnp.isinf(rho), 0, rho)
+
+        hessian, update = filter_cond(
+            rho[start_index] != 0,
+            self.update,
+            self.no_update,
+            rho,
+            residual_grad,
+            residual_y,
+            f_info,
+            start_index,
+        )
+        # increment circular index
+        start_index = (start_index + update) % history_len
+
+        update_state = dict(
+            history_len = history_len,
+            start_index = jnp.array(start_index),
+            residual_y = residual_y,
+            residual_grad = residual_grad,
+            rho= rho,
+        )
+
+        return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), update_state
+
+class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
+    """L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.
+
+    This is a quasi-Newton optimisation algorithm that approximates the inverse Hessian
+    using a limited history of gradient and parameter updates. Unlike full BFGS, which stores
+    a dense matrix, L-BFGS maintains a memory-efficient representation suitable for large-scale
+    problems.
+
+    Supports the following `options`:
+
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    descent: NewtonDescent
+    search: BacktrackingArmijo
+    hessian_update: AbstractQuasiNewtonUpdate
+    use_inverse: bool
+    verbose: frozenset[str]
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        verbose: frozenset[str] = frozenset(),
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.use_inverse = True
+        self.descent = NewtonDescent(linear_solver=lx.Cholesky())
+        # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
+        self.search = BacktrackingArmijo()
+        self.hessian_update = LBFGSUpdate()
+        self.verbose = verbose
