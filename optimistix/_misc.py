@@ -128,6 +128,11 @@ def tree_clip(
     return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
 
 
+def tree_min(tree: PyTree[ArrayLike]) -> Scalar:
+    values, _ = jfu.ravel_pytree(tree)
+    return jnp.min(values)
+
+
 def feasible_step_length(
     current: PyTree[Array],
     proposed_step: PyTree[Array],
@@ -135,7 +140,8 @@ def feasible_step_length(
     upper_bound: PyTree[Array],
     *,
     offset: ScalarLike = jnp.array(0.0),
-) -> ScalarLike:
+    reduce: bool = True,
+) -> Union[ScalarLike, PyTree[ScalarLike]]:
     """Returns the maximum feasible step length for any current value, its bounds, and a
     proposed step. The current value can be an instance of an optimisation variable `y`,
     a dual variable, or a slack variable.
@@ -161,8 +167,21 @@ def feasible_step_length(
     Note that this function can return a feasible step length of 0.0, and this case
     should be handled where this function is used.
 
-    The current value, its bound and the proposed step must all have the same PyTree
-    structure. (Raising errata for mismatches is deferred to jtu.tree_map.)
+    **Arguments**:
+
+    - `current`: The current value of an optimisation variable, e.g. `y`.
+    - `proposed_step`: The proposed step - usually computed as the result of a linear
+        solve. Must have the same PyTree structure as `current`.
+    - `lower`: The lower bound. Must have the same PyTree structure as `current`.
+    - `upper`: The upper bound. Must have the same PyTree structure as `current`.
+    - `offset`: The offset from the boundary. If passed, then the distance to the bounds
+        is multiplied by (1 - offset), to ensure that we stay in the strict interior.
+        Keyword-only argument.
+    - `reduce`: Whether to reduce the computed maximum step length for each leaf of the
+        PyTree. (An array counts as one leaf.) This is useful in algorithms that allow
+        for different step lengths in different variables, e.g. primal variables `y` and
+        Lagrangian multipliers. Keyword-only argument, defaults to True - in which case
+        a single scalar value is returned.
     """
     # TODO: runtime error if lower > upper for any element?
     # TODO: return a boolean array to indicate whether the feasible step length is > 0?
@@ -171,22 +190,26 @@ def feasible_step_length(
         distance_to_lower = (1 - offset) * (x - lower)
         distance_to_upper = (1 - offset) * (upper - x)
 
+        # Scale by the distance to the bounds if we're moving towards them
         max_to_lower = jnp.asarray(jnp.where(dx < 0, -distance_to_lower / dx, jnp.inf))
         max_to_upper = jnp.asarray(jnp.where(dx > 0, distance_to_upper / dx, jnp.inf))
 
-        # negative distances when we're outside the bounds can result in step size < 0
+        # Negative distances when we're outside the bounds can result in step size < 0
         # this means that we would worsen our current position, which we don't want
-        safe_max_to_lower = jnp.where(max_to_lower > 0, max_to_lower, 0.0)
-        safe_max_to_upper = jnp.where(max_to_upper > 0, max_to_upper, 0.0)
+        nonnegative_max_to_lower = jnp.where(max_to_lower > 0, max_to_lower, 0.0)
+        nonnegative_max_to_upper = jnp.where(max_to_upper > 0, max_to_upper, 0.0)
 
-        min_to_lower = jnp.min(jnp.asarray(safe_max_to_lower))
-        min_to_upper = jnp.min(jnp.asarray(safe_max_to_upper))
+        min_to_lower = jnp.min(jnp.asarray(nonnegative_max_to_lower))
+        min_to_upper = jnp.min(jnp.asarray(nonnegative_max_to_upper))
 
         return jnp.min(jnp.array([min_to_lower, min_to_upper, 1.0]))
 
     max_steps = jtu.tree_map(max_step, current, proposed_step, lower_bound, upper_bound)
-    flat_max_steps, _ = jfu.ravel_pytree(max_steps)
-    return jnp.min(flat_max_steps)
+
+    if reduce:
+        tree_min(max_steps)
+    else:
+        return max_steps
 
 
 def resolve_rcond(rcond, n, m, dtype):
