@@ -62,7 +62,7 @@ def _initialise_multipliers(iterate__f_info):
     strictly positive.
 
     We can then solve for the multipliers of the equality constraints with a linear
-    least squares solve, again assuming optimality of the Lagragian, which means that
+    least squares solve, again assuming optimality of the Lagrangian, which means that
 
         grad Lagrangian = grad f + Jac h^T * l + Jac g^T * m = 0
 
