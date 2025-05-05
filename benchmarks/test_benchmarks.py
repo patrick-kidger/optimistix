@@ -8,6 +8,9 @@ import pytest
 import sif2jax
 
 
+# TODO: perhaps restrict JAX use of threads (certainly for comparison against eg. scipy)
+
+
 cutest = pytest.mark.skipif("not config.getoption('cutest')")
 
 
