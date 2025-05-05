@@ -1,0 +1,494 @@
+{
+    "machine_info": {
+        "node": "bs-mbpas-0019",
+        "processor": "arm",
+        "machine": "arm64",
+        "python_compiler": "Clang 16.0.0 (clang-1600.0.26.4)",
+        "python_implementation": "CPython",
+        "python_implementation_version": "3.13.1",
+        "python_version": "3.13.1",
+        "python_build": [
+            "main",
+            "Dec  3 2024 17:59:52"
+        ],
+        "release": "24.3.0",
+        "system": "Darwin",
+        "cpu": {
+            "python_version": "3.13.1.final.0 (64 bit)",
+            "cpuinfo_version": [
+                9,
+                0,
+                0
+            ],
+            "cpuinfo_version_string": "9.0.0",
+            "arch": "ARM_8",
+            "bits": 64,
+            "count": 8,
+            "arch_string_raw": "arm64",
+            "brand_raw": "Apple M2"
+        }
+    },
+    "commit_info": {
+        "id": "319a7f8613e758f927ba1d5ecbd8f3a1b94150af",
+        "time": "2025-05-04T20:27:12+02:00",
+        "author_time": "2025-05-04T20:27:12+02:00",
+        "dirty": true,
+        "project": "optimistix",
+        "branch": "dev"
+    },
+    "benchmarks": [
+        {
+            "group": null,
+            "name": "test_runtime_unconstrained_minimisers[minimiser0-problem0]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_unconstrained_minimisers[minimiser0-problem0]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[BFGS(\n  rtol=0.001,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewtonDescent(linear_solver=Cholesky()),\n  search=BacktrackingArmijo(),\n  hessian_update=BFGSUpdate(use_inverse=True),\n  use_inverse=True,\n  verbose=frozenset({})\n)]",
+                "problem": "UNSERIALIZABLE[ROSENBR()]"
+            },
+            "param": "minimiser0-problem0",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(True, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(53, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.00031162507366389036,
+                "max": 0.0003634589957073331,
+                "mean": 0.0003320084186270833,
+                "stddev": 2.021151767193383e-05,
+                "rounds": 5,
+                "median": 0.0003234579926356673,
+                "iqr": 2.6083493139594793e-05,
+                "q1": 0.0003194062737748027,
+                "q3": 0.0003454897669143975,
+                "iqr_outliers": 0,
+                "stddev_outliers": 2,
+                "outliers": "2;0",
+                "ld15iqr": 0.00031162507366389036,
+                "hd15iqr": 0.0003634589957073331,
+                "ops": 3011.971817266521,
+                "total": 0.0016600420931354165,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem0]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem0]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[BT1()]"
+            },
+            "param": "minimiser0-problem0",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(False, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(256, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.021700709010474384,
+                "max": 0.022373625077307224,
+                "mean": 0.022058116644620894,
+                "stddev": 0.00024478338410269566,
+                "rounds": 5,
+                "median": 0.022034583031199872,
+                "iqr": 0.00027266648248769343,
+                "q1": 0.021941083308774978,
+                "q3": 0.02221374979126267,
+                "iqr_outliers": 0,
+                "stddev_outliers": 2,
+                "outliers": "2;0",
+                "ld15iqr": 0.021700709010474384,
+                "hd15iqr": 0.022373625077307224,
+                "ops": 45.33478610667609,
+                "total": 0.11029058322310448,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem1]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem1]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[BT2()]"
+            },
+            "param": "minimiser0-problem1",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(True, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(13, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.0022877498995512724,
+                "max": 0.0027086249319836497,
+                "mean": 0.0024576247902587055,
+                "stddev": 0.00016685157121409198,
+                "rounds": 5,
+                "median": 0.002417166018858552,
+                "iqr": 0.00024365601711906493,
+                "q1": 0.002330687508219853,
+                "q3": 0.002574343525338918,
+                "iqr_outliers": 0,
+                "stddev_outliers": 2,
+                "outliers": "2;0",
+                "ld15iqr": 0.0022877498995512724,
+                "hd15iqr": 0.0027086249319836497,
+                "ops": 406.89693722316883,
+                "total": 0.012288123951293528,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem2]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem2]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[BT4()]"
+            },
+            "param": "minimiser0-problem2",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(True, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(10, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.0018867909675464034,
+                "max": 0.0021500830771401525,
+                "mean": 0.0019923664396628736,
+                "stddev": 9.905710100594827e-05,
+                "rounds": 5,
+                "median": 0.001955375075340271,
+                "iqr": 0.00011013526818715036,
+                "q1": 0.0019381352758500725,
+                "q3": 0.002048270544037223,
+                "iqr_outliers": 0,
+                "stddev_outliers": 2,
+                "outliers": "2;0",
+                "ld15iqr": 0.0018867909675464034,
+                "hd15iqr": 0.0021500830771401525,
+                "ops": 501.915701897292,
+                "total": 0.009961832198314369,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem3]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem3]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[BT4(y0_iD=1)]"
+            },
+            "param": "minimiser0-problem3",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(True, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(10, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.0018894170643761754,
+                "max": 0.00214862497523427,
+                "mean": 0.0020131415920332076,
+                "stddev": 0.00011844526997605695,
+                "rounds": 5,
+                "median": 0.001973042031750083,
+                "iqr": 0.00021645802189595997,
+                "q1": 0.0019170102023053914,
+                "q3": 0.0021334682242013514,
+                "iqr_outliers": 0,
+                "stddev_outliers": 2,
+                "outliers": "2;0",
+                "ld15iqr": 0.0018894170643761754,
+                "hd15iqr": 0.00214862497523427,
+                "ops": 496.73604874957283,
+                "total": 0.010065707960166037,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem4]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem4]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[BT4(y0_iD=2)]"
+            },
+            "param": "minimiser0-problem4",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(False, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(256, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.020464333007112145,
+                "max": 0.020764665910974145,
+                "mean": 0.020574224763549864,
+                "stddev": 0.00012436345855533024,
+                "rounds": 5,
+                "median": 0.02051612490322441,
+                "iqr": 0.00018058274872601032,
+                "q1": 0.020485583489062265,
+                "q3": 0.020666166237788275,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.020464333007112145,
+                "hd15iqr": 0.020764665910974145,
+                "ops": 48.60450449494655,
+                "total": 0.10287112381774932,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem5]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem5]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[BT5()]"
+            },
+            "param": "minimiser0-problem5",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(False, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(256, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.021925375098362565,
+                "max": 0.02278333401773125,
+                "mean": 0.02226194180548191,
+                "stddev": 0.00033615422110184237,
+                "rounds": 5,
+                "median": 0.022142582922242582,
+                "iqr": 0.00045280138147063553,
+                "q1": 0.022034094319678843,
+                "q3": 0.02248689570114948,
+                "iqr_outliers": 0,
+                "stddev_outliers": 2,
+                "outliers": "2;0",
+                "ld15iqr": 0.021925375098362565,
+                "hd15iqr": 0.02278333401773125,
+                "ops": 44.91971135032588,
+                "total": 0.11130970902740955,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem6]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem6]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[BT5(y0_iD=1)]"
+            },
+            "param": "minimiser0-problem6",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(False, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(256, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.022082499926909804,
+                "max": 0.024124749936163425,
+                "mean": 0.02268263336736709,
+                "stddev": 0.0008344165917747296,
+                "rounds": 5,
+                "median": 0.022437541978433728,
+                "iqr": 0.0008574067906010896,
+                "q1": 0.02213534346083179,
+                "q3": 0.02299275025143288,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.022082499926909804,
+                "hd15iqr": 0.024124749936163425,
+                "ops": 44.086591878642885,
+                "total": 0.11341316683683544,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem7]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem7]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[BT5(y0_iD=2)]"
+            },
+            "param": "minimiser0-problem7",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(False, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(256, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.02201191696804017,
+                "max": 0.02261383307632059,
+                "mean": 0.02227738341316581,
+                "stddev": 0.0002730945234425908,
+                "rounds": 5,
+                "median": 0.022195791942067444,
+                "iqr": 0.0004989478329662234,
+                "q1": 0.022040760493837297,
+                "q3": 0.02253970832680352,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.02201191696804017,
+                "hd15iqr": 0.02261383307632059,
+                "ops": 44.88857517301631,
+                "total": 0.11138691706582904,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem8]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem8]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[FLT()]"
+            },
+            "param": "minimiser0-problem8",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(True, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(12, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.0020439160289242864,
+                "max": 0.0023750829277560115,
+                "mean": 0.0021398330107331278,
+                "stddev": 0.00013899231894776688,
+                "rounds": 5,
+                "median": 0.0020630829967558384,
+                "iqr": 0.00015691656153649092,
+                "q1": 0.002055322751402855,
+                "q3": 0.002212239312939346,
+                "iqr_outliers": 0,
+                "stddev_outliers": 1,
+                "outliers": "1;0",
+                "ld15iqr": 0.0020439160289242864,
+                "hd15iqr": 0.0023750829277560115,
+                "ops": 467.326186194964,
+                "total": 0.010699165053665638,
+                "iterations": 1
+            }
+        },
+        {
+            "group": null,
+            "name": "test_runtime_constrained_minimisers[minimiser0-problem9]",
+            "fullname": "benchmarks/test_benchmarks.py::test_runtime_constrained_minimisers[minimiser0-problem9]",
+            "params": {
+                "minimiser": "UNSERIALIZABLE[IPOPTLike(\n  rtol=0.0,\n  atol=1e-06,\n  norm=<wrapped function max_norm>,\n  descent=NewInteriorDescent(linear_solver=SVD()),\n  search=IPOPTLikeFilteredLineSearch(),\n  verbose=frozenset({}),\n  initial_barrier_parameter=0.1\n)]",
+                "problem": "UNSERIALIZABLE[HATFLDH()]"
+            },
+            "param": "minimiser0-problem9",
+            "extra_info": {
+                "successful": "UNSERIALIZABLE[Array(False, dtype=bool)]",
+                "number of steps": "UNSERIALIZABLE[Array(256, dtype=int64, weak_type=True)]"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 0.027131292037665844,
+                "max": 0.02817108400631696,
+                "mean": 0.027415091800503433,
+                "stddev": 0.0004277476627793041,
+                "rounds": 5,
+                "median": 0.027270874939858913,
+                "iqr": 0.00033660398912616074,
+                "q1": 0.027182823017938063,
+                "q3": 0.027519427007064223,
+                "iqr_outliers": 1,
+                "stddev_outliers": 1,
+                "outliers": "1;1",
+                "ld15iqr": 0.027131292037665844,
+                "hd15iqr": 0.02817108400631696,
+                "ops": 36.47625940036563,
+                "total": 0.13707545900251716,
+                "iterations": 1
+            }
+        }
+    ],
+    "datetime": "2025-05-04T20:33:47.338792+00:00",
+    "version": "5.1.0"
+}
