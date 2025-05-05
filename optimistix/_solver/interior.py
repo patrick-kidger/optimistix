@@ -383,7 +383,10 @@ class _BoundedUnconstrainedKKTSystem(_AbstractKKTSystem):
         return lx.FunctionLinearOperator(operator, input_structure), vector
 
     def make_operator_vector(self, iterate, f_info):
-        return self._make_full_system(iterate, f_info)
+        if self.condense_bounds:
+            raise NotImplementedError
+        else:
+            return self._make_full_system(iterate, f_info)
 
     def refine_and_truncate(self, iterate, f_info, out):
         # TODO: iterative refinement
@@ -475,7 +478,10 @@ class _BoundedInequalityConstrainedKKTSystem(_AbstractKKTSystem):
         return lx.FunctionLinearOperator(operator, input_structure), vector
 
     def make_operator_vector(self, iterate, f_info):
-        return self._make_full_system(iterate, f_info)
+        if self.condense_bounds:
+            raise NotImplementedError
+        else:
+            return self._make_full_system(iterate, f_info)
 
     def refine_and_truncate(self, iterate, f_info, out):
         # TODO: iterative refinement
@@ -572,7 +578,10 @@ class _BoundedEqualityInequalityConstrainedKKTSystem(_AbstractKKTSystem):
         return lx.FunctionLinearOperator(operator, input_structure), vector
 
     def make_operator_vector(self, iterate, f_info):
-        return self._make_full_system(iterate, f_info)
+        if self.condense_bounds:
+            raise NotImplementedError
+        else:
+            return self._make_full_system(iterate, f_info)
 
     def refine_and_truncate(self, iterate, f_info, out):
         # TODO: iterative refinement
@@ -594,6 +603,8 @@ class _BoundedEqualityInequalityConstrainedKKTSystem(_AbstractKKTSystem):
         return step, result
 
 
+# TODO: working on the condensed system actually showed me that I'm not doing the right
+# thing here! We don't use the primal-dual barrier Hessian in the full system at all.
 class _BoundedEqualityConstrainedKKTSystem(_AbstractKKTSystem):
     """Implement a KKT system when bounds and equality constraints are present, but no
     inequality constraints (and hence no slack variables).
@@ -608,11 +619,11 @@ class _BoundedEqualityConstrainedKKTSystem(_AbstractKKTSystem):
 
     def _make_full_system(self, iterate, f_info):
         _, y_barrier_operators = _y_barrier__grad_operators(iterate, f_info)
-        hessians, distances, finiteness = y_barrier_operators
-        lower_bound_hessian, upper_bound_hessian = hessians
+        _, distances, finiteness = y_barrier_operators
         distance_to_lower, distance_to_upper = distances
         finite_lower, finite_upper = finiteness
 
+        lower_multiplier, upper_multiplier = iterate.bound_multipliers
         equality_jacobian, _ = f_info.constraint_jacobians
 
         def operator(inputs):
@@ -627,11 +638,11 @@ class _BoundedEqualityConstrainedKKTSystem(_AbstractKKTSystem):
             ).ω
             r2 = equality_jacobian.mv(y_step)
             r3 = (
-                lower_bound_hessian.mv(y_step) ** ω
+                lx.DiagonalLinearOperator(lower_multiplier).mv(y_step) ** ω
                 + distance_to_lower.mv(lower_multiplier_step) ** ω
             ).ω
             r4 = (
-                -(upper_bound_hessian.mv(y_step) ** ω)
+                -(lx.DiagonalLinearOperator(upper_multiplier).mv(y_step) ** ω)
                 + distance_to_upper.mv(upper_multiplier_step) ** ω
             ).ω
             return r1, r2, (r3, r4)
@@ -642,7 +653,6 @@ class _BoundedEqualityConstrainedKKTSystem(_AbstractKKTSystem):
         equality_residual, _ = f_info.constraint_residual
         r2 = equality_residual
 
-        lower_multiplier, upper_multiplier = iterate.bound_multipliers
         r3 = (distance_to_lower.mv(lower_multiplier) ** ω - iterate.barrier**ω).ω
         r4 = (distance_to_upper.mv(upper_multiplier) ** ω - iterate.barrier**ω).ω
 
@@ -652,26 +662,103 @@ class _BoundedEqualityConstrainedKKTSystem(_AbstractKKTSystem):
 
         return lx.FunctionLinearOperator(operator, input_structure), vector
 
+    def _make_condensed_system(self, iterate, f_info):
+        barrier_grad_operators = _y_barrier__grad_operators(iterate, f_info)
+        y_barrier_grads, y_barrier_operators = barrier_grad_operators
+        hessians, _, _ = y_barrier_operators
+        lower_bound_hessian, upper_bound_hessian = hessians
+
+        equality_jacobian, _ = f_info.constraint_jacobians
+
+        def operator(inputs):
+            y_step, equality_multiplier_step = inputs
+
+            r1 = (
+                f_info.hessian.mv(y_step) ** ω
+                + lower_bound_hessian.mv(y_step) ** ω
+                + upper_bound_hessian.mv(y_step) ** ω
+                + equality_jacobian.T.mv(equality_multiplier_step) ** ω
+            ).ω
+            r2 = equality_jacobian.mv(y_step)
+            return r1, r2
+
+        # Compute the right-hand side with current values:
+        lower_barrier_grad, upper_barrier_grad = y_barrier_grads
+        lower_multiplier, upper_multiplier = iterate.bound_multipliers
+        add_lower = (lower_barrier_grad**ω + lower_multiplier**ω).ω
+        add_upper = (upper_barrier_grad**ω - upper_multiplier**ω).ω
+        r1 = (
+            _lagrangian_gradient(iterate, f_info) ** ω + add_lower**ω + add_upper**ω
+        ).ω
+
+        equality_residual, _ = f_info.constraint_residual
+        r2 = equality_residual
+
+        vector = (r1, r2)
+        vector = (-(vector**ω)).ω
+        input_structure = jax.eval_shape(lambda: vector)
+
+        return lx.FunctionLinearOperator(operator, input_structure), vector
+
     def make_operator_vector(self, iterate, f_info):
-        return self._make_full_system(iterate, f_info)
+        if self.condense_bounds:
+            return self._make_condensed_system(iterate, f_info)
+        else:
+            return self._make_full_system(iterate, f_info)
 
     def refine_and_truncate(self, iterate, f_info, out):
-        # TODO: iterative refinement
+        if self.condense_bounds:
+            y_step, multiplier_step = out.value
+            multiplier_step = (multiplier_step, None)  # No inequality constraints
 
-        y_step, multiplier_step, bound_multiplier_step = out.value
-        multiplier_step = (multiplier_step, None)  # No inequality constraints
+            # TODO: refactor the computation of the bound multiplier steps
+            # Reconstruct the step in the bound multipliers
+            lower_multiplier, upper_multiplier = iterate.bound_multipliers
+            y_barrier__grad_operators = _y_barrier__grad_operators(iterate, f_info)
+            y_barrier_grads, (y_barrier_hessians, _, _) = y_barrier__grad_operators
+            lower_barrier_grad, upper_barrier_grad = y_barrier_grads
+            lower_bound_hessian, upper_bound_hessian = y_barrier_hessians
 
-        step = tree_full_like(iterate, 0.0)
-        step = eqx.tree_at(lambda i: i.y_eval, step, y_step)
-        step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_step)
-        step = eqx.tree_at(lambda i: i.bound_multipliers, step, bound_multiplier_step)
-        step = _maybe_truncate(iterate, step, f_info)
+            lower_multiplier_step = (
+                +(lower_barrier_grad**ω)
+                - lower_multiplier**ω
+                - (lower_bound_hessian.mv(y_step) ** ω)
+            ).ω
+            upper_multiplier_step = (
+                -(upper_barrier_grad**ω)  # TODO sign?
+                - upper_multiplier**ω
+                - (upper_bound_hessian.mv(y_step) ** ω)
+            ).ω
+            bound_multiplier_step = (lower_multiplier_step, upper_multiplier_step)
 
-        # TODO: different result if max feasible step length is zero?
-        # If we were to allow for different step lengths in the different variables,
-        # should we even curtail if one of them can't move? I don't think so?
-        result = RESULTS.promote(out.result)
-        return step, result
+            step = tree_full_like(iterate, 0.0)
+            step = eqx.tree_at(lambda i: i.y_eval, step, y_step)
+            step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_step)
+            step = eqx.tree_at(
+                lambda i: i.bound_multipliers, step, bound_multiplier_step
+            )
+            step = _maybe_truncate(iterate, step, f_info)
+
+            result = RESULTS.promote(out.result)
+            return step, result
+
+        else:
+            y_step, multiplier_step, bound_multiplier_step = out.value
+            multiplier_step = (multiplier_step, None)  # No inequality constraints
+
+            step = tree_full_like(iterate, 0.0)
+            step = eqx.tree_at(lambda i: i.y_eval, step, y_step)
+            step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_step)
+            step = eqx.tree_at(
+                lambda i: i.bound_multipliers, step, bound_multiplier_step
+            )
+            step = _maybe_truncate(iterate, step, f_info)
+
+            # TODO: different result if max feasible step length is zero?
+            # If we were to allow for different step lengths in the different variables,
+            # should we even curtail if one of them can't move? I don't think so?
+            result = RESULTS.promote(out.result)
+            return step, result
 
 
 class _InequalityConstrainedKKTSystem(_AbstractKKTSystem):

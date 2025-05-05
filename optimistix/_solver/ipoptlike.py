@@ -24,7 +24,6 @@ from .._custom_types import (
 from .._minimise import AbstractMinimiser
 from .._misc import (
     evaluate_constraint,
-    feasible_step_length,
     filter_cond,
     lin_to_grad,
     max_norm,
@@ -39,9 +38,9 @@ from .._search import (
     FunctionInfo,
 )
 from .._solution import RESULTS
-from .barrier import LogarithmicBarrier
 from .bfgs import identity_pytree
 from .filtered import IPOPTLikeFilteredLineSearch
+from .interior import NewInteriorDescent
 
 
 # TODO: conceptually the tolerance here is closer to an rtol, so we should probably
@@ -249,231 +248,6 @@ def _initialise_multipliers(iterate__f_info):
         iterate.barrier,
     )
 
-
-def _make_kkt_operator(hessian, jacobian, input_structure):
-    def kkt(inputs):
-        y, duals = inputs
-        y_step = (hessian.mv(y) ** ω + jacobian.T.mv(duals) ** ω).ω
-        dual_step = jacobian.mv(y)
-        return y_step, dual_step
-
-    return lx.FunctionLinearOperator(kkt, input_structure)
-
-
-def _bound_multiplier_steps(
-    y_step: Y,
-    barrier_gradients: tuple[Y, Y],
-    barrier_hessians: tuple[lx.DiagonalLinearOperator, lx.DiagonalLinearOperator],
-    bound_multipliers: tuple[Y, Y],
-    bounds: tuple[Y, Y],
-    offset: ScalarLike,
-):
-    """Reconstruct the steps in the bound multipliers from the step in the primal
-    variable `y`. The computed steps are then truncated to the maximum feasible step
-    length, defined as the step length at which the bound multipliers remain positive.
-
-    Following the IPOPT implementation, the boundary multipliers are not further
-    constrained, e.g. by truncating the step to the maximum feasible step length of the
-    primal variable `y`.
-    """
-    lower, upper = bounds
-    lower_grad, upper_grad = barrier_gradients
-    lower_hess, upper_hess = barrier_hessians
-    lower_mult, upper_mult = bound_multipliers
-
-    def multiplier_update(multiplier, grad, transformed_step, bound):
-        update = (multiplier**ω - grad**ω - transformed_step**ω).ω
-        return tree_where(jtu.tree_map(jnp.isfinite, bound), update, 0.0)
-
-    lower_step = multiplier_update(lower_mult, lower_grad, lower_hess.mv(y_step), lower)
-    upper_step = multiplier_update(upper_mult, upper_grad, upper_hess.mv(y_step), upper)
-
-    # Both multipliers must be strictly positive
-    mult_bounds = tree_full_like(lower, 0.0), tree_full_like(lower, jnp.inf)
-    lower_step_size = feasible_step_length(
-        lower_mult, lower_step, *mult_bounds, offset=offset
-    )
-    upper_step_size = feasible_step_length(
-        upper_mult, upper_step, *mult_bounds, offset=offset
-    )
-
-    max_step_size = jnp.min(jnp.array([lower_step_size, upper_step_size]))
-    lower_step = (max_step_size * lower_step**ω).ω
-    upper_step = (max_step_size * upper_step**ω).ω
-    return lower_step, upper_step
-
-
-class _IPOPTLikeDescentState(
-    eqx.Module, Generic[Y, EqualityOut, InequalityOut], strict=True
-):
-    step: PyTree
-    result: RESULTS
-
-
-# TODO: Make the documentation a bit more comprehensive here!
-# And also make it a little cleaner :D
-class IPOPTLikeDescent(
-    AbstractDescent[Y, FunctionInfo.EvalGradHessian, _IPOPTLikeDescentState],
-    strict=True,
-):
-    """A descent method, closely inspired by IPOPT. In this descent, we solve a primal-
-    dual Karush-Kuhn-Tucker (KKT) system to compute steps in the primal variable `y` and
-    the dual variables for the constraints and bounds. The linear system we are solving
-    is condensed to express the steps in the bound multipliers as a function of the step
-    in the primal optimisation variable `y`. This allows us to solve a smaller symmetric
-    system.
-
-    This descent currently requires bounds on all elements of `y`. Infinite bounds may
-    be used.
-
-    The integration of inequality constraints follows the approach outlined in Chapter
-    19.3 of Nocedal & Wright, Numerical Optimisation, 2nd edition, page 569, but flips
-    the sign convention in the Lagrangian from subtraction of the constraint terms to
-    addition to match the IPOPT convention for equality constraints.
-
-    ??? Differences to IPOPT implementation
-
-    This descent is a simplified implementation of the step computation in IPOPT. The
-    modifications are as follows:
-
-    - The steps in the bound multipliers are constrained by the step size in the primal
-        variable `y`, only the computation of the maximum feasible step length is
-        uncoupled from the steps taken in `y`. This would be a simple change, but for
-        now it is not clear what the advantages would be.
-
-    ??? cite "References"
-
-        Updating the bound multipliers from the solution of the condensed system is
-        described in:
-
-        ```bibtex
-        @article{wachter2006implementation,
-        author = {Wächter, Andreas and Biegler, Lorenz T.},
-            title = {On the implementation of a primal-dual interior point filter line
-                     search algorithm for large-scale nonlinear programming},
-            journal = {Mathematical Programming},
-            volume = {106},
-            number = {1},
-            pages = {25-57},
-            year = {2006},
-            doi = {10.1007/s10107-004-0559-y},
-        }
-        ```
-    """
-
-    linear_solver: lx.AbstractLinearSolver = lx.SVD()
-    minimum_offset: ScalarLike = 0.99  # tau_min in IPOPT
-
-    def init(  # pyright: ignore (iterate)
-        self, iterate, f_info_struct: FunctionInfo.EvalGradHessian
-    ) -> _IPOPTLikeDescentState:
-        if f_info_struct.bounds is None:
-            raise ValueError(
-                "IPOPTLikeDescent requires bounds on the optimisation variable `y`. "
-                "To use this descent without bound constraints, pass infinite bounds "
-                "on all elements of `y`."
-            )
-        if f_info_struct.constraint_residual is None:
-            raise ValueError(
-                "IPOPTLikeDescent requires constraints on the optimisation variable "
-                "`y`. This descent can currently not be used without any constraints, "
-                "but it can be used with either inequality or equality constraints."
-            )
-        else:
-            return _IPOPTLikeDescentState(iterate, RESULTS.successful)
-
-    def query(  # pyright: ignore  (iterate)
-        self,
-        iterate,
-        f_info: FunctionInfo.EvalGradHessian,
-        state: _IPOPTLikeDescentState,
-    ) -> _IPOPTLikeDescentState:
-        assert f_info.bounds is not None
-        assert f_info.constraint_residual is not None
-        assert f_info.constraint_jacobians is not None
-
-        y = iterate.y_eval
-        constraint_multipliers = iterate.multipliers
-        bound_multipliers = iterate.bound_multipliers
-        barrier_parameter = iterate.barrier
-
-        # Compute the barrier gradients and Hessians
-        # Note Johanna: we're currently computing the gradient of the barrier term twice
-        # (the other time is in the filtered line search). The computation is cheap
-        # (a subtraction, a division, and a multiplication), but I don't love that we
-        # do this in different places. The price to pay to do it all in solver.step,
-        # however, would be to either pass a much more complex f_info to the descent, or
-        # to lose the flexibility of constructing a full, rather than a condensed KKT
-        # system. So I think on balance I'd rather be doing these things twice.
-        # (Ideas very welcome!)
-        barrier = LogarithmicBarrier(f_info.bounds)
-        barrier_gradients = barrier.grads(y, barrier_parameter)
-        lower_barrier_grad, upper_barrier_grad = barrier_gradients
-        barrier_hessians = barrier.primal_dual_hessians(y, bound_multipliers)
-        lower_barrier_hessian, upper_barrier_hessian = barrier_hessians
-
-        grad = (f_info.grad**ω + lower_barrier_grad**ω + upper_barrier_grad**ω).ω
-        hessian = f_info.hessian + lower_barrier_hessian + upper_barrier_hessian
-
-        # Construct and solve the condensed KKT system
-        (equality_dual, inequality_dual) = constraint_multipliers
-        equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
-        equality_residual, inequality_residual = f_info.constraint_residual
-        input_structure = jax.eval_shape(lambda: (y, equality_residual))
-        kkt_operator = _make_kkt_operator(hessian, equality_jacobian, input_structure)
-
-        dual_term = equality_jacobian.T.mv(equality_dual)  # pyright: ignore
-        vector = (
-            (-(grad**ω) - dual_term**ω).ω,
-            (-(equality_residual**ω)).ω,
-        )
-        out = lx.linear_solve(kkt_operator, vector, self.linear_solver)
-
-        y_step, equality_multiplier_step = out.value
-        result = RESULTS.promote(out.result)
-
-        # Postprocess the result: truncate to feasible step length
-        offset = jnp.min(jnp.array([self.minimum_offset, 1 - barrier_parameter]))
-        lower, upper = f_info.bounds
-        max_step_size = feasible_step_length(y, y_step, lower, upper, offset=offset)
-
-        y_step = (max_step_size * y_step**ω).ω
-        equality_multiplier_step = (max_step_size * equality_multiplier_step**ω).ω
-        dual_steps = (
-            equality_multiplier_step,
-            tree_full_like(inequality_residual, 0.0),
-        )
-
-        # TODO: barrier parameter is an iterate that does not get updated in the descent
-
-        # Finally, compute the steps in the bound multipliers from the primal step
-        barrier_terms = (barrier_gradients, barrier_hessians, bound_multipliers)
-        b_steps = _bound_multiplier_steps(y_step, *barrier_terms, f_info.bounds, offset)
-        keep_barrier_parameter = tree_full_like(barrier_parameter, 0.0)
-
-        iterate_step = Iterate(
-            y_step, None, dual_steps, b_steps, keep_barrier_parameter
-        )
-
-        return _IPOPTLikeDescentState(
-            iterate_step,
-            result,
-        )
-
-    def step(
-        self, step_size: Scalar, state: _IPOPTLikeDescentState
-    ) -> tuple[Y, RESULTS]:
-        # Note: by scaling the complete step with the step size, we do not presently
-        # allow the bound multipliers to remain at their maximum feasible step length,
-        # which is supported in IPOPT. Adding this feature would require unwrapping the
-        # iterate, scaling the primal step and the steps in the constraint multipliers,
-        # and then returning the half-updated step. This is easily done, but for now it
-        # is not clear how much it helps - therefore we leave it be for now.
-        return (step_size * state.step**ω).ω, state.result
-
-
-# TODO: I don't support the automatic scaling of the norms yet (and am not sure if I
-# should). In IPOPT, this is factor is at least 100, per the documentation and the paper
 
 # TODO: I think we should raise errata when y0 is infeasible with respect to the
 # inequality constraints, since this would mean that we have negative slack values.
@@ -1164,7 +938,7 @@ class IPOPTLike(AbstractIPOPTLike[Y, Aux], strict=True):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    descent: IPOPTLikeDescent
+    descent: NewInteriorDescent
     search: IPOPTLikeFilteredLineSearch
     verbose: frozenset[str]
     initial_barrier_parameter: ScalarLike
@@ -1180,7 +954,7 @@ class IPOPTLike(AbstractIPOPTLike[Y, Aux], strict=True):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.descent = IPOPTLikeDescent()
+        self.descent = NewInteriorDescent()
         self.search = IPOPTLikeFilteredLineSearch()
         self.verbose = verbose
         self.initial_barrier_parameter = initial_barrier_parameter

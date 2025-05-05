@@ -49,7 +49,6 @@ from .interior_point import (
 )
 from .ipoptlike import (
     IPOPTLike as IPOPTLike,
-    IPOPTLikeDescent as IPOPTLikeDescent,  # TODO: name might change
 )
 from .learning_rate import LearningRate as LearningRate
 from .levenberg_marquardt import (
@@ -86,4 +85,3 @@ from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,
     LinearTrustRegion as LinearTrustRegion,
 )
-from .xdycyd import XDYcYdDescent as XDYcYdDescent
