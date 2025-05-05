@@ -1,6 +1,7 @@
 import abc
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TypeVar, Union
+from functools import partial
+from typing import Any, Generic, TypeVar, Union, Optional
 
 import equinox as eqx
 import jax
@@ -66,25 +67,16 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
     )
 
 
-def _lim_mem_hess_inv_operator(
+@jax.jit
+def _lim_mem_hess_inv_operator_fn(
+        pytree: PyTree[Array],
         residual_par: PyTree[Array],
         residual_grad: PyTree[Array],
         rho: Array,
         index_start: Array
 ):
-    """Define a `lineax` linear operator implementing the L-BFGS inverse Hessian approximation.
-
-    This operator computes the action of the approximate inverse Hessian on a vector `pytree`
-    using the limited-memory BFGS (L-BFGS) two-loop recursion. It does not materialize the matrix
-    explicitly but returns a `lineax.FunctionLinearOperator`.
-
-    - `residual_par`: History of parameter updates `s_k = x_{k+1} - x_k`
-    - `residual_grad`: History of gradient updates `y_k = g_{k+1} - g_k`
-    - `rho`: Reciprocal dot products `rho_k = 1 / ⟨s_k, y_k⟩`
-    - `index_start`: Index of the most recent update in the circular buffer
-
-    Returns a `lineax.FunctionLinearOperator` with input and output shape matching a single element
-    of `residual_par`.
+    """
+    LBFGS descent linear operator.
 
     """
     history_len = rho.shape[0]
@@ -110,23 +102,57 @@ def _lim_mem_hess_inv_operator(
         q = (q ** ω + (dy ** ω * (ai - bi))).ω
         return (q, alpha), None
 
-    # This is the linear operator to be applied when multiplying with a vector
-    def operator_func(pytree):
-        q, alpha = jax.lax.scan(backward_iter, pytree, circ_index, reverse=True)
-        dym, dgm = jtu.tree_map(
-            lambda x: x[index_start % history_len],
-            (residual_par, residual_grad)
-        )
-        dyg = tree_dot(dym, dgm)
-        dgg = tree_dot(dgm, dgm)
-        gamma_k = jnp.where(dgg > 1e-10, dyg / dgg, 1.0)
-        q = (gamma_k * q ** ω).ω
-        (q, _), _ = jax.lax.scan(forward_iter, (q, alpha), jnp.arange(history_len), reverse=False)
-        return q
 
+    q, alpha = jax.lax.scan(backward_iter, pytree, circ_index, reverse=True)
+    dym, dgm = jtu.tree_map(
+        lambda x: x[index_start % history_len],
+        (residual_par, residual_grad)
+    )
+    dyg = tree_dot(dym, dgm)
+    dgg = tree_dot(dgm, dgm)
+    gamma_k = jnp.where(dgg > 1e-10, dyg / dgg, 1.0)
+    q = (gamma_k * q ** ω).ω
+    (q, _), _ = jax.lax.scan(forward_iter, (q, alpha), jnp.arange(history_len), reverse=False)
+    return q
+
+
+def _lim_mem_hess_inv_operator(
+        residual_par: PyTree[Array],
+        residual_grad: PyTree[Array],
+        rho: Array,
+        index_start: Array,
+        input_shape: Optional[PyTree[jax.ShapeDtypeStruct]] = None,
+):
+    """Define a `lineax` linear operator implementing the L-BFGS inverse Hessian approximation.
+
+    This operator computes the action of the approximate inverse Hessian on a vector `pytree`
+    using the limited-memory BFGS (L-BFGS) two-loop recursion. It does not materialize the matrix
+    explicitly but returns a `lineax.FunctionLinearOperator`.
+
+    - `residual_par`: History of parameter updates `s_k = x_{k+1} - x_k`
+    - `residual_grad`: History of gradient updates `y_k = g_{k+1} - g_k`
+    - `rho`: Reciprocal dot products `rho_k = 1 / ⟨s_k, y_k⟩`
+    - `index_start`: Index of the most recent update in the circular buffer
+
+    Returns a `lineax.FunctionLinearOperator` with input and output shape matching a single element
+    of `residual_par`.
+
+    """
+    operator_func = partial(
+        _lim_mem_hess_inv_operator_fn,
+        residual_par=residual_par,
+        residual_grad=residual_grad,
+        rho=rho,
+        index_start=index_start
+    )
+    input_shape = (
+        jax.eval_shape(lambda: jtu.tree_map(lambda x: x[0], residual_par))
+        if input_shape is None
+        else input_shape
+    )
     return lx.FunctionLinearOperator(
         operator_func,
-        jax.eval_shape(lambda: jtu.tree_map(lambda x: x[0], residual_par)),
+        input_shape,
         tags=lx.positive_semidefinite_tag
     )
 
