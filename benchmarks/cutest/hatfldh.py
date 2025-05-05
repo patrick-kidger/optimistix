@@ -3,6 +3,8 @@ import jax.numpy as jnp
 from .problem import AbstractConstrainedMinimisation
 
 
+# TODO: This problem might be useful to validate second-order corrections. Without them,
+# we do seem to take a lot of unproductive steps before suddenly improving dramatically.
 class HATFLDH(AbstractConstrainedMinimisation, strict=True):
     """The HATFLDH problem from the CUTEST collection of benchmark problems.
 
