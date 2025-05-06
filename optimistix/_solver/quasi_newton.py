@@ -153,7 +153,7 @@ def _lim_mem_hess_inv_operator(
     op = lx.FunctionLinearOperator(
         operator_func,
         input_shape,
-        tags=lx.positive_semidefinite_tag
+        tags=lx.positive_semidefinite_tag,
     )
     return lx.materialise(op)
 
@@ -387,7 +387,7 @@ class _QuasiNewtonState(
     # Used in compat.py
     num_accepted_steps: Int[Array, ""]
     # update state
-    hess_update_state: dict[Array]
+    hess_update_state: dict
 
 
 
