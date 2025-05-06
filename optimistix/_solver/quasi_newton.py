@@ -150,11 +150,12 @@ def _lim_mem_hess_inv_operator(
         if input_shape is None
         else input_shape
     )
-    return lx.FunctionLinearOperator(
+    op = lx.FunctionLinearOperator(
         operator_func,
         input_shape,
         tags=lx.positive_semidefinite_tag
     )
+    return lx.materialise(op)
 
 
 def _outer(tree1, tree2):
@@ -728,7 +729,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
     use_inverse = True
 
     def no_update(self, inner, grad_diff, y_diff, f_info, start_index):
-        return f_info.hessian_inv, 0
+        return f_info.hessian_inv, jnp.array(0)
 
     def update(self, inner, grad_diff, y_diff, f_info, start_index):
         assert isinstance(f_info, FunctionInfo.EvalGradHessianInv)
@@ -738,7 +739,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
             grad_diff,
             inner,
             start_index,
-        ), 1
+        ), jnp.array(1)
 
     def __call__(
         self,
@@ -808,7 +809,7 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     atol: float
     norm: Callable[[PyTree], Scalar]
     descent: NewtonDescent
-    search: BacktrackingArmijo
+    search: AbstractSearch
     hessian_update: AbstractQuasiNewtonUpdate
     use_inverse: bool
     verbose: frozenset[str]
@@ -819,6 +820,8 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         verbose: frozenset[str] = frozenset(),
+        search: AbstractSearch = BacktrackingArmijo(),
+
     ):
         self.rtol = rtol
         self.atol = atol
@@ -826,6 +829,6 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         self.use_inverse = True
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
-        self.search = BacktrackingArmijo()
+        self.search = search
         self.hessian_update = LBFGSUpdate()
         self.verbose = verbose
