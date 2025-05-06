@@ -760,8 +760,8 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
         rho = hess_update_state["rho"]
 
         # update states
-        residual_y = residual_y.at[start_index].set(y_diff)
-        residual_grad = residual_grad.at[start_index].set(grad_diff)
+        residual_y = jtu.tree_map(lambda x, z: x.at[start_index].set(z), residual_y, y_diff)
+        residual_grad = jtu.tree_map(lambda x, z: x.at[start_index].set(z), residual_grad, grad_diff)
         rho = rho.at[start_index].set(1. / tree_dot(y_diff, grad_diff))
         rho = jnp.where(jnp.isinf(rho), 0, rho)
 
