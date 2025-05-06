@@ -64,6 +64,7 @@ from ._solver import (
     hestenes_stiefel as hestenes_stiefel,
     IndirectDampedNewtonDescent as IndirectDampedNewtonDescent,
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
+    LBFGS as LBFGS,
     LearningRate as LearningRate,
     LevenbergMarquardt as LevenbergMarquardt,
     LinearTrustRegion as LinearTrustRegion,
