@@ -345,10 +345,11 @@ class _BoundedUnconstrainedKKTSystem(_AbstractKKTSystem):
 
     def _make_full_system(self, iterate, f_info):
         _, y_barrier_operators = _y_barrier__grad_operators(iterate, f_info)
-        hessians, distances, finiteness = y_barrier_operators
-        lower_bound_hessian, upper_bound_hessian = hessians
+        _, distances, finiteness = y_barrier_operators
         distance_to_lower, distance_to_upper = distances
         finite_lower, finite_upper = finiteness
+
+        lower_multiplier, upper_multiplier = iterate.bound_multipliers
 
         def operator(inputs):
             y_step, bound_multiplier_step = inputs
@@ -360,11 +361,11 @@ class _BoundedUnconstrainedKKTSystem(_AbstractKKTSystem):
                 + finite_upper.mv(upper_multiplier_step) ** ω
             ).ω
             r2 = (
-                lower_bound_hessian.mv(y_step) ** ω
+                lx.DiagonalLinearOperator(lower_multiplier).mv(y_step) ** ω
                 + distance_to_lower.mv(lower_multiplier_step) ** ω
             ).ω
             r3 = (
-                -(upper_bound_hessian.mv(y_step) ** ω)
+                -(lx.DiagonalLinearOperator(upper_multiplier).mv(y_step) ** ω)
                 + distance_to_upper.mv(upper_multiplier_step) ** ω
             ).ω
             return r1, (r2, r3)
@@ -419,11 +420,11 @@ class _BoundedInequalityConstrainedKKTSystem(_AbstractKKTSystem):
 
     def _make_full_system(self, iterate, f_info):
         _, y_barrier_operators = _y_barrier__grad_operators(iterate, f_info)
-        hessians, distances, finiteness = y_barrier_operators
-        lower_bound_hessian, upper_bound_hessian = hessians
+        _, distances, finiteness = y_barrier_operators
         distance_to_lower, distance_to_upper = distances
         finite_lower, finite_upper = finiteness
 
+        lower_multiplier, upper_multiplier = iterate.bound_multipliers
         slack_barrier_grad, slack_barrier_hessian = _slack_barrier_derivatives(iterate)
         _, inequality_jacobian = f_info.constraint_jacobians
 
@@ -448,11 +449,11 @@ class _BoundedInequalityConstrainedKKTSystem(_AbstractKKTSystem):
             ).ω
             r3 = (inequality_jacobian.mv(y_step) ** ω + slack_step**ω).ω
             r4 = (
-                lower_bound_hessian.mv(y_step) ** ω
+                lx.DiagonalLinearOperator(lower_multiplier).mv(y_step) ** ω
                 + distance_to_lower.mv(lower_multiplier_step) ** ω
             ).ω
             r5 = (
-                -(upper_bound_hessian.mv(y_step) ** ω)
+                -(lx.DiagonalLinearOperator(upper_multiplier).mv(y_step) ** ω)
                 + distance_to_upper.mv(upper_multiplier_step) ** ω
             ).ω
             return r1, r2, r3, (r4, r5)
@@ -520,11 +521,11 @@ class _BoundedEqualityInequalityConstrainedKKTSystem(_AbstractKKTSystem):
 
     def _make_full_system(self, iterate, f_info):
         _, y_barrier_operators = _y_barrier__grad_operators(iterate, f_info)
-        hessians, distances, finiteness = y_barrier_operators
-        lower_bound_hessian, upper_bound_hessian = hessians
+        _, distances, finiteness = y_barrier_operators
         distance_to_lower, distance_to_upper = distances
         finite_lower, finite_upper = finiteness
 
+        lower_multiplier, upper_multiplier = iterate.bound_multipliers
         slack_barrier_grad, slack_barrier_hessian = _slack_barrier_derivatives(iterate)
         equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
 
@@ -547,11 +548,11 @@ class _BoundedEqualityInequalityConstrainedKKTSystem(_AbstractKKTSystem):
             r3 = equality_jacobian.mv(y_step)
             r4 = (inequality_jacobian.mv(y_step) ** ω + slack_step**ω).ω
             r5 = (
-                lower_bound_hessian.mv(y_step) ** ω
+                lx.DiagonalLinearOperator(lower_multiplier).mv(y_step) ** ω
                 + distance_to_lower.mv(lower_multiplier_step) ** ω
             ).ω
             r6 = (
-                -(upper_bound_hessian.mv(y_step) ** ω)
+                -(lx.DiagonalLinearOperator(upper_multiplier).mv(y_step) ** ω)
                 + distance_to_upper.mv(upper_multiplier_step) ** ω
             ).ω
             return r1, r2, (r3, r4), (r5, r6)
