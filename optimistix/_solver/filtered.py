@@ -206,15 +206,18 @@ class IPOPTLikeFilteredLineSearch(
         # blissfully ignorant of the merit function).
         if f_info.constraint_residual is not None:
             _, slack = f_info.constraint_residual
-            _, slack_eval = f_eval_info.constraint_residual  # pyright: ignore
-            slack = jtu.tree_map(lambda x: jnp.where(x > 0, x, 1e-10), slack)
-            slack_eval = jtu.tree_map(lambda x: jnp.where(x > 0, x, 1e-10), slack_eval)
-            slack_bounds = tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf)
-            slack_barrier = LogarithmicBarrier(slack_bounds)
+            if slack is not None:
+                _, slack_eval = f_eval_info.constraint_residual  # pyright: ignore
+                slack = jtu.tree_map(lambda x: jnp.where(x > 0, x, 1e-10), slack)
+                slack_eval = jtu.tree_map(
+                    lambda x: jnp.where(x > 0, x, 1e-10), slack_eval
+                )
+                slack_bds = tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf)
+                slack_barrier = LogarithmicBarrier(slack_bds)
 
-            _barrier = jnp.array(1e-2)  # TODO get barrier parameter from iterate
-            f = f + slack_barrier(slack, _barrier)
-            f_eval = f_eval + slack_barrier(slack_eval, _barrier)
+                _barrier = jnp.array(1e-2)  # TODO get barrier parameter from iterate
+                f = jnp.astype(f, slack.dtype) + slack_barrier(slack, _barrier)
+                f_eval = f_eval + slack_barrier(slack_eval, _barrier)
         # CONSTRUCTION SITE ENDS -------------------------------------------------------
 
         # ANOTHER CONSTRUCTION SITE BEGINS ---------------------------------------------

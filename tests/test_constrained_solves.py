@@ -8,6 +8,7 @@ import pytest
 from .constrained_problem_helpers import (
     barrier_values__y0_bounds_barrier_parameter_expected_result,
     bounded_paraboloids,
+    combinatorial_smoke__fn_y0_constraint_bounds_expected_result,
     constrained_quadratic_solvers,
     convex_constrained_minimisers,
     convex_constrained_paraboloids,
@@ -286,3 +287,26 @@ def test_logarithmic_barrier(y0, bounds, barrier_parameter, expected_result):
     result = barrier(y0, barrier_parameter)
     result = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     assert tree_allclose(result, expected_result)
+
+
+@pytest.mark.parametrize(
+    "fn, y0, constraint, bounds, expected_result",
+    combinatorial_smoke__fn_y0_constraint_bounds_expected_result,
+)
+def test_new_interior(fn, y0, constraint, bounds, expected_result):
+    solver = optx.IPOPTLike(rtol=0.0, atol=1e-6)
+    descent = optx.NewInteriorDescent()
+    solver = eqx.tree_at(lambda s: s.descent, solver, descent)
+
+    sol = optx.minimise(
+        fn,
+        solver,
+        y0,
+        constraint=constraint,
+        bounds=bounds,
+    )
+    # TODO: tolerances still not great (this is true for all interior point solves!)
+    # TODO: currently fails for one case - maybe it will help to include the slack
+    # variables in the termination criterion, to better assess convergence in these,
+    # which is currently ignored. (But does influence the inequality multipliers.)
+    assert tree_allclose(sol.value, expected_result, rtol=1e-2, atol=1e-2)

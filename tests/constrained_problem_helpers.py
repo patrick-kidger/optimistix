@@ -712,3 +712,143 @@ barrier_values__y0_bounds_barrier_parameter_expected_result = (
         jnp.array(0.57536414),
     ),
 )
+
+
+## Smoke tests for all combinations of bound, equality and inequality constraints
+# Tests that we hit all code paths correctly in interior point solvers that adjust these
+# to the kinds of constraints present
+
+
+def equality(y):
+    x1, x2 = y
+    return x1 - x2
+
+
+def non_blocking_inequality(y):
+    _, x2 = y
+    return x2 + 1.2
+
+
+def blocking_inequality(y):
+    _, x2 = y
+    return x2 - 1
+
+
+non_blocking_bounds = (-2 * jnp.ones(2), 2 * jnp.ones(2))
+blocking_bounds = (0.5 * jnp.ones(2), 2 * jnp.ones(2))
+
+
+combinatorial_smoke__fn_y0_constraint_bounds_expected_result = (
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        None,
+        None,
+        jnp.zeros(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (equality(y), None),
+        None,
+        jnp.zeros(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (equality(y), non_blocking_inequality(y)),
+        None,
+        jnp.zeros(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (None, non_blocking_inequality(y)),
+        None,
+        jnp.zeros(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        None,
+        non_blocking_bounds,
+        jnp.zeros(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (equality(y), None),
+        non_blocking_bounds,
+        jnp.zeros(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (equality(y), non_blocking_inequality(y)),
+        non_blocking_bounds,
+        jnp.zeros(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (None, non_blocking_inequality(y)),
+        non_blocking_bounds,
+        jnp.zeros(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        None,
+        blocking_bounds,
+        0.5 * jnp.ones(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (equality(y), None),
+        blocking_bounds,
+        0.5 * jnp.ones(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (equality(y), non_blocking_inequality(y)),
+        blocking_bounds,
+        0.5 * jnp.ones(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (None, non_blocking_inequality(y)),
+        blocking_bounds,
+        0.5 * jnp.ones(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (equality(y), blocking_inequality(y)),
+        blocking_bounds,
+        jnp.array([1.0, 1.0]),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (None, blocking_inequality(y)),
+        blocking_bounds,
+        jnp.array([0.5, 1.0]),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (equality(y), blocking_inequality(y)),
+        non_blocking_bounds,
+        jnp.ones(2),
+    ),
+    (
+        _paraboloid,
+        1.5 * jnp.ones(2),
+        lambda y: (None, blocking_inequality(y)),
+        non_blocking_bounds,
+        jnp.array([0.0, 1.0]),
+    ),
+)

@@ -345,10 +345,12 @@ def _error(
     # ----------------------------------------------------------------------------------
 
     # TODO: This scaling thing should also be moved I think -- and it smax now hard-code
+    # TODO: Lots of hacky astype stuff!
     summed_norms = multiplier_norm + bound_multiplier_norm
-    denominator = num_multipliers + num_bounds
-    safe_denominator = jnp.where(denominator > 1.0, denominator, 1.0)
-    summed_scaled_norm = summed_norms / safe_denominator
+    denominator = num_multipliers + jnp.astype(num_bounds, num_multipliers.dtype)
+    safe_denominator = jnp.where(denominator > 1, denominator, 1)
+    # Hacky stuff to make pyright happy!
+    summed_scaled_norm = summed_norms / jnp.astype(safe_denominator, summed_norms.dtype)
     scaling = jnp.where(summed_scaled_norm > 100.0, summed_scaled_norm, 100.0) / 100.0
 
     optimality_error = optimality_error / scaling
@@ -374,11 +376,14 @@ def _error(
         num_lower = jnp.sum(finite_lower)
         num_upper = jnp.sum(finite_upper)
 
+        safe_num_lower = jnp.astype(num_lower, lb_dual.dtype)  # Hacky stuff!
+        safe_num_upper = jnp.astype(num_upper, ub_dual.dtype)  # Hacky stuff!
+
         lower_bound_scale = jnp.where(
-            num_lower > 0, _one_norm(lb_dual) / num_lower, 0.0
+            safe_num_lower > 0, _one_norm(lb_dual) / safe_num_lower, 0.0
         )
         upper_bound_scale = jnp.where(
-            num_upper > 0, _one_norm(ub_dual) / num_upper, 0.0
+            safe_num_upper > 0, _one_norm(ub_dual) / safe_num_upper, 0.0
         )
 
         lower_bound_scale = (
@@ -399,7 +404,7 @@ def _error(
 class Iterate(eqx.Module, Generic[Y, EqualityOut, InequalityOut], strict=True):
     y_eval: Y  # TODO: or more concisely rename y?
     slack: InequalityOut | None
-    multipliers: tuple[EqualityOut, InequalityOut]
+    multipliers: tuple[EqualityOut, InequalityOut] | None
     bound_multipliers: tuple[Y, Y] | None
     barrier: ScalarLike
 
