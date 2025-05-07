@@ -207,7 +207,7 @@ def feasible_step_length(
     max_steps = jtu.tree_map(max_step, current, proposed_step, lower_bound, upper_bound)
 
     if reduce:
-        tree_min(max_steps)
+        return tree_min(max_steps)
     else:
         return max_steps
 
