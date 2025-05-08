@@ -7,6 +7,7 @@ from .problem import (
     AbstractUnconstrainedMinimisation as AbstractUnconstrainedMinimisation,
 )
 from .rosenbr import ROSENBR as ROSENBR
+from .snake import SNAKE as SNAKE
 
 
 problems = (
@@ -17,4 +18,5 @@ problems = (
     FLT(),
     HATFLDH(),
     ROSENBR(),
+    SNAKE(),
 )
