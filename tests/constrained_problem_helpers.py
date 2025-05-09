@@ -48,14 +48,16 @@ class BFGSInteriorFiltered(optx.AbstractOldBFGS):
     verbose: frozenset[str] = frozenset()
 
 
+# TODO: the constrained minimisers still seem to work?
 convex_constrained_minimisers = (
     # optx.SLSQP(rtol=1e-3, atol=1e-6),
     BFGSInterior(rtol=1e-3, atol=1e-6),
     BFGSInteriorLearningRate(rtol=1e-3, atol=1e-6),
 )
 nonconvex_constrained_minimisers = (
-    BFGSInteriorFiltered(rtol=1e-3, atol=1e-6),
-    optx.IPOPTLike(rtol=1e-3, atol=1e-6),
+    # BFGSInteriorFiltered(rtol=1e-3, atol=1e-6),
+    # TODO: does this work with the new Quasi Newton BFGS?
+    optx.IPOPTLike(rtol=0.0, atol=1e-9),  # Currently no role for atol here!
 )
 
 

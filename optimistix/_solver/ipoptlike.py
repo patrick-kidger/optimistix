@@ -206,8 +206,6 @@ def _initialise_multipliers(iterate__f_info):
     upper = tree_full_like(slack, jnp.inf)
     slack = _interior_tree_clip(slack, lower, upper, 0.01, 0.01)
     inequality_multipliers = (-iterate.barrier / slack**ω).ω
-    # jax.debug.print("slack: {}", slack)
-    # jax.debug.print("inequality multipliers: {}", inequality_multipliers)
 
     equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
     inequality_gradient = inequality_jacobian.T.mv(inequality_multipliers)
@@ -266,7 +264,10 @@ def _error(
     tol,
     norm,
 ):
-    y, multipliers, bound_multipliers, barrier = iterate  # TODO structured iterate
+    y = iterate.y_eval
+    multipliers = iterate.multipliers
+    bound_multipliers = iterate.bound_multipliers
+    barrier = iterate.barrier
 
     # Construction site: lagrangian gradients ------------------------------------------
     # We need to have a specific module for Lagrangian utilities, I think!
@@ -302,21 +303,15 @@ def _error(
             equality_residual, inequality_residual = f_info.constraint_residual
             constraint_norm += norm(equality_residual)
         if inequality_residual is not None:
-            inequality_violation = tree_where(
-                # Only count violations if the residual is less than zero
-                # Alternatively transform with slack! # TODO
-                jtu.tree_map(  # TODO use slacks here?
-                    lambda x: jnp.where(x < 0, x, 0.0), inequality_residual
-                ),
-                inequality_residual,
-                0.0,
-            )
-            constraint_norm += norm(inequality_violation)
+            assert iterate.slack is not None
+            corrected_residual = (inequality_residual**ω - iterate.slack**ω).ω
+            constraint_norm += norm(corrected_residual)
     # CONSTRUCTION SITE ENDS: ----------------------------------------------------------
 
     ### TO BE REFACTORED (made a separate optx.one_norm) -------------------------------
     def _one_norm(x):
-        absolute_values = jnp.where(jnp.isfinite(x), jnp.abs(x), 0.0)
+        flat_x, _ = jfu.ravel_pytree(x)
+        absolute_values = jnp.where(jnp.isfinite(flat_x), jnp.abs(flat_x), 0.0)
         return jnp.sum(absolute_values)
 
     if multipliers is not None:
@@ -376,8 +371,8 @@ def _error(
         num_lower = jnp.sum(finite_lower)
         num_upper = jnp.sum(finite_upper)
 
-        safe_num_lower = jnp.astype(num_lower, lb_dual.dtype)  # Hacky stuff!
-        safe_num_upper = jnp.astype(num_upper, ub_dual.dtype)  # Hacky stuff!
+        safe_num_lower = jnp.astype(num_lower, _one_norm(lb_dual).dtype)  # Hacky stuff!
+        safe_num_upper = jnp.astype(num_upper, _one_norm(ub_dual).dtype)  # Hacky stuff!
 
         lower_bound_scale = jnp.where(
             safe_num_lower > 0, _one_norm(lb_dual) / safe_num_lower, 0.0
@@ -397,6 +392,15 @@ def _error(
         upper_error_ = norm(upper_error) / upper_bound_scale
 
         errata += (lower_error_, upper_error_)
+
+    if iterate.slack is not None:
+        assert f_info.constraint_residual is not None
+        _, inequality_residual = f_info.constraint_residual
+        _, inequality_multiplier = iterate.multipliers
+        slack_errata = (iterate.slack**ω * inequality_multiplier**ω - iterate.barrier).ω
+        # flat_slacks, _ = jfu.ravel_pytree(iterate.slack)
+        # slack_error =
+        errata += (norm(slack_errata),)
 
     return jnp.max(jnp.asarray(errata))
 
@@ -427,6 +431,10 @@ class _IPOPTLikeState(
     num_accepted_steps: Int[Array, ""]
 
 
+# TODO: add to documentation: problem is kept strictly feasible with respect to the
+# bound constraints, but not necessarily with respect to the inequality constraints, and
+# not at all with respect to the equality constraints, where we only minimise their
+# constraint violation.
 # TODO:
 # - testing on a real benchmark problem
 # - adding support for inequality constraints
@@ -598,6 +606,11 @@ class AbstractIPOPTLike(
         # TODO: support autodiff mode for the constraints too
         autodiff_mode = options.get("autodiff_mode", "bwd")
 
+        jax.debug.print("y_eval in step: {}", state.iterate.y_eval)
+        jax.debug.print(
+            "bound_multipliers in step: {}", state.iterate.bound_multipliers
+        )
+
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
         # y_eval, duals, bound_multipliers, barrier = state.iterate
         # Iterate with dummy values for the slack
@@ -634,6 +647,7 @@ class AbstractIPOPTLike(
         # modify the iterate in the rejected branch.
         # Right now working around this by having iterate, and iterate_
         def accepted(states):
+            jax.debug.print("accepted step")
             _, descent_state = states
 
             grad = lin_to_grad(
@@ -689,25 +703,14 @@ class AbstractIPOPTLike(
                 constraint_jacobians,  # pyright: ignore
             )
 
-            # TODO: something going on here with the permitted types, fixing this is
-            # punted until we make a decision on whether to unify termination criteria
-            # with a common interface
-            # TODO: update to structured iterate
-            # TODO: include slack in termination condition
-            iterate_ = (
-                state.iterate.y_eval,
-                state.iterate.multipliers,
-                state.iterate.bound_multipliers,
-                state.iterate.barrier,
-            )
             error = _error(
-                iterate_,
+                state.iterate,
                 f_eval_info_,  # pyright: ignore
-                0.01,  # This is supposed to be the barrier parameter
+                state.iterate.barrier,  # TODO: This is supposed to be the barrier param
                 self.atol,
-                self.norm,  # pyright: ignore
+                max_norm,  # pyright: ignore  # TODO make solver norm again
             )
-            # TODO: we're introducing new hyperparameters here!
+            # TODO: we're introducing new hyperparameters here! Hardcoded for now
             converged_at_barrier = error <= 10 * state.iterate.barrier
             new_barrier = jnp.min(
                 jnp.array([0.2 * state.iterate.barrier, state.iterate.barrier**1.5])
@@ -719,6 +722,9 @@ class AbstractIPOPTLike(
             # TODO: I cannot return this barrier update unless I return it through an
             # iterate.
 
+            # TODO skip termination if barrier not low enough? How could this be checked
+            # Perhaps by requiring that the barrier parameter is smaller than the
+            # tolerance?
             terminate = error <= self.atol
             terminate = jnp.where(state.first_step, jnp.array(False), terminate)
 
@@ -775,9 +781,11 @@ class AbstractIPOPTLike(
 
         # Branch for normal acceptance / rejection: but rejection also handles SOC
         # TODO: barrier currently unused?
+        # TODO: barrier update is not clear enough!
         y, f_info, aux, search_state, descent_state, terminate, barrier = filter_cond(
             accept, accepted, rejected, (search_state, state.descent_state)
         )
+        jax.debug.print("barrier in step: {}", barrier)
 
         if len(self.verbose) > 0:
             verbose_loss = "loss" in self.verbose
@@ -815,6 +823,7 @@ class AbstractIPOPTLike(
             # # this solver with a descent that does not implement a least-squares
             # # initialisation of the dual variables.
             iterate_eval = (state.iterate**ω + descent_steps**ω).ω
+            iterate_eval = eqx.tree_at(lambda i: i.barrier, iterate_eval, barrier)
             # # TODO: barrier update? This takes barrier from outer scope
             # # What happens to the barrier parameter when we restore feasibility?
             # # TODO: re-evaluate the constraint function to update the slack?
@@ -893,6 +902,7 @@ class AbstractIPOPTLike(
         if not FEASIBILITY_RESTORATION:  # Disable during debugging of other features
             requires_restoration = jnp.array(False)
         state = filter_cond(requires_restoration, restore, regular_update, args)
+        jax.debug.print("")
         return y, state, aux
 
     def terminate(

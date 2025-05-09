@@ -10,11 +10,11 @@ from .constrained_problem_helpers import (
     bounded_paraboloids,
     combinatorial_smoke__fn_y0_constraint_bounds_expected_result,
     constrained_quadratic_solvers,
-    convex_constrained_minimisers,
     convex_constrained_paraboloids,
     least_squares_bounded_many_minima,
     minimise_bounded_with_local_minima,
     minimise_fn_y0_args_constraint_expected_result,
+    nonconvex_constrained_minimisers,
     tricky_geometries__fn_y0_args_constraint_bounds_expected_result,
 )
 from .helpers import gauss_newton_optimisers, tree_allclose
@@ -78,7 +78,8 @@ def test_interior_point(fn, y0, args, constraint, expected_result, solver):
 
 @pytest.mark.parametrize(
     "solver",
-    convex_constrained_minimisers,  # + nonconvex_constrained_minimisers
+    # convex_constrained_minimisers +
+    nonconvex_constrained_minimisers,
 )
 @pytest.mark.parametrize(
     "fn, y0, args, constraint, expected_result", convex_constrained_paraboloids
@@ -90,8 +91,10 @@ def test_constrained_minimisers(fn, y0, args, constraint, expected_result, solve
         y0,
         args=args,
         constraint=constraint,
-        max_steps=2**9,  # Needs more steps than unconstrained solvers
+        # max_steps=50,  # Needs more steps than unconstrained solvers TODO: why?
+        # throw=False,  # TODO just for debugging
     )
+
     res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
 
@@ -111,6 +114,7 @@ def test_ipoptlike(fn, y0, args, constraint, expected_result, solver):
         constraint=constraint,
         max_steps=2**10,  # Needs more steps than unconstrained solvers
     )
+
     res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
 
@@ -165,7 +169,7 @@ def test_slsqp_cauchy_newton(fn, y0, args, constraint, expected_result):
         solver,
         y0,
         args=args,
-        bounds=constraint,
+        bounds=constraint,  # TODO: what was I thinking with this naming?
     )
     res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
@@ -310,3 +314,27 @@ def test_new_interior(fn, y0, constraint, bounds, expected_result):
     # variables in the termination criterion, to better assess convergence in these,
     # which is currently ignored. (But does influence the inequality multipliers.)
     assert tree_allclose(sol.value, expected_result, rtol=1e-2, atol=1e-2)
+
+
+@pytest.mark.parametrize(
+    "fn, y0, args, bounds, expected_result",
+    # minimise_bounded_with_local_minima +
+    bounded_paraboloids[1:2],  # TODO
+)
+def test_bounds_new_interior(fn, y0, args, bounds, expected_result):
+    solver = optx.IPOPTLike(rtol=0.0, atol=1e-6)
+    descent = optx.NewInteriorDescent()
+    solver = eqx.tree_at(lambda s: s.descent, solver, descent)
+
+    sol = optx.minimise(
+        fn,
+        solver,
+        y0,
+        args,
+        bounds=bounds,
+        max_steps=2**3,
+    )
+    # TODO: hacky conversion of expected result necessary with PyTree inputs?
+
+    res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
+    assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)

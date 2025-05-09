@@ -374,8 +374,8 @@ class _BoundedUnconstrainedKKTSystem(_AbstractKKTSystem):
         r1 = _lagrangian_gradient(iterate, f_info)
 
         lower_multiplier, upper_multiplier = iterate.bound_multipliers
-        r2 = (distance_to_lower.mv(lower_multiplier) - iterate.barrier**ω).ω
-        r3 = (distance_to_upper.mv(upper_multiplier) - iterate.barrier**ω).ω
+        r2 = (distance_to_lower.mv(lower_multiplier) ** ω - iterate.barrier).ω
+        r3 = (distance_to_upper.mv(upper_multiplier) ** ω - iterate.barrier).ω
 
         vector = (r1, (r2, r3))
         vector = (-(vector**ω)).ω
@@ -1037,7 +1037,6 @@ class NewInteriorDescent(
         # information with dummy values.
         reconstructed_f_info = jtu.tree_map(_leaf_from_struct, f_info_struct)
         system = _get_system(iterate, reconstructed_f_info, self.condense_bounds)
-        jax.debug.print("system: {}", system)
 
         operator, _ = system.make_operator_vector(iterate, reconstructed_f_info)
         linear_solver_state = self.linear_solver.init(operator, {})
