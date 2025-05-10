@@ -34,6 +34,7 @@ from .._search import (
     AbstractDescent,
     AbstractSearch,
     FunctionInfo,
+    Iterate,
 )
 from .._solution import RESULTS
 from .learning_rate import LearningRate
@@ -114,12 +115,12 @@ class NewtonDescent(
     norm: Callable[[PyTree], Scalar] | None = None
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
-    def init(self, y: Y, f_info_struct: FunctionInfo) -> _NewtonDescentState:
+    def init(self, y: Y, f_info_struct: FunctionInfo) -> _NewtonDescentState:  # pyright: ignore
         del f_info_struct
         # Dummy values of the right shape; unused.
         return _NewtonDescentState(y, RESULTS.successful)
 
-    def query(
+    def query(  # pyright: ignore
         self,
         y: Y,
         f_info: FunctionInfo.EvalGradHessian
@@ -194,7 +195,9 @@ def _make_f_info(
 # TODO(jhaffner): Should this continue to just support clipping, same as the root
 # finders do, or do we want to support more general boundary maps in the Gauss-Newton
 # solvers?
-class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState]):
+class AbstractGaussNewton(
+    AbstractLeastSquaresSolver[Y, Iterate.Primal, Out, Aux, _GaussNewtonState],
+):
     """Abstract base class for all Gauss-Newton type methods.
 
     This includes methods such as [`optimistix.GaussNewton`][],
@@ -240,7 +243,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _GaussNewtonState:
+    ) -> tuple[Iterate.Primal, _GaussNewtonState]:
         del constraint
 
         clip = options.get("clip", False)
@@ -250,7 +253,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         jac = options.get("jac", "fwd")
         f_info_struct, _ = eqx.filter_eval_shape(_make_f_info, fn, y, args, tags, jac)
         f_info = tree_full_like(f_info_struct, 0, allow_static=True)
-        return _GaussNewtonState(
+        state = _GaussNewtonState(
             first_step=jnp.array(True),
             y_eval=y,
             search_state=self.search.init(y, f_info_struct),
@@ -263,19 +266,21 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             num_accepted_steps=jnp.array(0),
             num_steps_since_acceptance=jnp.array(0),
         )
+        return Iterate.Primal(y), state
 
     def step(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
         bounds: tuple[Y, Y] | None,
         state: _GaussNewtonState,
         tags: frozenset[object],
-    ) -> tuple[Y, _GaussNewtonState, Aux]:
+    ) -> tuple[Iterate.Primal, _GaussNewtonState, Aux]:
         del constraint
+        y = iterate.y
 
         clip = options.get("clip", False)
         if bounds is not None:
@@ -379,12 +384,12 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             num_accepted_steps=num_accepted_steps,
             num_steps_since_acceptance=num_steps_since_acceptance,
         )
-        return y, state, aux
+        return Iterate.Primal(y), state, aux
 
     def terminate(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
@@ -397,7 +402,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
     def postprocess(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
@@ -407,7 +412,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return iterate.y, aux, {}
 
 
 class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
