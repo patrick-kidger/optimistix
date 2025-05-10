@@ -13,6 +13,7 @@ from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 from .._custom_types import Aux, Constraint, EqualityOut, Fn, InequalityOut, Y
 from .._minimise import AbstractMinimiser
 from .._misc import max_norm, tree_full_like, tree_where
+from .._search import Iterate
 from .._solution import RESULTS
 
 
@@ -113,12 +114,12 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _NelderMeadState[Y, Aux]:
+    ) -> tuple[Iterate.Primal, _NelderMeadState[Y, Aux]]:
         del (
             constraint,
             bounds,
@@ -188,7 +189,7 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
             jnp.array(0), jnp.array(0), jnp.array(0), jnp.array(0), jnp.array(-1)
         )
 
-        return _NelderMeadState(
+        state = _NelderMeadState(
             simplex=simplex,
             f_simplex=f_simplex,
             best=(
@@ -209,17 +210,21 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
             step=jnp.array(0),
         )
 
+        return Iterate.Primal(y), state
+
     def step(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _NelderMeadState[Y, Aux],
         tags: frozenset[object],
-    ) -> tuple[Y, _NelderMeadState[Y, Aux], Aux]:
+    ) -> tuple[Iterate.Primal, _NelderMeadState[Y, Aux], Aux]:
+        y = iterate.y  # TODO typing fix
+
         # TODO(raderj): update to line search api.
         reflect_const = 2
         expand_const = 3
@@ -416,16 +421,16 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         else:
             out = best
 
-        return out, new_state, aux
+        return Iterate.Primal(out), new_state, aux
 
     def terminate(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _NelderMeadState[Y, Aux],
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -455,12 +460,12 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
     def postprocess(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _NelderMeadState,
         tags: frozenset[object],
         result: RESULTS,
@@ -472,7 +477,7 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
             num_expansions=state.stats.n_expand,
             num_shrinkages=state.stats.n_shrink,
         )
-        return y, aux, stats
+        return iterate.y, aux, stats
 
 
 NelderMead.__init__.__doc__ = """**Arguments:**
