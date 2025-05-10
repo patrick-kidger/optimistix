@@ -9,6 +9,8 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
 
+from .._search import Iterate
+
 
 if TYPE_CHECKING:
     from typing import ClassVar as AbstractClassVar
@@ -21,14 +23,6 @@ from .._custom_types import Aux, Constraint, EqualityOut, Fn, InequalityOut, Out
 from .._misc import cauchy_termination, max_norm, tree_clip, tree_full_like
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
-
-
-# Note: With the introduction of boundary maps, the root finders *could* now
-# use these too. However, we still use `clip` below since:
-# - The other boundary maps would not necessarily make sense in the context of root
-# finders, and if we support one we support them all.
-# - This is consistent with the previously behaviour, where bounds were passed as
-# options to the solver, and the iterates were clipped to this value.
 
 
 def _small(diffsize: Scalar) -> Bool[Array, " "]:
@@ -65,7 +59,9 @@ class _NoAux(eqx.Module):
         return out
 
 
-class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]):
+class _AbstractNewtonChord(
+    AbstractRootFinder[Y, Iterate.Primal, Out, Aux, _NewtonChordState[Y]],
+):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm
@@ -86,7 +82,7 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _NewtonChordState[Y]:
+    ) -> tuple[Iterate.Primal, _NewtonChordState[Y]]:
         del aux_struct
 
         clip = options.get("clip", False)
@@ -110,7 +106,8 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             f_val = tree_full_like(f_struct, jnp.inf)
         else:
             f_val = None
-        return _NewtonChordState(
+
+        state = _NewtonChordState(
             f=f_val,
             linear_state=linear_state,
             diff=tree_full_like(y, jnp.inf),
@@ -119,19 +116,21 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             result=RESULTS.successful,
             step=jnp.array(0),
         )
+        return Iterate.Primal(y), state
 
     def step(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
         bounds: tuple[Y, Y] | None,
         state: _NewtonChordState[Y],
         tags: frozenset[object],
-    ) -> tuple[Y, _NewtonChordState[Y], Aux]:
+    ) -> tuple[Iterate.Primal, _NewtonChordState[Y], Aux]:
         del constraint
+        y = iterate.y
 
         clip = options.get("clip", False)  # Default
         if bounds is not None:
@@ -191,12 +190,12 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             result=RESULTS.promote(sol.result),
             step=state.step + 1,
         )
-        return new_y, new_state, aux
+        return Iterate.Primal(new_y), new_state, aux
 
     def terminate(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
@@ -214,7 +213,7 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
                 self.rtol,
                 self.atol,
                 self.norm,
-                y,
+                iterate.y,
                 state.diff,
                 jtu.tree_map(jnp.zeros_like, state.f),
                 state.f,
@@ -242,7 +241,7 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
     def postprocess(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
@@ -252,7 +251,7 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return iterate.y, aux, {}
 
 
 class Newton(_AbstractNewtonChord[Y, Out, Aux]):
