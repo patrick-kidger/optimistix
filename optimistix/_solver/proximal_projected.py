@@ -17,6 +17,7 @@ from .._custom_types import (
 )
 from .._iterate import AbstractIterativeSolver
 from .._minimise import AbstractMinimiser
+from .._search import Iterate
 from .._solution import RESULTS
 from .boundary_maps import AbstractBoundaryMap
 from .gradient_methods import AbstractGradientDescent
@@ -29,7 +30,7 @@ class _ProjectedState(eqx.Module, Generic[SolverState], strict=True):
 class _AbstractProjectedSolver(
     AbstractIterativeSolver, Generic[Y, Out, Aux], strict=True
 ):
-    solver: AbstractVar[AbstractIterativeSolver[Y, Out, Aux, Any]]
+    solver: AbstractVar[AbstractIterativeSolver[Y, Iterate.Primal, Out, Aux, Any]]
     boundary_map: AbstractVar[AbstractBoundaryMap]
 
     @property  # pyright: ignore
@@ -55,8 +56,8 @@ class _AbstractProjectedSolver(
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _ProjectedState:
-        state = self.solver.init(
+    ) -> tuple[Iterate.Primal, _ProjectedState]:
+        init_iterate, init_state = self.solver.init(
             fn,
             y,
             args,
@@ -67,30 +68,31 @@ class _AbstractProjectedSolver(
             aux_struct,
             tags,
         )
-        return _ProjectedState(wrapped_state=state)
+        return init_iterate, _ProjectedState(wrapped_state=init_state)
 
     def step(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
         bounds: Union[tuple[Y, Y], None],
         state: _ProjectedState,
         tags: frozenset[object],
-    ) -> tuple[Y, _ProjectedState, Aux]:
-        new_y, new_state, new_aux = self.solver.step(
-            fn, y, args, options, constraint, bounds, state.wrapped_state, tags
+    ) -> tuple[Iterate.Primal, _ProjectedState, Aux]:
+        # TODO: names: new everything is not so elegant
+        new_iterate, new_state, new_aux = self.solver.step(
+            fn, iterate, args, options, constraint, bounds, state.wrapped_state, tags
         )
         new_y_eval, _ = self.boundary_map(new_state.y_eval, constraint, bounds)
         new_state = eqx.tree_at(lambda s: s.y_eval, new_state, new_y_eval)
-        return new_y, _ProjectedState(wrapped_state=new_state), new_aux
+        return new_iterate, _ProjectedState(wrapped_state=new_state), new_aux
 
     def terminate(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
@@ -99,13 +101,13 @@ class _AbstractProjectedSolver(
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         return self.solver.terminate(
-            fn, y, args, options, constraint, bounds, state.wrapped_state, tags
+            fn, iterate, args, options, constraint, bounds, state.wrapped_state, tags
         )
 
     def postprocess(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
@@ -115,7 +117,7 @@ class _AbstractProjectedSolver(
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return iterate.y, aux, {}
 
 
 # TODO: As formulated here, these could be GradientDescent, or NonlinearCG. Do both of
@@ -123,7 +125,7 @@ class _AbstractProjectedSolver(
 # is just tested for GradientDescent.
 class ProjectedGradientDescent(  # pyright: ignore
     _AbstractProjectedSolver[Y, Scalar, Aux],
-    AbstractMinimiser[Y, Aux, _ProjectedState],
+    AbstractMinimiser[Y, Iterate.Primal, Aux, _ProjectedState],
     strict=True,
 ):
     """Projected gradient descent solver. Wraps a gradient descent solver and applies a
