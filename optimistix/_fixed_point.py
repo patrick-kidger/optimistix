@@ -1,4 +1,4 @@
-from typing import Any, cast, Generic
+from typing import Any, cast, Generic, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -29,10 +29,16 @@ from ._misc import (
     OutAsArray,
 )
 from ._root_find import AbstractRootFinder, root_find
+from ._search import Iterate
 from ._solution import Solution
 
 
-class AbstractFixedPointSolver(AbstractIterativeSolver[Y, Y, Aux, SolverState]):
+_Iterate = TypeVar("_Iterate", contravariant=True, bound=Iterate)
+
+
+class AbstractFixedPointSolver(
+    AbstractIterativeSolver[Y, _Iterate, Y, Aux, SolverState],
+):
     """Abstract base class for all fixed point solvers."""
 
 
