@@ -10,6 +10,7 @@ from jaxtyping import Array, Bool, Float, PyTree, Scalar
 
 from .._custom_types import Aux, Constraint, EqualityOut, Fn, InequalityOut
 from .._root_find import AbstractRootFinder
+from .._search import Iterate
 from .._solution import RESULTS
 
 
@@ -77,7 +78,9 @@ def _expand_interval_repeatedly(
     return lower, upper
 
 
-class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
+class Bisection(
+    AbstractRootFinder[Scalar, Iterate.ScalarPrimal, Scalar, Aux, _BisectionState],
+):
     """The bisection method of root finding. This may only be used with functions
     `R->R`, i.e. functions with scalar input and scalar output.
 
@@ -105,12 +108,12 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
         y: Scalar,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Scalar, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Scalar, Scalar], None],
+        constraint: Constraint[Scalar, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Scalar, Scalar] | None,
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _BisectionState:
+    ) -> tuple[Iterate.ScalarPrimal, _BisectionState]:
         # TODO(jhaffner): raise warning and error at API boundary
         if bounds is not None:
             lower, upper = bounds
@@ -169,25 +172,29 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
                 )
         else:
             raise ValueError("`flip` may only be True, False, or 'detect'.")
-        return _BisectionState(
+
+        state = _BisectionState(
             lower=lower,
             upper=upper,
             flip=flip,
             error=jnp.array(jnp.inf, f_struct.dtype),
         )
+        return Iterate.ScalarPrimal(y), state
 
     def step(
         self,
         fn: Fn[Scalar, Scalar, Aux],
-        y: Scalar,
+        iterate: Iterate.ScalarPrimal,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Scalar, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Scalar, Scalar], None],
+        constraint: Constraint[Scalar, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Scalar, Scalar] | None,
         state: _BisectionState,
         tags: frozenset[object],
-    ) -> tuple[Scalar, _BisectionState, Aux]:
+    ) -> tuple[Iterate.ScalarPrimal, _BisectionState, Aux]:
         del options, constraint, bounds
+
+        y = iterate.y
         error, aux = fn(y, args)
         negative = state.flip ^ (error < 0)
         new_lower = jnp.where(negative, y, state.lower)
@@ -196,21 +203,21 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
         new_state = _BisectionState(
             lower=new_lower, upper=new_upper, flip=state.flip, error=error
         )
-        return new_y, new_state, aux
+        return Iterate.ScalarPrimal(new_y), new_state, aux
 
     def terminate(
         self,
         fn: Fn[Scalar, Scalar, Aux],
-        y: Scalar,
+        iterate: Iterate.ScalarPrimal,  # TODO typing
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Scalar, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Scalar, Scalar], None],
+        constraint: Constraint[Scalar, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Scalar, Scalar] | None,
         state: _BisectionState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         del fn, args, options
-        scale = self.atol + self.rtol * jnp.abs(y)
+        scale = self.atol + self.rtol * jnp.abs(iterate.y)
         y_small = jnp.abs(state.lower - state.upper) < scale
         f_small = jnp.abs(state.error) < self.atol
         return y_small & f_small, RESULTS.successful
@@ -218,17 +225,17 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
     def postprocess(
         self,
         fn: Fn[Scalar, Scalar, Aux],
-        y: Scalar,
+        iterate: Iterate.ScalarPrimal,  # TODO typing
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Scalar, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Scalar, Scalar], None],
+        constraint: Constraint[Scalar, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Scalar, Scalar] | None,
         state: _BisectionState,
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Scalar, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return iterate.y, aux, {}
 
 
 Bisection.__init__.__doc__ = """**Arguments:**

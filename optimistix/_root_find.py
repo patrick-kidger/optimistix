@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any, cast, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -28,10 +28,16 @@ from ._misc import (
     OutAsArray,
     tree_full_like,
 )
+from ._search import Iterate
 from ._solution import Solution
 
 
-class AbstractRootFinder(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
+_Iterate = TypeVar("_Iterate", contravariant=True, bound=Iterate)
+
+
+class AbstractRootFinder(
+    AbstractIterativeSolver[Y, _Iterate, Out, Aux, SolverState], strict=True
+):
     """Abstract base class for all root finders."""
 
 
@@ -57,6 +63,11 @@ def _to_lstsq_fn(root_fn, y, args):
     return root, (root, aux)
 
 
+class _ToRootState(eqx.Module, strict=True):
+    wrapped_state: PyTree  # TODO: this is the state of the wrapped solver
+    f: PyTree  # TODO: this is the value of f
+
+
 # Adds an additional termination condition, that `fn(y, args)` be near zero.
 class _ToRoot(AbstractIterativeSolver):
     solver: AbstractVar[AbstractIterativeSolver]
@@ -75,36 +86,43 @@ class _ToRoot(AbstractIterativeSolver):
 
     def init(
         self, fn, y, args, options, constraint, bounds, f_struct, aux_struct, tags
-    ):
+    ) -> tuple[Iterate, PyTree]:  # TODO typing
         orig_f_struct, _ = aux_struct
-        init_state = self.solver.init(
+        init_iterate, init_state = self.solver.init(
             fn, y, args, options, constraint, bounds, f_struct, aux_struct, tags
         )
+        del init_iterate
         f_inf = tree_full_like(orig_f_struct, jnp.inf)
-        return (init_state, f_inf)
+        return Iterate.Primal(y), _ToRootState(wrapped_state=init_state, f=f_inf)
 
-    def step(self, fn, y, args, options, constraint, bounds, state, tags):
-        state, _ = state
+    def step(self, fn, iterate, args, options, constraint, bounds, state, tags):
         new_y, new_state, (f, aux) = self.solver.step(
-            fn, y, args, options, constraint, bounds, state, tags
+            fn, iterate, args, options, constraint, bounds, state.wrapped_state, tags
         )
-        return new_y, (new_state, f), (f, aux)
+        return new_y, _ToRootState(new_state, f), (f, aux)
 
-    def terminate(self, fn, y, args, options, constraint, bounds, state, tags):
-        state, f = state
+    def terminate(self, fn, iterate, args, options, constraint, bounds, state, tags):
         terminate, result = self.solver.terminate(
-            fn, y, args, options, constraint, bounds, state, tags
+            fn, iterate, args, options, constraint, bounds, state.wrapped_state, tags
         )
         # No rtol, because `rtol * 0 = 0`.
-        near_zero = self.norm(f) < self.atol
+        near_zero = self.norm(state.f) < self.atol
         return terminate & near_zero, result
 
     def postprocess(
-        self, fn, y, aux, args, options, constraint, bounds, state, tags, result
+        self, fn, iterate, aux, args, options, constraint, bounds, state, tags, result
     ):
-        state, _ = state
         return self.solver.postprocess(
-            fn, y, aux, args, options, constraint, bounds, state, tags, result
+            fn,
+            iterate,
+            aux,
+            args,
+            options,
+            constraint,
+            bounds,
+            state.wrapped_state,
+            tags,
+            result,
         )
 
 
