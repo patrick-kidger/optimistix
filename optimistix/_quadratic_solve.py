@@ -38,6 +38,7 @@ from ._search import (
     AbstractDescent,
     AbstractSearch,
     FunctionInfo,
+    Iterate,
 )
 from ._solution import RESULTS, Solution
 
@@ -72,7 +73,8 @@ class _QuadraticSolverState(
 
 
 class AbstractQuadraticSolver(
-    AbstractIterativeSolver[Y, Out, Aux, _QuadraticSolverState], strict=True
+    AbstractIterativeSolver[Y, Iterate.Primal, Out, Aux, _QuadraticSolverState],
+    strict=True,
 ):
     """Abstract base class for all quadratic solvers.
 
@@ -109,7 +111,7 @@ class AbstractQuadraticSolver(
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _QuadraticSolverState:
+    ) -> tuple[Iterate.Primal, _QuadraticSolverState]:
         # TODO: repeating this can probably be avoided (unless constraints nonlinear)
         if constraint is not None:
             evaluated = evaluate_constraint(constraint, y)
@@ -131,7 +133,7 @@ class AbstractQuadraticSolver(
         )
         f_info_struct = jax.eval_shape(lambda: f_info)
 
-        return _QuadraticSolverState(
+        state = _QuadraticSolverState(
             hessian=hessian,
             first_step=jnp.array(True),
             y_eval=y,
@@ -142,19 +144,21 @@ class AbstractQuadraticSolver(
             terminate=jnp.array(False),
             result=RESULTS.successful,
         )
+        return Iterate.Primal(y), state
 
     def step(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
         bounds: Union[tuple[Y, Y], None],
         state: _QuadraticSolverState,
         tags: frozenset[object],
-    ) -> tuple[Y, _QuadraticSolverState, Aux]:
+    ) -> tuple[Iterate.Primal, _QuadraticSolverState, Aux]:  # TODO iterate type
         autodiff_mode = options.get("autodiff_mode", "bwd")
+        y = iterate.y  # TODO: typing fix
 
         # TODO: there is no reason for this to be done again - the constraints are
         # assumed to be linear here. (Are they always?) -> No, not always
@@ -229,12 +233,12 @@ class AbstractQuadraticSolver(
             result=result,
         )
 
-        return y, state, aux
+        return Iterate.Primal(y), state, aux
 
     def terminate(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
@@ -247,7 +251,7 @@ class AbstractQuadraticSolver(
     def postprocess(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
@@ -259,7 +263,7 @@ class AbstractQuadraticSolver(
     ) -> tuple[Y, Aux, dict[str, Any]]:
         # TODO(jhaffner): Implement any postprocessing?
         # Add set of constraints active at solution, values of dual variables?
-        return y, aux, {}
+        return iterate.y, aux, {}
 
 
 # Keep `optx.implicit_jvp` happy.
