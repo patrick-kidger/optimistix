@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any, cast, Optional, TypeVar
 
 import equinox as eqx
 import jax
@@ -24,10 +24,16 @@ from ._misc import (
     NoneAux,
     OutAsArray,
 )
+from ._search import Iterate
 from ._solution import Solution
 
 
-class AbstractMinimiser(AbstractIterativeSolver[Y, Scalar, Aux, SolverState]):
+_Iterate = TypeVar("_Iterate", contravariant=True, bound=Iterate)
+
+
+class AbstractMinimiser(
+    AbstractIterativeSolver[Y, _Iterate, Scalar, Aux, SolverState], strict=True
+):
     """Abstract base class for all minimisers."""
 
 

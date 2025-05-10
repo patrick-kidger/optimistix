@@ -1,7 +1,7 @@
 import abc
 import warnings
 from collections.abc import Callable
-from typing import Any, Generic, TYPE_CHECKING
+from typing import Any, Generic, Optional, TYPE_CHECKING, TypeVar, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -23,6 +23,7 @@ from ._custom_types import (
     Y,
 )
 from ._misc import unwrap_jaxpr, wrap_jaxpr
+from ._search import Iterate
 from ._solution import RESULTS, Solution
 
 
@@ -32,7 +33,12 @@ else:
     _Node = eqxi.doc_repr(Any, "Node")
 
 
-class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
+_Iterate = TypeVar("_Iterate", contravariant=True, bound=Iterate)
+
+
+class AbstractIterativeSolver(
+    eqx.Module, Generic[Y, _Iterate, Out, Aux, SolverState], strict=True
+):
     """Abstract base class for all iterative solvers."""
 
     rtol: AbstractVar[float]
@@ -51,7 +57,7 @@ class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> SolverState:
+    ) -> tuple[_Iterate, SolverState]:
         """Perform all initial computation needed to initialise the solver state.
 
         For example, the [`optimistix.Chord`][] method computes the Jacobian `df/dy`
@@ -95,14 +101,14 @@ class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
     def step(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: _Iterate,
         args: PyTree,
         options: dict[str, Any],
         constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
         bounds: tuple[Y, Y] | None,
         state: SolverState,
         tags: frozenset[object],
-    ) -> tuple[Y, SolverState, Aux]:
+    ) -> tuple[_Iterate, SolverState, Aux]:  # TODO type iterate
         """Perform one step of the iterative solve.
 
         **Arguments:**
@@ -110,7 +116,12 @@ class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
         - `fn`: The function to iterate over. This is expected to take two argumetns
             `fn(y, args)` and return a pytree of arrays in the first element, and any
             auxiliary data in the second argument.
-        - `y`: The value of `y` at the current (first) iteration.
+        - `iterate`: The value of the iterate at the current (first) iteration. For an
+            unconstrained problem, this is just `y`, wrapped in
+            [`optimistix.Iterate.Primal`][]. For a constrained problem, the iterate
+            comprises the primal and dual variables, as well as potential slack
+            variables and other auxiliary optimisation variables, such as adaptively
+            updated barrier parameters.
         - `args`: Passed as the `args` of `fn(y, args)`.
         - `options`: Individual solvers may accept additional runtime arguments.
             See each individual solver's documentation for more details.
@@ -135,11 +146,12 @@ class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
         element.
         """
 
+    # TODO update documentation
     @abc.abstractmethod
     def terminate(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: _Iterate,
         args: PyTree,
         options: dict[str, Any],
         constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
@@ -178,11 +190,12 @@ class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
         first element, and an [`optimistix.RESULTS`][] object in the second element.
         """
 
+    # TODO update documentation
     @abc.abstractmethod
     def postprocess(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: _Iterate,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
@@ -266,43 +279,39 @@ def _iterate(inputs):
     f_struct = jtu.tree_map(lambda x: x.value, f_struct, is_leaf=static_leaf)
     aux_struct = jtu.tree_map(lambda x: x.value, aux_struct, is_leaf=static_leaf)
     init_aux = jtu.tree_map(_zero, aux_struct)
-    init_state = solver.init(
+    init_iterate, init_state = solver.init(
         fn, y0, args, options, constraint, bounds, f_struct, aux_struct, tags
     )
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
     init_carry = (
-        y0,
+        init_iterate,
         jnp.array(0),
         dynamic_init_state,
         init_aux,
     )
 
     def cond_fun(carry):
-        y, _, dynamic_state, _ = carry
+        iterate, _, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
         terminate, result = solver.terminate(fn, y, args, options, state, tags)
         return jnp.invert(terminate) | (result != RESULTS.successful)
 
     def body_fun(carry):
-        y, num_steps, dynamic_state, _ = carry
+        iterate, num_steps, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        new_y, new_state, aux = solver.step(
-            fn, y, args, options, constraint, bounds, state, tags
+        new_iterate, new_state, aux = solver.step(
+            fn, iterate, args, options, constraint, bounds, state, tags
         )
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
 
         assert eqx.tree_equal(static_state, new_static_state) is True
-        return new_y, num_steps + 1, new_dynamic_state, aux
-
-    def buffers(carry):
-        _, _, state, _ = carry
-        return solver.buffers(state)
+        return new_iterate, num_steps + 1, new_dynamic_state, aux
 
     final_carry = while_loop(cond_fun, body_fun, init_carry, max_steps=max_steps)
-    final_y, num_steps, dynamic_final_state, final_aux = final_carry
+    final_iterate, num_steps, dynamic_final_state, final_aux = final_carry
     final_state = eqx.combine(static_state, dynamic_final_state)
     terminate, result = solver.terminate(
-        fn, final_y, args, options, constraint, bounds, final_state, tags
+        fn, final_iterate, args, options, constraint, bounds, final_state, tags
     )
     result = RESULTS.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
@@ -311,7 +320,7 @@ def _iterate(inputs):
     )
     final_y, final_aux, stats = solver.postprocess(
         fn,
-        final_y,
+        final_iterate,
         final_aux,
         args,
         options,

@@ -34,7 +34,6 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, Scalar
 
 from ._custom_types import (
-    _Iterate,
     DescentState,
     EqualityOut,
     InequalityOut,
@@ -329,32 +328,33 @@ class Iterate(eqx.Module):
     """Different solvers require different types of iterates to compute the solution to
     the optimisation problem. While a solver for an unconstrained problem may only need
     access to the primal variable `y`, solving a constrained problem generally requires
-    the introduction of dual variables, or Lagrange multipliers. In most constrained
-    descents, these are updated alongside the primal variables (primal-dual methods).
+    the introduction of dual variables, or Lagrange multipliers, as well as potential
+    slack variables. These are updated iteratively alongside the primal variable `y`.
 
     This enumeration-ish object captures the different variants of iterates.
     """
 
     Primal: ClassVar[Type["Primal"]]
-    BoundedPrimal: ClassVar[Type["BoundedPrimal"]]
-    AllAtOnce: ClassVar[Type["AllAtOnce"]]
+    ScalarPrimal: ClassVar[Type["ScalarPrimal"]]
 
     @abc.abstractmethod
     def nothing(self) -> None:
         """Dummy thing to make sure that this is an abstract class."""
 
 
-class Primal(Iterate, Generic[Y], strict=True):
+class Primal(Iterate, Generic[Y]):
     """The primal variable `y`. Used in unconstrained problems."""
 
     y: Y
 
-    def nothing(self):
+    def nothing(self):  # Test method to make this concrete :D TODO fix, obviously
         return None
 
 
-class BoundedPrimal(Iterate, Generic[Y], strict=True):
-    """The primal variable `y` and its bounds. Used in bound-constrained problems."""
+class ScalarPrimal(Iterate, Generic[Y]):
+    """The primal variable, which is restricted to be a scalar. Used in
+    [`optimistix.Bisection`][].
+    """
 
     y: Y
     bounds: tuple[Y, Y] | None
@@ -368,7 +368,7 @@ class BoundedPrimal(Iterate, Generic[Y], strict=True):
 
 
 # TODO: inequality out/ equality out can be restricted to be arrays, I think.
-class AllAtOnce(Iterate, Generic[Y, EqualityOut, InequalityOut], strict=True):
+class AllAtOnce(Iterate, Generic[Y, EqualityOut, InequalityOut]):
     y: Y
     bounds: tuple[Y, Y] | None
     slack: InequalityOut | None
@@ -400,11 +400,10 @@ class AllAtOnce(Iterate, Generic[Y, EqualityOut, InequalityOut], strict=True):
 
 
 Primal.__qualname__ = "Iterate.Primal"
-BoundedPrimal.__qualname__ = "Iterate.BoundedPrimal"
-AllAtOnce.__qualname__ = "Iterate.AllAtOnce"
+ScalarPrimal.__qualname__ = "Iterate.ScalarPrimal"
+
 Iterate.Primal = Primal
-Iterate.BoundedPrimal = BoundedPrimal
-Iterate.AllAtOnce = AllAtOnce
+Iterate.ScalarPrimal = ScalarPrimal
 
 
 Primal.__init__.__doc__ = """**Arguments:**
@@ -412,18 +411,14 @@ Primal.__init__.__doc__ = """**Arguments:**
 - `y`: the (primal) optimisation variable `y`.
 """
 
-BoundedPrimal.__init__.__doc__ = """**Arguments:**
 
-- `y`: the (primal) optimisation variable `y`.
-- `bounds`: the bounds on the optimisation variable `y`. A tuple `(lower, upper)`, where
-    `lower` and `upper` must have the same PyTree structure as `y`.
-"""
-
-# TODO: AllAtOnce iterate, once this gets a proper name...
-# Or make it just one iterate, especially if everything except the primal may be None.
+# TODO(jhaffner): We probably need something like that again for the Iterate
+# TODO(jhaffner): are we re-defining _FnInfo?
+_FnInfo = TypeVar("_FnInfo", contravariant=True, bound=FunctionInfo)
+_FnEvalInfo = TypeVar("_FnEvalInfo", contravariant=True, bound=FunctionInfo)
 
 
-class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState], strict=True):
+class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState]):
     """The abstract base class for descents. A descent consumes a scalar (e.g. a step
     size), and returns the `diff` to take at point `y`, so that `y + diff` is the next
     iterate in a nonlinear optimisation problem.
@@ -432,7 +427,7 @@ class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState], strict=True
     """
 
     @abc.abstractmethod
-    def init(self, y: _Iterate, f_info_struct: _FnInfo) -> DescentState:
+    def init(self, y: Iterate, f_info_struct: _FnInfo) -> DescentState:
         """Is called just once, at the very start of the entire optimisation problem.
         This is used to set up the evolving state for the descent.
 
@@ -448,7 +443,7 @@ class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState], strict=True
         """
 
     @abc.abstractmethod
-    def query(self, y: _Iterate, f_info: _FnInfo, state: DescentState) -> DescentState:
+    def query(self, y: Iterate, f_info: _FnInfo, state: DescentState) -> DescentState:
         """Is called whenever the search decides to halt and accept its current iterate,
         and then query the descent for a new descent direction.
 
@@ -474,7 +469,7 @@ class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState], strict=True
         """
 
     def correct(
-        self, y: _Iterate, f_info: _FnInfo, state: DescentState
+        self, y: Iterate, f_info: _FnInfo, state: DescentState
     ) -> DescentState:
         """A correction step, based on updated function information, to be taken when
         the search has rejected the current iterate. This is useful in constrained
@@ -505,7 +500,7 @@ class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState], strict=True
         return state
 
     @abc.abstractmethod
-    def step(self, step_size: Scalar, state: DescentState) -> tuple[_Iterate, RESULTS]:
+    def step(self, step_size: Scalar, state: DescentState) -> tuple[Iterate, RESULTS]:
         """Computes the descent of size `step_size`.
 
         **Arguments:**

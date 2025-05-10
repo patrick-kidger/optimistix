@@ -35,6 +35,7 @@ from .._search import (
     AbstractDescent,
     AbstractSearch,
     FunctionInfo,
+    Iterate,
 )
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
@@ -309,7 +310,8 @@ class _QuasiNewtonState(
 
 
 class AbstractQuasiNewton(
-    AbstractMinimiser[Y, Aux, _QuasiNewtonState], Generic[Y, Aux, _Hessian]
+    AbstractMinimiser[Y, Iterate.Primal, Aux, _QuasiNewtonState],
+    Generic[Y, Aux, _Hessian],
 ):
     """Abstract quasi-Newton minimisation algorithm.
 
@@ -343,12 +345,12 @@ class AbstractQuasiNewton(
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _QuasiNewtonState:
+    ) -> tuple[Iterate.Primal, _QuasiNewtonState]:
         # TODO: introduce support for constrained optimisation in QuasiNewton
         assert constraint is None
         assert bounds is None
@@ -371,30 +373,34 @@ class AbstractQuasiNewton(
                 None,
             )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
-        return _QuasiNewtonState(
+
+        state = _QuasiNewtonState(
             first_step=jnp.array(True),
             y_eval=y,
             search_state=self.search.init(y, f_info_struct),
-            f_info=f_info,
+            f_info=f_info,  # pyright: ignore (union of hessian, hessian_inf)
             aux=tree_full_like(aux_struct, 0),
             descent_state=self.descent.init(y, f_info_struct),
             terminate=jnp.array(False),
             result=RESULTS.successful,
             num_accepted_steps=jnp.array(0),
         )
+        return Iterate.Primal(y), state
 
     def step(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _QuasiNewtonState,
         tags: frozenset[object],
-    ) -> tuple[Y, _QuasiNewtonState, Aux]:
+    ) -> tuple[Iterate.Primal, _QuasiNewtonState, Aux]:  # TODO iterate type
         autodiff_mode = options.get("autodiff_mode", "bwd")
+        y = iterate.y
+
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
@@ -470,16 +476,16 @@ class AbstractQuasiNewton(
             result=result,
             num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
         )
-        return y, state, aux
+        return Iterate.Primal(y), state, aux
 
     def terminate(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,  # TODO typing
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _QuasiNewtonState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -488,17 +494,17 @@ class AbstractQuasiNewton(
     def postprocess(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,  # TODO typing
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _QuasiNewtonState,
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return iterate.y, aux, {}
 
 
 class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
