@@ -120,10 +120,7 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
     ) -> tuple[Iterate.Primal, _NelderMeadState[Y, Aux]]:
-        del (
-            constraint,
-            bounds,
-        )  # TODO jhaffner: make it clear that these are not yet handled
+        del constraint, bounds
         aux = tree_full_like(aux_struct, 0)
         y0_simplex = options.get("y0_simplex", False)
 
@@ -223,7 +220,7 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         state: _NelderMeadState[Y, Aux],
         tags: frozenset[object],
     ) -> tuple[Iterate.Primal, _NelderMeadState[Y, Aux], Aux]:
-        y = iterate.y  # TODO typing fix
+        y = iterate.y
 
         # TODO(raderj): update to line search api.
         reflect_const = 2
