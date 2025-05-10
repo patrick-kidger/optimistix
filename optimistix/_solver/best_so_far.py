@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Generic, Union
+from typing import Any, Generic, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -24,7 +24,14 @@ from .._least_squares import AbstractLeastSquaresSolver
 from .._minimise import AbstractMinimiser
 from .._misc import sum_squares, tree_full_like, tree_where
 from .._root_find import AbstractRootFinder
+from .._search import Iterate
 from .._solution import RESULTS
+
+
+# TODO(johanna): I don't know how to resolve the type of the iterate here. There is the
+# support for general iterates in the wrapping class BestSoFar{XYZ}, but the wrapped
+# solvers only support a (subset of) specific iterate types. And that is a bit tricky.
+# Sprinkling pyright: ignore comments for now.
 
 
 class _BestSoFarState(eqx.Module, Generic[Y, Aux, SolverState]):
@@ -39,8 +46,13 @@ def _auxmented(fn, y, args):
     return out, (out, aux)
 
 
+_BestSoFarIterate = TypeVar("_BestSoFarIterate", Iterate.Primal, Iterate.ScalarPrimal)
+
+
 class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
-    solver: AbstractVar[AbstractIterativeSolver[Y, Out, tuple[Out, Aux], Any]]
+    solver: AbstractVar[
+        AbstractIterativeSolver[Y, _BestSoFarIterate, Out, tuple[Out, Aux], Any]  # pyright: ignore
+    ]
 
     @abc.abstractmethod
     def _to_loss(self, y: Y, f: Out) -> Scalar:
@@ -69,11 +81,11 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _BestSoFarState:
+    ) -> tuple[_BestSoFarIterate, _BestSoFarState]:
         aux = tree_full_like(aux_struct, 0)
         loss = jnp.array(jnp.inf)
         auxmented_fn = eqx.Partial(_auxmented, fn)
-        state = self.solver.init(
+        init_iterate, init_state = self.solver.init(
             auxmented_fn,
             y,
             args,
@@ -84,24 +96,30 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
             (f_struct, aux_struct),
             tags,
         )
-        return _BestSoFarState(best_y=y, best_aux=aux, best_loss=loss, state=state)
+        state = _BestSoFarState(
+            best_y=y, best_aux=aux, best_loss=loss, state=init_state
+        )
+        return init_iterate, state  # pyright: ignore
 
     def step(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: _BestSoFarIterate,
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
         bounds: Union[tuple[Y, Y], None],
         state: _BestSoFarState,
         tags: frozenset[object],
-    ) -> tuple[Y, _BestSoFarState, Aux]:
+    ) -> tuple[_BestSoFarIterate, _BestSoFarState, Aux]:  # TODO iterate type
         auxmented_fn = eqx.Partial(_auxmented, fn)
-        new_y, new_state, (f, new_aux) = self.solver.step(
-            auxmented_fn, y, args, options, constraint, bounds, state.state, tags
+        new_iterate, new_state, (f, new_aux) = self.solver.step(
+            auxmented_fn, iterate, args, options, constraint, bounds, state.state, tags
         )
-        loss = self._to_loss(y, f)
+        # TODO not sure if we are doing the right thing here: should we not be using
+        # new_y? Or now the new iterate?
+        y = iterate.y
+        loss = self._to_loss(y, f)  # pyright: ignore
         pred = loss < state.best_loss
         best_y = tree_where(pred, y, state.best_y)
         best_aux = tree_where(pred, new_aux, state.best_aux)
@@ -109,12 +127,12 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
         new_state = _BestSoFarState(
             best_y=best_y, best_aux=best_aux, best_loss=best_loss, state=new_state
         )
-        return new_y, new_state, new_aux
+        return new_iterate, new_state, new_aux  # pyright: ignore
 
     def terminate(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: _BestSoFarIterate,  # TODO type
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
@@ -124,13 +142,13 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
     ) -> tuple[Bool[Array, ""], RESULTS]:
         auxmented_fn = eqx.Partial(_auxmented, fn)
         return self.solver.terminate(
-            auxmented_fn, y, args, options, constraint, bounds, state.state, tags
+            auxmented_fn, iterate, args, options, constraint, bounds, state.state, tags
         )
 
     def postprocess(
         self,
         fn: Fn[Y, Out, Aux],
-        y: Y,
+        iterate: _BestSoFarIterate,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
@@ -145,16 +163,18 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
 
 class BestSoFarMinimiser(  # pyright: ignore
     _AbstractBestSoFarSolver[Y, Scalar, Aux],
-    AbstractMinimiser[Y, Aux, _BestSoFarState],
+    AbstractMinimiser[Y, _BestSoFarIterate, Aux, _BestSoFarState],
 ):
     """Wraps another minimiser, to return the best-so-far value. That is, it makes a
     copy of the best `y` seen, and returns that.
     """
 
-    solver: AbstractMinimiser[Y, tuple[Scalar, Aux], Any]
+    solver: AbstractMinimiser[Y, _BestSoFarIterate, tuple[Scalar, Aux], Any]
 
     # Explicitly declare to keep pyright happy.
-    def __init__(self, solver: AbstractMinimiser[Y, tuple[Scalar, Aux], Any]):
+    def __init__(
+        self, solver: AbstractMinimiser[Y, _BestSoFarIterate, tuple[Scalar, Aux], Any]
+    ):
         self.solver = solver
 
     def _to_loss(self, y: Y, f: Scalar) -> Scalar:
@@ -183,17 +203,20 @@ BestSoFarMinimiser.__init__.__doc__ = """**Arguments:**
 
 class BestSoFarLeastSquares(  # pyright: ignore
     _AbstractBestSoFarSolver[Y, Out, Aux],
-    AbstractLeastSquaresSolver[Y, Out, Aux, _BestSoFarState],
+    AbstractLeastSquaresSolver[Y, _BestSoFarIterate, Out, Aux, _BestSoFarState],
 ):
     """Wraps another least-squares solver, to return the best-so-far value. That is, it
     makes a copy of the best `y` seen, and returns that.
     """
 
-    solver: AbstractLeastSquaresSolver[Y, Out, tuple[Out, Aux], Any]
+    solver: AbstractLeastSquaresSolver[Y, _BestSoFarIterate, Out, tuple[Out, Aux], Any]
 
     # Explicitly declare to keep pyright happy.
     def __init__(
-        self, solver: AbstractLeastSquaresSolver[Y, Out, tuple[Out, Aux], Any]
+        self,
+        solver: AbstractLeastSquaresSolver[
+            Y, _BestSoFarIterate, Out, tuple[Out, Aux], Any
+        ],
     ):
         self.solver = solver
 
@@ -223,16 +246,19 @@ BestSoFarLeastSquares.__init__.__doc__ = """**Arguments:**
 
 class BestSoFarRootFinder(  # pyright: ignore
     _AbstractBestSoFarSolver[Y, Out, Aux],
-    AbstractRootFinder[Y, Out, Aux, _BestSoFarState],
+    AbstractRootFinder[Y, _BestSoFarIterate, Out, Aux, _BestSoFarState],
 ):
     """Wraps another root-finder, to return the best-so-far value. That is, it
     makes a copy of the best `y` seen, and returns that.
     """
 
-    solver: AbstractRootFinder[Y, Out, tuple[Out, Aux], Any]
+    solver: AbstractRootFinder[Y, _BestSoFarIterate, Out, tuple[Out, Aux], Any]
 
     # Explicitly declare to keep pyright happy.
-    def __init__(self, solver: AbstractRootFinder[Y, Out, tuple[Out, Aux], Any]):
+    def __init__(
+        self,
+        solver: AbstractRootFinder[Y, _BestSoFarIterate, Out, tuple[Out, Aux], Any],
+    ):
         self.solver = solver
 
     def _to_loss(self, y: Y, f: Out) -> Scalar:
@@ -261,16 +287,18 @@ BestSoFarRootFinder.__init__.__doc__ = """**Arguments:**
 
 class BestSoFarFixedPoint(  # pyright: ignore
     _AbstractBestSoFarSolver[Y, Y, Aux],
-    AbstractFixedPointSolver[Y, Aux, _BestSoFarState],
+    AbstractFixedPointSolver[Y, _BestSoFarIterate, Aux, _BestSoFarState],
 ):
     """Wraps another fixed-point solver, to return the best-so-far value. That is, it
     makes a copy of the best `y` seen, and returns that.
     """
 
-    solver: AbstractFixedPointSolver[Y, tuple[Y, Aux], Any]
+    solver: AbstractFixedPointSolver[Y, _BestSoFarIterate, tuple[Y, Aux], Any]
 
     # Explicitly declare to keep pyright happy.
-    def __init__(self, solver: AbstractFixedPointSolver[Y, tuple[Y, Aux], Any]):
+    def __init__(
+        self, solver: AbstractFixedPointSolver[Y, _BestSoFarIterate, tuple[Y, Aux], Any]
+    ):
         self.solver = solver
 
     def _to_loss(self, y: Y, f: Y) -> Scalar:
