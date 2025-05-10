@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, cast, Generic
+from typing import Any, cast, Generic, TypeVar, Union
 
 import equinox as eqx
 import jax.lax as lax
@@ -18,11 +18,19 @@ from .._misc import (
     two_norm,
 )
 from .._root_find import AbstractRootFinder, root_find
-from .._search import AbstractDescent, FunctionInfo
+from .._search import AbstractDescent, FunctionInfo, Iterate
 from .._solution import RESULTS
 from .bisection import Bisection
 from .gauss_newton import AbstractGaussNewton, newton_step
 from .trust_region import ClassicalTrustRegion
+
+
+# TODO: how should I specify the iterates that the root finder accepts? We default to
+# Bisection, which only accepts scalars, but we could use Newton, which would accept
+# pytrees of arrays, but can of course also handle a scalar. This suggests that
+# a) perhaps we should not have a separate ScalarPrimal, or
+# b) we should make Newton accept a ScalarPrimal as well.
+_DoglegIterate = TypeVar("_DoglegIterate", Iterate.Primal, Iterate.ScalarPrimal)
 
 
 class _DoglegDescentState(eqx.Module, Generic[Y]):
@@ -45,12 +53,12 @@ class DoglegDescent(
     """
 
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
-    root_finder: AbstractRootFinder[Scalar, Scalar, None, Any] = Bisection(
-        rtol=1e-3, atol=1e-3
-    )
+    root_finder: AbstractRootFinder[
+        Scalar, _DoglegIterate, Scalar, None, Any  # pyright: ignore
+    ] = Bisection(rtol=1e-3, atol=1e-3)  # pyright: ignore
     trust_region_norm: Callable[[PyTree], Scalar] = two_norm
 
-    def init(
+    def init(  # pyright: ignore
         self,
         y: Y,
         f_info_struct: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
@@ -65,7 +73,7 @@ class DoglegDescent(
             result=RESULTS.successful,
         )
 
-    def query(
+    def query(  # pyright: ignore
         self,
         y: Y,
         f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
