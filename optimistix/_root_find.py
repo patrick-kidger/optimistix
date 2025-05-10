@@ -86,7 +86,7 @@ class _ToRoot(AbstractIterativeSolver):
 
     def init(
         self, fn, y, args, options, constraint, bounds, f_struct, aux_struct, tags
-    ) -> tuple[Iterate, PyTree]:  # TODO typing
+    ) -> tuple[Iterate, PyTree]:
         orig_f_struct, _ = aux_struct
         init_iterate, init_state = self.solver.init(
             fn, y, args, options, constraint, bounds, f_struct, aux_struct, tags
