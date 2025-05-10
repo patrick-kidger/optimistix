@@ -1,7 +1,6 @@
 from collections.abc import Callable
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
@@ -269,7 +268,6 @@ class IPOPTLikeFilteredLineSearch(
 
             predicted_reduction = self.slope * grad_dot
             armijo_ = merit_min_eval_ <= f + predicted_reduction
-            jax.debug.print("in armijo: phi(x) improved {}", armijo_)
 
             filtered, filter = state.filter(current_values_, jnp.invert(armijo_))
             return armijo_ & filtered, filter
@@ -279,11 +277,9 @@ class IPOPTLikeFilteredLineSearch(
 
             constraint_viol_ = (1 - self.constraint_decrease) * constraint_violation
             improves_constraints = constraint_violation_eval_ <= constraint_viol_
-            jax.debug.print("in improve: c(x) improved {}", improves_constraints)
 
             merit_min_ = f - self.constraint_weight * constraint_violation
             improves_merit = merit_min_eval_ <= merit_min_
-            jax.debug.print("in improve: f(x) improved {}", improves_merit)
 
             improves_either = improves_constraints | improves_merit
 
@@ -297,7 +293,6 @@ class IPOPTLikeFilteredLineSearch(
         step_size = jnp.where(
             accept, self.step_init, self.decrease_factor * state.step_size
         )
-        jax.debug.print("step_size: {}", step_size)  # TODO
 
         # # Invoke feasibility restoration if step length becomes tiny
         # result = RESULTS.where(
