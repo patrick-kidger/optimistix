@@ -10,6 +10,7 @@ from jaxtyping import Array, Bool, Int, PyTree, Scalar
 from .._custom_types import Aux, Constraint, EqualityOut, Fn, InequalityOut, Y
 from .._minimise import AbstractMinimiser
 from .._misc import cauchy_termination, max_norm, verbose_print
+from .._search import Iterate
 from .._solution import RESULTS
 
 
@@ -20,7 +21,9 @@ class _OptaxState(eqx.Module):
     terminate: Bool[Array, ""]
 
 
-class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
+class OptaxMinimiser(
+    AbstractMinimiser[Y, Iterate.Primal, Aux, _OptaxState],
+):
     """A wrapper to use Optax first-order gradient-based optimisers with
     [`optimistix.minimise`][].
     """
@@ -68,32 +71,32 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         f_struct: PyTree[jax.ShapeDtypeStruct],
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _OptaxState:
-        # TODO jhaffner: make it clear that constraint, bounds are not yet handled
-        del fn, args, options, constraint, bounds, aux_struct
+    ) -> tuple[Iterate.Primal, _OptaxState]:
         opt_state = self.optim.init(y)
         maxval = jnp.array(jnp.finfo(f_struct.dtype).max, f_struct.dtype)
-        return _OptaxState(
+        state = _OptaxState(
             step=jnp.array(0), f=maxval, opt_state=opt_state, terminate=jnp.array(False)
         )
+        return Iterate.Primal(y), state
 
     def step(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _OptaxState,
         tags: frozenset[object],
-    ) -> tuple[Y, _OptaxState, Aux]:
+    ) -> tuple[Iterate.Primal, _OptaxState, Aux]:
         del options, constraint, bounds
+        y = iterate.y
         (f, aux), grads = eqx.filter_value_and_grad(fn, has_aux=True)(y, args)
         f = cast(Array, f)
         if len(self.verbose) > 0:
@@ -122,33 +125,32 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         new_state = _OptaxState(
             step=state.step + 1, f=f, opt_state=new_opt_state, terminate=terminate
         )
-        return new_y, new_state, aux
+        return Iterate.Primal(new_y), new_state, aux
 
     def terminate(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _OptaxState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
-        del fn, args, options, constraint, bounds
         return state.terminate, RESULTS.successful
 
     def postprocess(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _OptaxState,
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return iterate.y, aux, {}
