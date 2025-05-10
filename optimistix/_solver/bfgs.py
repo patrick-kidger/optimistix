@@ -36,6 +36,7 @@ from .._search import (
     AbstractDescent,
     AbstractSearch,
     FunctionInfo,
+    Iterate,
 )
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
@@ -179,7 +180,9 @@ class _OldBFGSState(
 
 
 class AbstractOldBFGS(
-    AbstractMinimiser[Y, Aux, _OldBFGSState], Generic[Y, Aux, _Hessian], strict=True
+    AbstractMinimiser[Y, Iterate.Primal, Aux, _OldBFGSState],
+    Generic[Y, Aux, _Hessian],
+    strict=True,
 ):
     """Abstract BFGS (Broyden--Fletcher--Goldfarb--Shanno) minimisation algorithm.
 
@@ -219,7 +222,7 @@ class AbstractOldBFGS(
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _OldBFGSState:
+    ) -> tuple[Iterate.Primal, _OldBFGSState]:
         clip = options.get("clip", False)
         if clip and bounds is None:
             raise ValueError("If clip is True, bounds must be provided.")
@@ -248,31 +251,33 @@ class AbstractOldBFGS(
                 constraint_jacobians,  # pyright: ignore  # TODO fix this!!
             )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
-        return _OldBFGSState(
+        state = _OldBFGSState(
             first_step=jnp.array(True),
             y_eval=y,
             search_state=self.search.init(y, f_info_struct),
-            f_info=f_info,
+            f_info=f_info,  # pyright: ignore (union of hessian, hessian_inv)
             aux=tree_full_like(aux_struct, 0),
             descent_state=self.descent.init(y, f_info_struct),
             terminate=jnp.array(False),
             result=RESULTS.successful,
             num_accepted_steps=jnp.array(0),
         )
+        return Iterate.Primal(y), state
 
     def step(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,  # TODO typing
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
         bounds: Union[tuple[Y, Y], None],
         state: _OldBFGSState,
         tags: frozenset[object],
-    ) -> tuple[Y, _OldBFGSState, Aux]:
+    ) -> tuple[Iterate.Primal, _OldBFGSState, Aux]:  # TODO iterate type
         autodiff_mode = options.get("autodiff_mode", "bwd")
         clip = options.get("clip", False)
+        y = iterate.y
 
         if constraint is not None:
             evaluated = evaluate_constraint(constraint, state.y_eval)
@@ -374,12 +379,12 @@ class AbstractOldBFGS(
             result=result,
             num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
         )
-        return y, state, aux
+        return Iterate.Primal(y), state, aux
 
     def terminate(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
@@ -392,7 +397,7 @@ class AbstractOldBFGS(
     def postprocess(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
@@ -402,7 +407,7 @@ class AbstractOldBFGS(
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return iterate.y, aux, {}
 
 
 # TODO: retire AbstractBFGS and inherit from AbstractQuasiNewton instead. Now not doing
