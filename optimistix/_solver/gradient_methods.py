@@ -32,6 +32,7 @@ from .._search import (
     AbstractDescent,
     AbstractSearch,
     FunctionInfo,
+    Iterate,
 )
 from .._solution import RESULTS
 from .learning_rate import LearningRate
@@ -54,12 +55,12 @@ class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState]):
 
     norm: Callable[[PyTree], Scalar] | None = None
 
-    def init(self, y: Y, f_info_struct: _FnInfo) -> _SteepestDescentState:
+    def init(self, y: Y, f_info_struct: _FnInfo) -> _SteepestDescentState:  # pyright: ignore
         del f_info_struct
         # Dummy; unused
         return _SteepestDescentState(y)
 
-    def query(
+    def query(  # pyright: ignore
         self, y: Y, f_info: _FnInfo, state: _SteepestDescentState
     ) -> _SteepestDescentState:
         if isinstance(
@@ -114,7 +115,9 @@ class _GradientDescentState(
     result: RESULTS
 
 
-class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
+class AbstractGradientDescent(
+    AbstractMinimiser[Y, Iterate.Primal, Aux, _GradientDescentState],
+):
     """The gradient descent method for unconstrained minimisation.
 
     At every step, this algorithm performs a line search along the steepest descent
@@ -152,12 +155,12 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         y: Y,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _GradientDescentState:
+    ) -> tuple[Iterate.Primal, _GradientDescentState]:
         del constraint  # TODO jhaffner: these are not handled. Currently writing None
         # into FunctionInfo.Eval. This should be handled properly - raising errors, and
         # making things explicit in the documentation.
@@ -168,7 +171,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
             jnp.zeros(f_struct.shape, f_struct.dtype), y, bounds
         )
         f_info_struct = jax.eval_shape(lambda: f_info)
-        return _GradientDescentState(
+        state = _GradientDescentState(
             first_step=jnp.array(True),
             y_eval=y,
             search_state=self.search.init(y, f_info_struct),
@@ -178,19 +181,22 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
             terminate=jnp.array(False),
             result=RESULTS.successful,
         )
+        return Iterate.Primal(y), state
 
     def step(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _GradientDescentState,
         tags: frozenset[object],
-    ) -> tuple[Y, _GradientDescentState, Aux]:
+    ) -> tuple[Iterate.Primal, _GradientDescentState, Aux]:
         autodiff_mode = options.get("autodiff_mode", "bwd")
+        y = iterate.y
+
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
@@ -259,16 +265,16 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
             terminate=terminate,
             result=result,
         )
-        return y, state, aux
+        return Iterate.Primal(y), state, aux
 
     def terminate(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _GradientDescentState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
@@ -277,17 +283,17 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
     def postprocess(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
-        constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
-        bounds: Union[tuple[Y, Y], None],
+        constraint: Constraint[Y, EqualityOut, InequalityOut] | None,
+        bounds: tuple[Y, Y] | None,
         state: _GradientDescentState,
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return iterate.y, aux, {}
 
 
 class GradientDescent(AbstractGradientDescent[Y, Aux]):
