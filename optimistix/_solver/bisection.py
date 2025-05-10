@@ -194,11 +194,11 @@ class Bisection(
     ) -> tuple[Iterate.ScalarPrimal, _BisectionState, Aux]:
         del options, constraint, bounds
 
-        y = iterate.y
-        error, aux = fn(y, args)
+        error, aux = fn(iterate.y, args)
         negative = state.flip ^ (error < 0)
-        new_lower = jnp.where(negative, y, state.lower)
-        new_upper = jnp.where(negative, state.upper, y)
+        new_lower = jnp.where(negative, iterate.y, state.lower)
+        new_upper = jnp.where(negative, state.upper, iterate.y)
+
         new_y = new_lower + 0.5 * (new_upper - new_lower)
         new_state = _BisectionState(
             lower=new_lower, upper=new_upper, flip=state.flip, error=error
@@ -208,7 +208,7 @@ class Bisection(
     def terminate(
         self,
         fn: Fn[Scalar, Scalar, Aux],
-        iterate: Iterate.ScalarPrimal,  # TODO typing
+        iterate: Iterate.ScalarPrimal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Constraint[Scalar, EqualityOut, InequalityOut] | None,
@@ -225,7 +225,7 @@ class Bisection(
     def postprocess(
         self,
         fn: Fn[Scalar, Scalar, Aux],
-        iterate: Iterate.ScalarPrimal,  # TODO typing
+        iterate: Iterate.ScalarPrimal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
