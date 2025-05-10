@@ -36,6 +36,7 @@ from .._search import (
     AbstractDescent,
     AbstractSearch,
     FunctionInfo,
+    Iterate,
 )
 from .._solution import RESULTS
 from .bfgs import identity_pytree
@@ -238,7 +239,7 @@ def _initialise_multipliers(iterate__f_info):
     safe_inequality_multipliers = jtu.tree_map(truncate, inequality_multipliers)
     safe_duals = (safe_equality_multipliers, safe_inequality_multipliers)
 
-    return Iterate(
+    return _Iterate(
         iterate.y_eval,
         iterate.slack,  # TODO: we're not currently updating the slack variables here!
         safe_duals,  # Only multipliers were updated
@@ -405,7 +406,7 @@ def _error(
     return jnp.max(jnp.asarray(errata))
 
 
-class Iterate(eqx.Module, Generic[Y, EqualityOut, InequalityOut], strict=True):
+class _Iterate(eqx.Module, Generic[Y, EqualityOut, InequalityOut], strict=True):
     y_eval: Y  # TODO: or more concisely rename y?
     slack: InequalityOut | None
     multipliers: tuple[EqualityOut, InequalityOut] | None
@@ -445,7 +446,9 @@ class _IPOPTLikeState(
 # - second-order correction
 # - what happens to dual variables after feasibility restoration?
 class AbstractIPOPTLike(
-    AbstractMinimiser[Y, Aux, _IPOPTLikeState], Generic[Y, Aux], strict=True
+    AbstractMinimiser[Y, Iterate.Primal, Aux, _IPOPTLikeState],
+    Generic[Y, Aux],
+    strict=True,
 ):
     """Abstract IPOPT-like solver. Uses a filtered line search and an interior descent,
     and restores feasibility by solving a nonlinear subproblem if required. Approximates
@@ -502,7 +505,7 @@ class AbstractIPOPTLike(
         f_struct: jax.ShapeDtypeStruct,
         aux_struct: PyTree[jax.ShapeDtypeStruct],
         tags: frozenset[object],
-    ) -> _IPOPTLikeState:
+    ) -> tuple[Iterate.Primal, _IPOPTLikeState]:
         # TODO: Here we modify the initial value y0, to ensure that it is in the strict
         # interior with respect to the bound constraints. We then write this value into
         # the `iterate` attribute of the state. The way the solver is currently
@@ -572,7 +575,7 @@ class AbstractIPOPTLike(
         else:
             bound_multipliers = None
 
-        iterate = Iterate(
+        iterate = _Iterate(
             y,
             slack,
             tree_full_like(constraint_residual, 0.0),
@@ -580,7 +583,7 @@ class AbstractIPOPTLike(
             jnp.asarray(self.initial_barrier_parameter),
         )
 
-        return _IPOPTLikeState(
+        state = _IPOPTLikeState(
             first_step=jnp.array(True),
             iterate=iterate,
             search_state=self.search.init(y, f_info_struct),
@@ -591,25 +594,22 @@ class AbstractIPOPTLike(
             result=RESULTS.successful,
             num_accepted_steps=jnp.array(0),
         )
+        return Iterate.Primal(y), state
 
     def step(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
         bounds: Union[tuple[Y, Y], None],
         state: _IPOPTLikeState,
         tags: frozenset[object],
-    ) -> tuple[Y, _IPOPTLikeState, Aux]:
+    ) -> tuple[Iterate.Primal, _IPOPTLikeState, Aux]:
         # TODO: support autodiff mode for the constraints too
         autodiff_mode = options.get("autodiff_mode", "bwd")
-
-        jax.debug.print("y_eval in step: {}", state.iterate.y_eval)
-        jax.debug.print(
-            "bound_multipliers in step: {}", state.iterate.bound_multipliers
-        )
+        y = iterate.y  # TODO typing
 
         # TODO names! duals, boundary_multipliers? constraint_multipliers, bound_mult..?
         # y_eval, duals, bound_multipliers, barrier = state.iterate
@@ -647,7 +647,6 @@ class AbstractIPOPTLike(
         # modify the iterate in the rejected branch.
         # Right now working around this by having iterate, and iterate_
         def accepted(states):
-            jax.debug.print("accepted step")
             _, descent_state = states
 
             grad = lin_to_grad(
@@ -785,7 +784,6 @@ class AbstractIPOPTLike(
         y, f_info, aux, search_state, descent_state, terminate, barrier = filter_cond(
             accept, accepted, rejected, (search_state, state.descent_state)
         )
-        jax.debug.print("barrier in step: {}", barrier)
 
         if len(self.verbose) > 0:
             verbose_loss = "loss" in self.verbose
@@ -837,7 +835,7 @@ class AbstractIPOPTLike(
             # slack_bounds = (tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf)
             # slack = _interior_tree_clip(slack, *slack_bounds, 0.01, 0.01)
 
-            # new_iterate = Iterate(
+            # new_iterate = _Iterate(
             #     recovered_y,
             #     slack,
             #     iterate_eval.multipliers,
@@ -902,13 +900,12 @@ class AbstractIPOPTLike(
         if not FEASIBILITY_RESTORATION:  # Disable during debugging of other features
             requires_restoration = jnp.array(False)
         state = filter_cond(requires_restoration, restore, regular_update, args)
-        jax.debug.print("")
-        return y, state, aux
+        return Iterate.Primal(y), state, aux
 
     def terminate(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         args: PyTree,
         options: dict[str, Any],
         constraint: Union[Constraint[Y, EqualityOut, InequalityOut], None],
@@ -921,7 +918,7 @@ class AbstractIPOPTLike(
     def postprocess(
         self,
         fn: Fn[Y, Scalar, Aux],
-        y: Y,
+        iterate: Iterate.Primal,
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
@@ -931,7 +928,7 @@ class AbstractIPOPTLike(
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return iterate.y, aux, {}
 
 
 # TODO: name of descent
