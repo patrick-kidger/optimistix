@@ -179,12 +179,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
             # in this case `hessian` is the new inverse hessian
             return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian)
         else:
-            # TODO: dummy values - I want to sort out the API for FunctionInfo before
-            # introducing that here. (SLSQP, L-BFGS...)
-            null_y = tree_full_like(y, 0.0)
-            return FunctionInfo.EvalGradHessian(
-                f_eval, grad, hessian, null_y, None, None, None, None
-            )
+            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian, None, None, None)
 
 
 class DFPUpdate(_AbstractBFGSDFPUpdate):
@@ -334,7 +329,7 @@ class AbstractQuasiNewton(
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
-    descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
+    descent: AbstractVar[AbstractDescent[Y, Iterate.Primal, _Hessian, Any]]
     search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
     hessian_update: AbstractVar[AbstractQuasiNewtonUpdate]
     verbose: AbstractVar[frozenset[str]]
@@ -366,8 +361,6 @@ class AbstractQuasiNewton(
                 f,
                 grad,
                 hessian,
-                y,
-                None,
                 None,
                 None,
                 None,
@@ -378,9 +371,9 @@ class AbstractQuasiNewton(
             first_step=jnp.array(True),
             y_eval=y,
             search_state=self.search.init(y, f_info_struct),
-            f_info=f_info,  # pyright: ignore (union of hessian, hessian_inf)
+            f_info=f_info,  # pyright: ignore (union of hessian, hessian_inf) TODO
             aux=tree_full_like(aux_struct, 0),
-            descent_state=self.descent.init(y, f_info_struct),
+            descent_state=self.descent.init(y, f_info_struct),  # pyright: ignore TODO
             terminate=jnp.array(False),
             result=RESULTS.successful,
             num_accepted_steps=jnp.array(0),

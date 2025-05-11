@@ -91,11 +91,9 @@ def bfgs_update(
     prev_grad,
     hessian,
     hessian_inv,
-    y_eval,
     y_diff,
     bounds,
     constraint_residual,
-    constraint_bound,
     constraint_jac,
 ):
     grad_diff = (grad**ω - prev_grad**ω).ω
@@ -148,10 +146,8 @@ def bfgs_update(
             f_eval,
             grad,
             hessian,
-            y_eval,
             bounds,
             constraint_residual,
-            constraint_bound,
             constraint_jac,
         )
 
@@ -179,6 +175,10 @@ class _OldBFGSState(
     num_accepted_steps: Int[Array, ""]
 
 
+# TODO: we're keeping this around for now to avoid breaking existing and somewhat less
+# important code - this was the first solver for which I had written modular constrained
+# descents, and the stuff that is tested on it needs to be migrated to one of the new
+# quasi Newton solvers.
 class AbstractOldBFGS(
     AbstractMinimiser[Y, Iterate.Primal, Aux, _OldBFGSState],
     Generic[Y, Aux, _Hessian],
@@ -207,7 +207,7 @@ class AbstractOldBFGS(
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
     use_inverse: AbstractVar[bool]
-    descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
+    descent: AbstractVar[AbstractDescent[Y, Iterate.Primal, _Hessian, Any]]
     search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
     verbose: AbstractVar[frozenset[str]]
 
@@ -229,9 +229,9 @@ class AbstractOldBFGS(
 
         if constraint is not None:
             evaluated = evaluate_constraint(constraint, y)
-            constraint_residual, constraint_bound, constraint_jacobians = evaluated
+            constraint_residual, constraint_jacobians = evaluated
         else:
-            constraint_residual = constraint_bound = constraint_jacobians = None
+            constraint_residual = constraint_jacobians = None
 
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
@@ -244,10 +244,8 @@ class AbstractOldBFGS(
                 f,
                 grad,
                 hessian,
-                y,
                 bounds,
                 constraint_residual,
-                constraint_bound,
                 constraint_jacobians,  # pyright: ignore  # TODO fix this!!
             )
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
@@ -257,7 +255,7 @@ class AbstractOldBFGS(
             search_state=self.search.init(y, f_info_struct),
             f_info=f_info,  # pyright: ignore (union of hessian, hessian_inv)
             aux=tree_full_like(aux_struct, 0),
-            descent_state=self.descent.init(y, f_info_struct),
+            descent_state=self.descent.init(y, f_info_struct),  # pyright: ignore
             terminate=jnp.array(False),
             result=RESULTS.successful,
             num_accepted_steps=jnp.array(0),
@@ -281,9 +279,9 @@ class AbstractOldBFGS(
 
         if constraint is not None:
             evaluated = evaluate_constraint(constraint, state.y_eval)
-            constraint_residual, constraint_bound, constraint_jacobians = evaluated
+            constraint_residual, constraint_jacobians = evaluated
         else:
-            constraint_residual = constraint_bound = constraint_jacobians = None
+            constraint_residual = constraint_jacobians = None
 
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
@@ -316,11 +314,9 @@ class AbstractOldBFGS(
                 state.f_info.grad,
                 hessian,
                 hessian_inv,
-                state.y_eval,
                 y_diff,
                 bounds,
                 constraint_residual,
-                constraint_bound,
                 constraint_jacobians,
             )
 
