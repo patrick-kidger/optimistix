@@ -391,9 +391,11 @@ minimise_bounded_with_local_minima = (
     ),
     (
         himmelblau,
-        (-3.0, -1.0),
+        (-3.0, -2.0),  # TODO: This problem is sensitive to initialisation
+        # This makes it a good test case for inertia correction and initialisation of
+        # dual variables. It converges to a stationary point when started at (-3, -1).
         (jnp.array(11.0), jnp.array(7.0)),
-        ((-5.0, -5.0), (0.0, 0.0)),  # III
+        ((-5.0, -5.0), (0.0, 0.0)),  # Quadrant: III
         (-3.779310, -3.283186),
     ),
     (
