@@ -422,14 +422,11 @@ minimise_fn_y0_args_constraint_expected_result = (
         scalar_rosenbrock,
         (1.0, 0.0),
         None,
-        lambda y: (2 - y[1], None),  # y == 2, only x optimised
-        (1.0, 2.0),
+        lambda y: (2 - y[1], None),  # y == 2
+        (1.41369616, 2.0),
     ),
-    # This does not solve for anything, both variables are determined. What should we
-    # do in this case? The solve should terminate quickly - how can we test for this?
-    # Include some extra argument in the test case that can trigger an additional check?
-    # Like optional and then if optional is not None: do some check on the solution
-    # object.
+    # Both variables are determined by equality constraints - check that we still do the
+    # right thing. Does not currently check the number of iterations, though!
     (
         scalar_rosenbrock,
         (1.0, 0.0),
@@ -437,29 +434,26 @@ minimise_fn_y0_args_constraint_expected_result = (
         lambda y: (jnp.array([1.2 - y[1], 1.2 - y[0]]), None),  # y = x = 1.2
         (1.2, 1.2),
     ),
-    # Infeasible starting point and nonlinear constraint, convex in search region.
-    # Scipy gets the same result with trust-constr if the starting point is better.
-    # Otherwise, scipy converges to stationary point of the Lagrangian: (-0.16,  0.036)
-    # IPOPTLike is also sensitive to infeasible starting points! It fails when I use
-    # (1.0, 0.0) as the starting point. TODO! This needs to be fixed - alternatively I
-    # could expose the feasibility restoration - once its improved - as a separate
-    # helper function so people can find a good starting point (?) and then simply
-    # require a feasible starting point.
-    # TODO: this can apparently still result in a doom loop of the feasibility
-    # restoration! It seems that this one is a good candidate to fix now.
-    # (
-    #     scalar_rosenbrock,
-    #     (0.0, 0.0),  # infeasible starting point
-    #     None,
-    #     lambda y: (jnp.sin(y[0]) + 0.2 - y[1], None),  # y <= sin(x) + 0.2
-    #     (1.02754803, 1.05603404),
-    # ),
-    # Smoke test if x = y - but tiny offset can trigger a doom loop unless the
-    # feasibility restoration does a good job. ??? y = x + 0.01 fails. Does this depend
-    # on the starting value?
+    # TODO: this is a good problem to validate the inertia correction on. Both our IPOPT
+    # and the scipy trust-constr interior point solver converge to a stationary point
+    # of the Lagrangian when started at the origin. (This did not happen with quasi-
+    # Newton Hessian approximations, but we currently don't use them).
+    # Nonlinear constraint, convex in search region.
+    # TODO: start at origin should go into the tricky geometries test cases
     (
         scalar_rosenbrock,
-        (0.0, 0.0),
+        (1.0, 0.0),
+        None,
+        lambda y: (jnp.sin(y[0]) + 0.2 - y[1], None),  # y <= sin(x) + 0.2
+        (1.02754803, 1.05603404),
+    ),
+    # TODO: Currently does not manage to leave the local minimum if started at the
+    # origin. Good test case to validate second order corrections, since the line
+    # defined by the equality constraint goes through the local and global minimum.
+    # TODO: add this - with start at origin - to the tricky geometries test cases
+    (
+        scalar_rosenbrock,
+        (2.0, 0.0),
         None,
         lambda y: (
             y[0] - y[1],
@@ -467,17 +461,13 @@ minimise_fn_y0_args_constraint_expected_result = (
         ),  # y <= x + 0.01  # TODO fix this for small offset
         (1.0, 1.0),
     ),
-    # This problem is infeasible, the two parabolas only converge at infinity. However,
-    # they may get close enough to be within tolerances. What do I hope to test with
-    # this, exactly? That we raise a certificate of infeasibility?
-    # (
-    #     scalar_rosenbrock,
-    #     (1.0, 0.0),
-    #     None,
-    #     lambda y: (y[0] ** 2 + 0.1 - y[1], None),  # y <= x**2 + 0.1, path exactly
-    # along parabola
-    #     (1.0, 1.0),
-    # ),
+    (
+        scalar_rosenbrock,
+        (1.0, 0.0),
+        None,
+        lambda y: (y[0] ** 2 + 0.1 - y[1], None),
+        (1.0, 1.1),
+    ),
 )
 
 
@@ -564,7 +554,7 @@ outside_nonconvex_set__y_constraint_bounds_expected_result = (
 )
 
 
-# Problems for filtered line search
+# Problems for IPOPT
 # Solvers that compute steps that satisfy linearized constraints and employ a line
 # search without any mechanism to trade off improvement in the objective and improvement
 # in the feasibility of the problem can fail if the feasible set is not defined by a
@@ -572,6 +562,11 @@ outside_nonconvex_set__y_constraint_bounds_expected_result = (
 # solvers of this type cannot converge to the solution depending on the starting point.
 # For a more in-depth discussion of this example, see sections 3.3.3 and 4.1 of this
 # thesis: https://users.iems.northwestern.edu/~andreasw/pubs/waechter_thesis.pdf
+# Note that they say that this tests the "filtered line search", but by that they mean
+# the whole algorithm - solving these problems hinges on being able to change direction,
+# not just on being able to accept steps that improve the constraint violation without
+# improving the objective function. Changed directions can come from second-order
+# corrections, or from a feasibility restoration phase.
 
 
 def inaccessible_region(y, args):
@@ -584,7 +579,7 @@ def constraint_inaccessible_region(y):
     x1, x2, x3 = y
     c1 = x1**2 - x2 - 1
     c2 = x1 - x3 - 0.5
-    return jnp.array([c1, c2]), None  # TODO: test PyTree-of-arrays for constraints
+    return [c1, c2], None  # equality constraint is simple pytree
 
 
 tricky_geometries__fn_y0_args_constraint_bounds_expected_result = (
