@@ -2,15 +2,13 @@ from collections.abc import Callable
 
 import equinox as eqx
 import jax.numpy as jnp
-import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Float, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Y
-from .._misc import filter_cond, max_norm, tree_dot, tree_full_like
-from .._search import AbstractSearch, FunctionInfo
+from .._misc import filter_cond, max_norm
+from .._search import AbstractSearch, FunctionInfo, Iterate
 from .._solution import RESULTS
-from .barrier import LogarithmicBarrier
 
 
 # TODO: for modularity: allow disabling of the invocation of the feasibility restoration
@@ -140,7 +138,17 @@ class IPOPTLikeFilteredLineSearch(
         ```
     """
 
+    # TODO: note that it is up to the solver that calls the filtered line search to
+    # provide merit function values and a merit function gradient. This is neither
+    # checked nor required here. In addition, a constraint residual is also not required
+    # - if it is not provided, then the search falls back to a filtered Armijo line
+    # search.
+
     buffer_size: int = 2**8
+    # Note: should we guard against the search using a different norm than the solver?
+    # TODO: think about this - maybe throw a warning? It would mean that the search
+    # uses a different norm to compute the constraint violation than the solver does
+    # when computing e.g. the KKT error.
     norm: Callable[[PyTree], Scalar] = max_norm
     decrease_factor: ScalarLike = 0.5  # alpha_red_factor in IPOPT, in (0, 1)
     slope: ScalarLike = 1e-4  # ita_phi in IPOPT, in (0, 0.5)
@@ -171,103 +179,45 @@ class IPOPTLikeFilteredLineSearch(
             filter=_Filter(previous_values),
         )
 
-    def step(
+    def step(  # pyright: ignore  # TODO switch up AbstractSearch to accept iterates
         self,
         first_step: Bool[Array, ""],
-        y: Y,
-        y_eval: Y,
+        iterate: Iterate.PrimalDual,
+        iterate_eval: Iterate.PrimalDual,
         f_info: FunctionInfo.EvalGradHessian,
         f_eval_info: FunctionInfo.Eval,
         state: _IPOPTLikeFilteredLineSearchState,
     ) -> tuple[Scalar, Bool[Array, ""], RESULTS, _IPOPTLikeFilteredLineSearchState]:
-        # msg = "IPOPTLikeFilteredLineSearch requires a constraint residual."
-        # if f_info.constraint_residual is None:
-        #     raise ValueError(msg)
-        # if f_eval_info.constraint_residual is None:
-        #     raise ValueError(msg)
+        # TODO: initialise filter if first_step?
+        step = (iterate_eval.y**ω - iterate.y**ω).ω
+        grad_dot = f_info.compute_grad_dot(step)
 
-        # TODO: initialise filter if first_step
-
-        # CONSTRUCTION SITE: Barrier transformation ------------------------------------
-        # This should be handled in the solver, honestly.
-        f = f_info.f
-        f_eval = f_eval_info.f
-        f_grad = f_info.grad
-        if f_info.bounds is not None:
-            barrier = LogarithmicBarrier(f_info.bounds)
-            f = f + barrier(y, 1e-2)  # TODO: get barrier parameter from iterate
-            f_eval = f_eval + barrier(y_eval, 1e-2)
-
-            lower_grad, upper_grad = barrier.grads(y, 1e-2)
-            f_grad = (f_grad**ω + lower_grad**ω + upper_grad**ω).ω
-
-        # Add the slack variables to the merit function
-        # TODO: get this value from a structured iterate (and anyway move everything
-        # merit function related to the solver, the search should be able to be
-        # blissfully ignorant of the merit function).
         if f_info.constraint_residual is not None:
-            _, slack = f_info.constraint_residual
-            if slack is not None:
-                _, slack_eval = f_eval_info.constraint_residual  # pyright: ignore
-                slack = jtu.tree_map(lambda x: jnp.where(x > 0, x, 1e-10), slack)
-                slack_eval = jtu.tree_map(
-                    lambda x: jnp.where(x > 0, x, 1e-10), slack_eval
-                )
-                slack_bds = tree_full_like(slack, 0.0), tree_full_like(slack, jnp.inf)
-                slack_barrier = LogarithmicBarrier(slack_bds)
-
-                _barrier = jnp.array(1e-2)  # TODO get barrier parameter from iterate
-                f = jnp.astype(f, _barrier.dtype) + slack_barrier(slack, _barrier)
-                f_eval = f_eval + slack_barrier(slack_eval, _barrier)
-        # CONSTRUCTION SITE ENDS -------------------------------------------------------
-
-        # ANOTHER CONSTRUCTION SITE BEGINS ---------------------------------------------
-        if f_info.constraint_residual is not None:
-            # TODO: this should become an attribute of FunctionInfo
-            # It is anyway required for a lot of different solvers, and during
-            # termination too.
-            equality_residual, inequality_residual = f_info.constraint_residual
-            equality_violation = self.norm(equality_residual)
-            inequality_violation = self.norm(
-                jtu.tree_map(lambda x: jnp.where(x < 0, x, 0.0), inequality_residual)
+            constraint_violation = f_info.constraint_violation(iterate, self.norm)
+            constraint_violation_eval = f_eval_info.constraint_violation(
+                iterate_eval, self.norm
             )
-            constraint_violation = equality_violation + inequality_violation
 
-            (
-                equality_residual_eval,
-                inequality_residual_eval,
-            ) = f_eval_info.constraint_residual  # pyright: ignore
-            equality_violation_eval = self.norm(equality_residual_eval)
-            inequality_violation_eval = self.norm(
-                jtu.tree_map(
-                    lambda x: jnp.where(x < 0, x, 0.0), inequality_residual_eval
-                )
+            # Decide if the constraint violation may be ignored based on gradient values
+            # and the constraint violation at the accepted *previous* step y, and the
+            # proposed step y_eval - y.
+            neglect_constraints = constraint_violation < self.acceptable_violation
+            scaled_violation = self.scale_constraint * (
+                constraint_violation**self.power_constraint
             )
-            constraint_violation_eval = (
-                equality_violation_eval + inequality_violation_eval
-            )
+            scaled_grad_dot = (-grad_dot) ** self.power_merit
+            pred = neglect_constraints & (scaled_grad_dot > scaled_violation)
         else:
-            # TODO: will they get past the filter?
-            constraint_violation = constraint_violation_eval = jnp.array(0.0)
-        ### CONSTRUCTION SITE ENDS -----------------------------------------------------
-
-        # Decide if the constraint violation may be ignored based on gradient values
-        # and the constraint violation at the accepted *previous* step y, and the
-        # proposed step y_eval - y.
-        neglect_constraints = constraint_violation < self.acceptable_violation
-        scaled_violation = self.scale_constraint * (
-            constraint_violation**self.power_constraint
-        )
-        step = (y_eval**ω - y**ω).ω
-        grad_dot = tree_dot(f_grad, step)  # this should be the gradient
-        scaled_grad_dot = (-grad_dot) ** self.power_merit
-        pred = neglect_constraints & (scaled_grad_dot > scaled_violation)
+            # Max value so that it does not influence the filter
+            max_value = jnp.finfo(f_info.f.dtype).max
+            constraint_violation = constraint_violation_eval = jnp.array(max_value)
+            pred = jnp.array(True)
 
         def armijo(current_values_):
             merit_min_eval_, _ = current_values_
 
             predicted_reduction = self.slope * grad_dot
-            armijo_ = merit_min_eval_ <= f + predicted_reduction
+            armijo_ = merit_min_eval_ <= f_info.f + predicted_reduction
 
             filtered, filter = state.filter(current_values_, jnp.invert(armijo_))
             return armijo_ & filtered, filter
@@ -278,7 +228,7 @@ class IPOPTLikeFilteredLineSearch(
             constraint_viol_ = (1 - self.constraint_decrease) * constraint_violation
             improves_constraints = constraint_violation_eval_ <= constraint_viol_
 
-            merit_min_ = f - self.constraint_weight * constraint_violation
+            merit_min_ = f_info.f - self.constraint_weight * constraint_violation
             improves_merit = merit_min_eval_ <= merit_min_
 
             improves_either = improves_constraints | improves_merit
@@ -286,7 +236,7 @@ class IPOPTLikeFilteredLineSearch(
             filtered, filter = state.filter(current_values_, True)  # Always augment
             return improves_either & filtered, filter
 
-        current_values = jnp.array([f_eval, constraint_violation_eval])
+        current_values = jnp.array([f_eval_info.f, constraint_violation_eval])
         accept, filter = filter_cond(pred, armijo, improve, current_values)
 
         accept = first_step | accept
