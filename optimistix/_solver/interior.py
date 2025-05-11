@@ -11,7 +11,7 @@ from jaxtyping import PyTree, Scalar
 
 from .._custom_types import Y
 from .._misc import feasible_step_length, tree_full_like, tree_min, tree_where
-from .._search import AbstractDescent, FunctionInfo
+from .._search import AbstractDescent, FunctionInfo, Iterate
 from .._solution import RESULTS
 from .barrier import LogarithmicBarrier
 
@@ -23,7 +23,7 @@ def _y_barrier__grad_operators(iterate, f_info):
     and (upper - y) for all elements with finite bounds. Finiteness operators indicate
     where the bounds are finite.
     """
-    y = iterate.y_eval
+    y = iterate.y
     multipliers = iterate.bound_multipliers
     barrier_parameter = iterate.barrier
 
@@ -123,8 +123,8 @@ def _iterate_bounds(iterate, f_info):
 
     if f_info.bounds is not None:
         lower, upper = f_info.bounds
-        iterate_lower = eqx.tree_at(lambda i: i.y_eval, iterate_lower, lower)
-        iterate_upper = eqx.tree_at(lambda i: i.y_eval, iterate_upper, upper)
+        iterate_lower = eqx.tree_at(lambda i: i.y, iterate_lower, lower)
+        iterate_upper = eqx.tree_at(lambda i: i.y, iterate_upper, upper)
     if iterate.slack is not None:
         positive = tree_full_like(iterate.slack, 0.0)
         iterate_lower = eqx.tree_at(lambda i: i.slack, iterate_lower, positive)
@@ -323,7 +323,7 @@ class _UnconstrainedKKTSystem(_AbstractKKTSystem):
         del f_info
         y_step = out.value
         iterate_step = tree_full_like(iterate, 0.0)  # Default to no steps
-        iterate_step = eqx.tree_at(lambda i: i.y_eval, iterate_step, y_step)
+        iterate_step = eqx.tree_at(lambda i: i.y, iterate_step, y_step)
         result = RESULTS.promote(out.result)
         return iterate_step, result
 
@@ -394,7 +394,7 @@ class _BoundedUnconstrainedKKTSystem(_AbstractKKTSystem):
 
         y_step, m_steps = out.value
         step = tree_full_like(iterate, 0.0)
-        step = eqx.tree_at(lambda i: i.y_eval, step, y_step)
+        step = eqx.tree_at(lambda i: i.y, step, y_step)
         step = eqx.tree_at(lambda i: i.bound_multipliers, step, m_steps)
         step = _maybe_truncate(iterate, step, f_info)
 
@@ -492,7 +492,7 @@ class _BoundedInequalityConstrainedKKTSystem(_AbstractKKTSystem):
         multiplier_step = (None, multiplier_step)  # No equality constraints
 
         step = tree_full_like(iterate, 0.0)
-        step = eqx.tree_at(lambda i: i.y_eval, step, y_step)
+        step = eqx.tree_at(lambda i: i.y, step, y_step)
         step = eqx.tree_at(lambda i: i.slack, step, slack_step)
         step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_step)
         step = eqx.tree_at(lambda i: i.bound_multipliers, step, bound_multiplier_step)
@@ -591,7 +591,7 @@ class _BoundedEqualityInequalityConstrainedKKTSystem(_AbstractKKTSystem):
         slack_steps = (-(slack_steps**ω)).ω
 
         step = tree_full_like(iterate, 0.0)
-        step = eqx.tree_at(lambda i: i.y_eval, step, y_steps)
+        step = eqx.tree_at(lambda i: i.y, step, y_steps)
         step = eqx.tree_at(lambda i: i.slack, step, slack_steps)
         step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_steps)
         step = eqx.tree_at(lambda i: i.bound_multipliers, step, bound_multiplier_steps)
@@ -733,7 +733,7 @@ class _BoundedEqualityConstrainedKKTSystem(_AbstractKKTSystem):
             bound_multiplier_step = (lower_multiplier_step, upper_multiplier_step)
 
             step = tree_full_like(iterate, 0.0)
-            step = eqx.tree_at(lambda i: i.y_eval, step, y_step)
+            step = eqx.tree_at(lambda i: i.y, step, y_step)
             step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_step)
             step = eqx.tree_at(
                 lambda i: i.bound_multipliers, step, bound_multiplier_step
@@ -748,7 +748,7 @@ class _BoundedEqualityConstrainedKKTSystem(_AbstractKKTSystem):
             multiplier_step = (multiplier_step, None)  # No inequality constraints
 
             step = tree_full_like(iterate, 0.0)
-            step = eqx.tree_at(lambda i: i.y_eval, step, y_step)
+            step = eqx.tree_at(lambda i: i.y, step, y_step)
             step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_step)
             step = eqx.tree_at(
                 lambda i: i.bound_multipliers, step, bound_multiplier_step
@@ -810,7 +810,7 @@ class _InequalityConstrainedKKTSystem(_AbstractKKTSystem):
         multiplier_step = (None, multiplier_step)  # No equality constraints
 
         step = tree_full_like(iterate, 0.0)
-        step = eqx.tree_at(lambda i: i.y_eval, step, y_step)
+        step = eqx.tree_at(lambda i: i.y, step, y_step)
         step = eqx.tree_at(lambda i: i.slack, step, slack_step)
         step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_step)
         step = _maybe_truncate(iterate, step, f_info)
@@ -860,7 +860,7 @@ class _EqualityConstrainedKKTSystem(_AbstractKKTSystem):
         multiplier_step = (multiplier_step, None)  # No inequality constraints
 
         step = tree_full_like(iterate, 0.0)
-        step = eqx.tree_at(lambda i: i.y_eval, step, y_step)
+        step = eqx.tree_at(lambda i: i.y, step, y_step)
         step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_step)
         step = _maybe_truncate(iterate, step, f_info)
 
@@ -939,7 +939,7 @@ class _EqualityInequalityConstrainedKKTSystem(_AbstractKKTSystem):
         slack_steps = (-(slack_steps**ω)).ω
 
         step = tree_full_like(iterate, 0.0)
-        step = eqx.tree_at(lambda i: i.y_eval, step, y_steps)
+        step = eqx.tree_at(lambda i: i.y, step, y_steps)
         step = eqx.tree_at(lambda i: i.slack, step, slack_steps)
         step = eqx.tree_at(lambda i: i.multipliers, step, multiplier_steps)
         step = _maybe_truncate(iterate, step, f_info)
@@ -1002,7 +1002,9 @@ class _InteriorDescentState(eqx.Module):
 
 
 class NewInteriorDescent(
-    AbstractDescent[Y, FunctionInfo.EvalGradHessian, _InteriorDescentState],
+    AbstractDescent[
+        Y, Iterate.PrimalDual, FunctionInfo.EvalGradHessian, _InteriorDescentState
+    ],
 ):
     """A primal-dual descent through the interior of the feasible set. Primal-dual means
     that we update the primal variables `y` and any slack variables alongside the dual
@@ -1076,7 +1078,7 @@ class NewInteriorDescent(
         step, result = system.refine_and_truncate(iterate, f_info, out)
         return _InteriorDescentState(step, result, state.linear_solver_state)
 
-    def step(
+    def step(  # pyright: ignore
         self, step_size: Scalar, state: _InteriorDescentState
     ) -> tuple[Y, RESULTS]:
         # TODO Note that I *am* currently scaling the dual variables for the bounds too
