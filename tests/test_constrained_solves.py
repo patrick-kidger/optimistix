@@ -91,16 +91,15 @@ def test_constrained_minimisers(fn, y0, args, constraint, expected_result, solve
         y0,
         args=args,
         constraint=constraint,
-        # max_steps=50,  # Needs more steps than unconstrained solvers TODO: why?
-        # throw=False,  # TODO just for debugging
+        max_steps=25,  # Needs more steps than unconstrained solvers TODO: why?
+        throw=False,  # TODO just for debugging
     )
 
     res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
 
 
-@pytest.mark.skip(reason="Need to streamline constraint categories (support ineq.)")
-@pytest.mark.parametrize("solver", (optx.IPOPTLike(rtol=1e-3, atol=1e-3),))
+@pytest.mark.parametrize("solver", (optx.IPOPTLike(rtol=0.0, atol=1e-6),))
 @pytest.mark.parametrize(
     "fn, y0, args, constraint, expected_result",
     minimise_fn_y0_args_constraint_expected_result,
@@ -119,10 +118,7 @@ def test_ipoptlike(fn, y0, args, constraint, expected_result, solver):
     assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
 
 
-# TODO: this test should be unified with some of the other ones above! For now we're
-# collecting more test cases, but these still need to be systematized.
-@pytest.mark.skip(reason="some test cases do not provide inequality constraints.")
-@pytest.mark.parametrize("solver", (optx.IPOPTLike(rtol=1e-3, atol=1e-3),))
+@pytest.mark.parametrize("solver", (optx.IPOPTLike(rtol=0.0, atol=1e-6),))
 @pytest.mark.parametrize(
     "fn, y0, args, constraint, bounds, expected_result",
     tricky_geometries__fn_y0_args_constraint_bounds_expected_result,
@@ -139,7 +135,7 @@ def test_tricky_geometries(fn, y0, args, constraint, bounds, expected_result, so
     res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     # TODO: adjust tolerance once I have worked out how to do the barrier parameter
     # update.
-    assert tree_allclose(sol.value, res, rtol=1e-0, atol=1e-0)
+    assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
 
 
 # TODO(jhaffner): SLSQP with Cauchy-Newton currently struggles with the harder problems.
@@ -318,8 +314,7 @@ def test_new_interior(fn, y0, constraint, bounds, expected_result):
 
 @pytest.mark.parametrize(
     "fn, y0, args, bounds, expected_result",
-    # minimise_bounded_with_local_minima +
-    bounded_paraboloids[1:2],  # TODO
+    minimise_bounded_with_local_minima + bounded_paraboloids,
 )
 def test_bounds_new_interior(fn, y0, args, bounds, expected_result):
     solver = optx.IPOPTLike(rtol=0.0, atol=1e-6)
@@ -332,9 +327,8 @@ def test_bounds_new_interior(fn, y0, args, bounds, expected_result):
         y0,
         args,
         bounds=bounds,
-        max_steps=2**3,
     )
-    # TODO: hacky conversion of expected result necessary with PyTree inputs?
 
+    # TODO: hacky conversion of expected result necessary with PyTree inputs?
     res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
