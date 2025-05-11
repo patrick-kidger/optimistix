@@ -54,6 +54,9 @@
     ![Filtered line search Pareto frontier](../../_static/filter_pareto_frontier.gif)
 
     The filter can be reset, for example when the allowed step size becomes too small, 
-    or by re-initialising the search in solvers with adaptive barrier updates.
+    or by re-initialising the search in solvers with adaptive barrier updates. As this
+    animation illustrates, re-setting the filter generally does not necessarily 
+    endanger progress toward the solution - the Pareto principle means that we just need
+    a single really good point to block the vast majority of worse points.
 ---
 
