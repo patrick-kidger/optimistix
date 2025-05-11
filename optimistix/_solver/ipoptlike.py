@@ -40,7 +40,8 @@ from .._search import (
 )
 from .._solution import RESULTS
 from .barrier import LogarithmicBarrier
-from .bfgs import identity_pytree  # TODO: Move this to misc
+from .bfgs import BFGS_B, identity_pytree, OldBFGS  # TODO: Move this to misc
+from .boundary_maps import ClosestFeasiblePoint
 from .filtered import IPOPTLikeFilteredLineSearch
 from .interior import NewInteriorDescent
 
@@ -791,10 +792,34 @@ class AbstractIPOPTLike(
         ) | (descent_result == RESULTS.feasibility_restoration_required)
 
         def restore(args):
-            # This thing should be re-written from scratch. Deleting it all!
-            # It turns out that using BFGS-B is too heavy-handed for trajectory
-            # optimisation problems with tight bounds.
-            return state
+            # If the step size is too small, find the closest feasible point and then
+            # continue the search from there. This can likely be improved - we don't
+            # smooth the inequality constraints here, and BFGS-B can be heavy-handed
+            # since it is an active-set method.
+            if bounds is None:
+                solver = OldBFGS(rtol=1e-3, atol=1e-6)
+            else:
+                solver = BFGS_B(rtol=1e-3, atol=1e-6)
+            assert iterate.barrier is not None  # TODO: hotfix due to general PrimalDual
+            boundary_map = ClosestFeasiblePoint(jnp.sqrt(iterate.barrier), solver)
+            recovered_y, result = boundary_map(state.iterate_eval.y, constraint, bounds)
+
+            new_iterate_eval = eqx.tree_at(
+                lambda i: i.y, state.iterate_eval, recovered_y
+            )
+            # TODO reinitialise the multipliers
+
+            return _IPOPTLikeState(
+                first_step=jnp.array(True),
+                iterate_eval=new_iterate_eval,
+                search_state=search_state,
+                f_info=f_info,
+                aux=aux_eval,
+                descent_state=descent_state,
+                terminate=jnp.array(False),
+                result=result,
+                num_accepted_steps=state.num_accepted_steps,
+            )
 
         def regular_update(args):
             search_result, descent_result = args
@@ -814,7 +839,6 @@ class AbstractIPOPTLike(
             )
 
         args = (search_result, descent_result)
-        requires_restoration = jnp.array(False)  # TODO: for debugging
         state = filter_cond(requires_restoration, restore, regular_update, args)
         return iterate, state, aux
 
