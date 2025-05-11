@@ -410,7 +410,6 @@ def evaluate_constraint(constraint, y):
     assert constraint is not None
 
     constraint_residual = constraint(y)
-    constraint_bound = constraint(tree_full_like(y, 0))
 
     equality_residual, inequality_residual = constraint_residual
     if equality_residual is not None:
@@ -428,4 +427,4 @@ def evaluate_constraint(constraint, y):
         )
     else:
         inequality_jac = None
-    return constraint_residual, constraint_bound, (equality_jac, inequality_jac)
+    return constraint_residual, (equality_jac, inequality_jac)
