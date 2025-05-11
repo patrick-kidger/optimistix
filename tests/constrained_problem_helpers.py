@@ -585,6 +585,12 @@ def constraint_inaccessible_region(y):
 tricky_geometries__fn_y0_args_constraint_bounds_expected_result = (
     # fn, y0, args, constraint, bounds, expected_result
     (
+        # This problem can be solved with a feasibility restoration - i.e. by including
+        # a solver step that computes a close feasible step, rather than solving the
+        # KKT system subject to the linearized constraints. The filtered line search
+        # (in optimistix) accepts this step by default - we accept any step that results
+        # from a feasibility restoration phase. Its only role here is to request the
+        # feasibility restoration in the first place.
         inaccessible_region,
         jnp.array([-5, 0.5, 0.51]),
         None,

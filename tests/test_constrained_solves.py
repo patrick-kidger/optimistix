@@ -99,7 +99,7 @@ def test_constrained_minimisers(fn, y0, args, constraint, expected_result, solve
     assert tree_allclose(sol.value, res, rtol=1e-2, atol=1e-2)
 
 
-@pytest.mark.parametrize("solver", (optx.IPOPTLike(rtol=0.0, atol=1e-6),))
+@pytest.mark.parametrize("solver", (optx.IPOPTLike(rtol=0.0, atol=1e-8),))
 @pytest.mark.parametrize(
     "fn, y0, args, constraint, expected_result",
     minimise_fn_y0_args_constraint_expected_result,
@@ -132,6 +132,7 @@ def test_tricky_geometries(fn, y0, args, constraint, bounds, expected_result, so
         constraint=constraint,
         bounds=bounds,
     )
+
     res = jtu.tree_map(lambda x: jnp.asarray(x, dtype=jnp.float64), expected_result)
     # TODO: adjust tolerance once I have worked out how to do the barrier parameter
     # update.
