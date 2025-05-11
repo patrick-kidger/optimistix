@@ -55,7 +55,7 @@ class AbstractBarrier(eqx.Module, Generic[Y], strict=True):
     @abc.abstractmethod
     def grads(self, y: Y, barrier_parameter: ScalarLike) -> tuple[Y, Y]:
         """Compute the gradient of the barrier function with respect to `y`. Returns a
-        tuple of gradients for the lower and upper bounds that can be added to the
+        tuple of gradients for the lower and upper bounds that can be *added* to the
         gradient of the objective function `fn(y, args)`.
 
         We generally require access to each gradient separately, for instance when
