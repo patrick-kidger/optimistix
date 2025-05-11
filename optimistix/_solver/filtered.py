@@ -165,18 +165,13 @@ class IPOPTLikeFilteredLineSearch(
     def init(
         self, y: Y, f_info_struct: FunctionInfo.EvalGradHessian
     ) -> _IPOPTLikeFilteredLineSearchState:
-        del f_info_struct
-
-        # TODO: the filter needs to be initialised somewhere.
-        # In IPOPT the maximum value for the filter function it is initialised with
-        # 1e4 of the initial objective function value, or 1e4, whichever is larger.
-        # This could be done when special-casing the first step.
-        previous_values = jnp.broadcast_to(
-            jnp.array([1000, self.maximum_violation]), (self.buffer_size, 2)
+        max_value = jnp.finfo(f_info_struct.f.dtype).max
+        values = jnp.broadcast_to(
+            jnp.array([max_value, self.maximum_violation]), (self.buffer_size, 2)
         )
         return _IPOPTLikeFilteredLineSearchState(
             step_size=jnp.array(self.step_init),
-            filter=_Filter(previous_values),
+            filter=_Filter(values),
         )
 
     def step(  # pyright: ignore  # TODO switch up AbstractSearch to accept iterates
@@ -245,19 +240,19 @@ class IPOPTLikeFilteredLineSearch(
         )
 
         # # Invoke feasibility restoration if step length becomes tiny
-        # result = RESULTS.where(
-        #     step_size >= self.minimum_step_length,
-        #     RESULTS.successful,
-        #     RESULTS.feasibility_restoration_required,
-        # )
+        result = RESULTS.where(
+            step_size >= self.minimum_step_length,
+            RESULTS.successful,
+            RESULTS.feasibility_restoration_required,
+        )
 
         return (
             step_size,
             accept,
-            RESULTS.successful,  # result,
+            result,
             _IPOPTLikeFilteredLineSearchState(
                 step_size=step_size,
-                filter=state.filter,  # TODO: feasibility restoration disabled
+                filter=filter,  # TODO: feasibility restoration disabled
             ),
         )
 
