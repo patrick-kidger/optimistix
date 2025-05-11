@@ -168,7 +168,6 @@ class ClosestFeasiblePoint(AbstractBoundaryMap, strict=True):
                 objective,
                 self.solver,
                 y,
-                options=dict(clip=True),
                 bounds=bounds,
                 throw=False,
             )
