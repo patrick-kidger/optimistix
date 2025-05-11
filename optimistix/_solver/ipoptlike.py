@@ -796,7 +796,11 @@ class AbstractIPOPTLike(
             # continue the search from there. This can likely be improved - we don't
             # smooth the inequality constraints here, and BFGS-B can be heavy-handed
             # since it is an active-set method.
-            if bounds is None:
+            if constraint is None:
+                # TODO: What should the robust feasibility restoration do if we do not
+                # have any constraints?
+                return state
+            elif bounds is None:
                 solver = OldBFGS(rtol=1e-3, atol=1e-6)
             else:
                 solver = BFGS_B(rtol=1e-3, atol=1e-6)
