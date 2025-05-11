@@ -88,7 +88,9 @@ class AbstractQuadraticSolver(
 
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
-    descent: AbstractVar[AbstractDescent[Y, FunctionInfo.EvalGradHessian, Any]]
+    descent: AbstractVar[
+        AbstractDescent[Y, Iterate.Primal, FunctionInfo.EvalGradHessian, Any]
+    ]
     search: AbstractVar[
         AbstractSearch[
             Y,
@@ -115,9 +117,9 @@ class AbstractQuadraticSolver(
         # TODO: repeating this can probably be avoided (unless constraints nonlinear)
         if constraint is not None:
             evaluated = evaluate_constraint(constraint, y)
-            constraint_residual, constraint_bounds, constraint_jacobians = evaluated
+            constraint_residual, constraint_jacobians = evaluated
         else:
-            constraint_residual = constraint_bounds = constraint_jacobians = None
+            constraint_residual = constraint_jacobians = None
 
         hessian, _ = jax.hessian(fn)(y, args)
         hessian = lx.PyTreeLinearOperator(hessian, jax.eval_shape(lambda: y))
@@ -125,10 +127,8 @@ class AbstractQuadraticSolver(
             jnp.zeros(f_struct.shape, f_struct.dtype),
             y,  # Shape equivalent with grad
             hessian,
-            y,
             bounds,
             constraint_residual,
-            constraint_bounds,
             constraint_jacobians,  # pyright: ignore  # TODO: fix this!
         )
         f_info_struct = jax.eval_shape(lambda: f_info)
@@ -140,7 +140,7 @@ class AbstractQuadraticSolver(
             search_state=self.search.init(y, f_info_struct),
             f_info=f_info,
             aux=tree_full_like(aux_struct, 0),
-            descent_state=self.descent.init(y, f_info_struct),
+            descent_state=self.descent.init(y, f_info_struct),  # pyright: ignore TODO
             terminate=jnp.array(False),
             result=RESULTS.successful,
         )
@@ -164,9 +164,9 @@ class AbstractQuadraticSolver(
         # assumed to be linear here. (Are they always?) -> No, not always
         if constraint is not None:
             evaluated = evaluate_constraint(constraint, y)
-            constraint_residual, constraint_bounds, constraint_jacobians = evaluated
+            constraint_residual, constraint_jacobians = evaluated
         else:
-            constraint_residual = constraint_bounds = constraint_jacobians = None
+            constraint_residual = constraint_jacobians = None
 
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
@@ -188,10 +188,8 @@ class AbstractQuadraticSolver(
                 f_eval,
                 grad,
                 state.hessian,
-                state.y_eval,
                 bounds,
                 constraint_residual,
-                constraint_bounds,
                 constraint_jacobians,  # pyright: ignore  # TODO: fix this!
             )
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)

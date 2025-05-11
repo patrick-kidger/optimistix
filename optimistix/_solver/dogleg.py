@@ -30,6 +30,8 @@ from .trust_region import ClassicalTrustRegion
 # pytrees of arrays, but can of course also handle a scalar. This suggests that
 # a) perhaps we should not have a separate ScalarPrimal, or
 # b) we should make Newton accept a ScalarPrimal as well.
+# The step size - as an iterate used in the root finder - is also separate from the
+# iterate in `y`. So this needs to be conceptually clear as well.
 _DoglegIterate = TypeVar("_DoglegIterate", Iterate.Primal, Iterate.ScalarPrimal)
 
 
@@ -44,6 +46,7 @@ class _DoglegDescentState(eqx.Module, Generic[Y]):
 class DoglegDescent(
     AbstractDescent[
         Y,
+        Iterate.Primal,
         FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         _DoglegDescentState,
     ],
@@ -117,7 +120,9 @@ class DoglegDescent(
             result=result,
         )
 
-    def step(self, step_size: Scalar, state: _DoglegDescentState) -> tuple[Y, RESULTS]:
+    def step(  # pyright: ignore TODO
+        self, step_size: Scalar, state: _DoglegDescentState
+    ) -> tuple[Y, RESULTS]:
         # For trust-region methods like `DoglegDescent`, the trust-region size directly
         # controls how large a step we take. This is actually somewhat annoying,
         # as a trust region algorithm has no understanding of the scale of a

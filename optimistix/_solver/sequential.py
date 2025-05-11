@@ -8,7 +8,7 @@ from jaxtyping import PyTree, Scalar
 from .._custom_types import Y
 from .._misc import max_norm, tree_full_like
 from .._quadratic_solve import AbstractQuadraticSolver, quadratic_solve
-from .._search import AbstractDescent, FunctionInfo
+from .._search import AbstractDescent, FunctionInfo, Iterate
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .bfgs import AbstractOldBFGS
@@ -20,9 +20,13 @@ class _QuadraticSubproblemDescentState(eqx.Module, Generic[Y]):
     result: RESULTS
 
 
-# TODO(jhaffner): This name... is not great.
 class QuadraticSubproblemDescent(
-    AbstractDescent[Y, FunctionInfo.EvalGradHessian, _QuadraticSubproblemDescentState]
+    AbstractDescent[
+        Y,
+        Iterate.Primal,
+        FunctionInfo.EvalGradHessian,
+        _QuadraticSubproblemDescentState,
+    ]
 ):
     """Iteratively solves a constrained quadratic sub-problem. That is, it uses the
     FunctionInfo created by a higher-order solver (like BFGS) to construct a quadratic
@@ -42,14 +46,14 @@ class QuadraticSubproblemDescent(
         # Dummy values of the right shape
         return _QuadraticSubproblemDescentState(y, RESULTS.successful)
 
-    def query(  # pyright: ignore
+    def query(  # pyright: ignore TODO switch to working with iterates directly
         self, y: Y, f_info: FunctionInfo, state: _QuadraticSubproblemDescentState
     ) -> _QuadraticSubproblemDescentState:
         if isinstance(f_info, FunctionInfo.EvalGradHessian):
             # Note: currently not checking if the constraint Jacobian exists - the QP
             # could also only treat bounds as constraints (with the appropriate solver.)
-            quadratic_approximation = f_info.to_quadratic()
-            linear_constraints = f_info.to_linear_constraints()
+            quadratic_approximation = f_info.to_quadratic(Iterate.Primal(y))
+            linear_constraints = f_info.to_linear_constraints(Iterate.Primal(y))
 
             sol = quadratic_solve(
                 quadratic_approximation,
@@ -68,7 +72,7 @@ class QuadraticSubproblemDescent(
                 "EvalGradHessian."
             )
 
-    def step(
+    def step(  # pyright: ignore
         self, step_size: Scalar, state: _QuadraticSubproblemDescentState
     ) -> tuple[Y, RESULTS]:
         return (step_size * state.step**ω).ω, state.result

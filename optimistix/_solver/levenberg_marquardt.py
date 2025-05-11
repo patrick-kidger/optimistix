@@ -13,7 +13,7 @@ from jaxtyping import Array, Float, PyTree, Scalar, ScalarLike
 from .._custom_types import Aux, Out, Y
 from .._misc import max_norm, tree_full_like, two_norm
 from .._root_find import AbstractRootFinder, root_find
-from .._search import AbstractDescent, FunctionInfo
+from .._search import AbstractDescent, FunctionInfo, Iterate
 from .._solution import RESULTS
 from .gauss_newton import AbstractGaussNewton, newton_step
 from .newton_chord import Newton
@@ -83,7 +83,12 @@ class _DampedNewtonDescentState(eqx.Module):
 class DampedNewtonDescent(
     AbstractDescent[
         Y,
+<<<<<<< HEAD
         FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
+=======
+        Iterate.Primal,
+        Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+>>>>>>> 5f725c3 (add iterate type to descents)
         _DampedNewtonDescentState,
     ],
 ):
@@ -105,7 +110,7 @@ class DampedNewtonDescent(
     # QR (for least-squares problems).
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
-    def init(
+    def init(  # pyright: ignore TODO
         self,
         y: Y,
         f_info_struct: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
@@ -114,7 +119,7 @@ class DampedNewtonDescent(
         f_info_init = tree_full_like(f_info_struct, 0, allow_static=True)
         return _DampedNewtonDescentState(f_info_init)
 
-    def query(
+    def query(  # pyright: ignore TODO
         self,
         y: Y,
         f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
@@ -123,7 +128,7 @@ class DampedNewtonDescent(
         del y, state
         return _DampedNewtonDescentState(f_info)
 
-    def step(
+    def step(  # pyright: ignore TODO
         self, step_size: Scalar, state: _DampedNewtonDescentState
     ) -> tuple[Y, RESULTS]:
         sol_value, result = damped_newton_step(
@@ -149,6 +154,7 @@ class _IndirectDampedNewtonDescentState(eqx.Module, Generic[Y]):
 class IndirectDampedNewtonDescent(
     AbstractDescent[
         Y,
+        Iterate.Primal,
         FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         _IndirectDampedNewtonDescentState,
     ],
@@ -174,7 +180,7 @@ class IndirectDampedNewtonDescent(
     root_finder: AbstractRootFinder = Newton(rtol=1e-2, atol=1e-2)
     trust_region_norm: Callable[[PyTree], Scalar] = two_norm
 
-    def init(
+    def init(  # pyright: ignore TODO
         self,
         y: Y,
         f_info_struct: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
@@ -186,7 +192,7 @@ class IndirectDampedNewtonDescent(
             result=RESULTS.successful,
         )
 
-    def query(
+    def query(  # pyright: ignore TODO
         self,
         y: Y,
         f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
@@ -199,7 +205,7 @@ class IndirectDampedNewtonDescent(
             f_info=f_info, newton=newton, newton_norm=newton_norm, result=result
         )
 
-    def step(
+    def step(  # pyright: ignore TODO
         self, step_size: Scalar, state: _IndirectDampedNewtonDescentState
     ) -> tuple[Y, RESULTS]:
         # For trust-region methods like `IndirectDampedNewtonDescent`, the trust-region

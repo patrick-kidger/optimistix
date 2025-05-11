@@ -50,7 +50,9 @@ _FnInfo: TypeAlias = (
 )
 
 
-class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState]):
+class SteepestDescent(
+    AbstractDescent[Y, Iterate.Primal, _FnInfo, _SteepestDescentState]
+):
     """The descent direction given by locally following the gradient."""
 
     norm: Callable[[PyTree], Scalar] | None = None
@@ -60,7 +62,7 @@ class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState]):
         # Dummy; unused
         return _SteepestDescentState(y)
 
-    def query(  # pyright: ignore
+    def query(  # pyright: ignore TODO
         self, y: Y, f_info: _FnInfo, state: _SteepestDescentState
     ) -> _SteepestDescentState:
         if isinstance(
@@ -84,7 +86,7 @@ class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState]):
             grad = (grad**ω / self.norm(grad)).ω
         return _SteepestDescentState(grad)
 
-    def step(
+    def step(  # pyright: ignore TODO
         self, step_size: Scalar, state: _SteepestDescentState
     ) -> tuple[Y, RESULTS]:
         return (-step_size * state.grad**ω).ω, RESULTS.successful
@@ -143,7 +145,7 @@ class AbstractGradientDescent(
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
-    descent: AbstractVar[AbstractDescent[Y, FunctionInfo.EvalGrad, Any]]
+    descent: AbstractVar[AbstractDescent[Y, Iterate.Primal, FunctionInfo.EvalGrad, Any]]
     search: AbstractVar[
         AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
     ]
@@ -177,7 +179,7 @@ class AbstractGradientDescent(
             search_state=self.search.init(y, f_info_struct),
             f_info=f_info,
             aux=tree_full_like(aux_struct, 0),
-            descent_state=self.descent.init(y, f_info_struct),
+            descent_state=self.descent.init(y, f_info_struct),  # pyright: ignore TODO
             terminate=jnp.array(False),
             result=RESULTS.successful,
         )

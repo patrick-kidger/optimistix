@@ -97,9 +97,12 @@ class _NewtonDescentState(eqx.Module, Generic[Y]):
 class NewtonDescent(
     AbstractDescent[
         Y,
-        FunctionInfo.EvalGradHessian
-        | FunctionInfo.EvalGradHessianInv
-        | FunctionInfo.ResidualJac,
+        Iterate.Primal,
+        (
+            FunctionInfo.EvalGradHessian |
+            FunctionInfo.EvalGradHessianInv |
+            FunctionInfo.ResidualJac
+        ),
         _NewtonDescentState,
     ],
 ):
@@ -134,7 +137,9 @@ class NewtonDescent(
             newton = (newton**ω / self.norm(newton)).ω
         return _NewtonDescentState(newton, result)
 
-    def step(self, step_size: Scalar, state: _NewtonDescentState) -> tuple[Y, RESULTS]:
+    def step(  # pyright: ignore TODO
+        self, step_size: Scalar, state: _NewtonDescentState
+    ) -> tuple[Y, RESULTS]:
         return (-step_size * state.newton**ω).ω, state.result
 
 
@@ -226,7 +231,9 @@ class AbstractGaussNewton(
     rtol: AbstractVar[float]
     atol: AbstractVar[float]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
-    descent: AbstractVar[AbstractDescent[Y, FunctionInfo.ResidualJac, Any]]
+    descent: AbstractVar[
+        AbstractDescent[Y, Iterate.Primal, FunctionInfo.ResidualJac, Any]
+    ]
     search: AbstractVar[
         AbstractSearch[Y, FunctionInfo.ResidualJac, FunctionInfo.ResidualJac, Any]
     ]
@@ -259,7 +266,7 @@ class AbstractGaussNewton(
             search_state=self.search.init(y, f_info_struct),
             f_info=f_info,
             aux=tree_full_like(aux_struct, 0),
-            descent_state=self.descent.init(y, f_info_struct),
+            descent_state=self.descent.init(y, f_info_struct),  # pyright: ignore TODO
             terminate=jnp.array(False),
             result=RESULTS.successful,
             num_steps=jnp.array(0),

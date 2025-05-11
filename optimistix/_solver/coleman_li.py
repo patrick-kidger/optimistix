@@ -11,7 +11,7 @@ from jaxtyping import PyTree, Scalar
 
 from .._custom_types import Aux, Y
 from .._misc import max_norm
-from .._search import AbstractDescent, FunctionInfo
+from .._search import AbstractDescent, FunctionInfo, Iterate
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .bfgs import AbstractOldBFGS
@@ -63,10 +63,6 @@ def _compute_scaling_pytree_jvp(primals, tangents):
     return primal_out, tangent_out
 
 
-def _truncate_to_feasible_length():
-    pass
-
-
 def _interior_reflected_newton_step(
     y: Y, f_info: FunctionInfo, linear_solver: lx.AbstractLinearSolver
 ) -> tuple[Y, RESULTS]:
@@ -111,7 +107,9 @@ class _ColemanLiDescentState(eqx.Module, Generic[Y], strict=True):
 # Reference: https://link.springer.com/article/10.1007/BF01582221
 # TODO expand on the documentation, add reference
 class ColemanLiDescent(
-    AbstractDescent[Y, FunctionInfo.EvalGradHessian, _ColemanLiDescentState],
+    AbstractDescent[
+        Y, Iterate.Primal, FunctionInfo.EvalGradHessian, _ColemanLiDescentState
+    ],
     strict=True,
 ):
     """Coleman-Li descent."""
@@ -133,7 +131,7 @@ class ColemanLiDescent(
         newton, result = _interior_reflected_newton_step(y, f_info, self.linear_solver)
         return _ColemanLiDescentState(newton, result)
 
-    def step(
+    def step(  # pyright: ignore TODO
         self, step_size: Scalar, state: _ColemanLiDescentState
     ) -> tuple[Y, RESULTS]:
         return (-step_size * state.newton**ω).ω, state.result

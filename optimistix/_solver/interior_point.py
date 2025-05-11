@@ -13,7 +13,7 @@ from jaxtyping import PyTree, Scalar, ScalarLike
 from .._custom_types import Aux, InequalityOut, Out, Y
 from .._misc import max_norm, tree_full_like
 from .._quadratic_solve import AbstractQuadraticSolver
-from .._search import AbstractDescent, FunctionInfo
+from .._search import AbstractDescent, FunctionInfo, Iterate
 from .._solution import RESULTS
 from .learning_rate import LearningRate
 
@@ -129,7 +129,9 @@ class _InteriorDescentState(eqx.Module, Generic[Y, InequalityOut], strict=True):
 
 
 class InteriorDescent(
-    AbstractDescent[Y, FunctionInfo.EvalGradHessian, _InteriorDescentState]
+    AbstractDescent[
+        Y, Iterate.Primal, FunctionInfo.EvalGradHessian, _InteriorDescentState
+    ]
 ):
     """A primal-dual descent through the strict interior of the feasible set.
 
@@ -184,7 +186,7 @@ class InteriorDescent(
         dual = (state.dual**ω + dual_step**ω).ω
         return _InteriorDescentState(y_step, dual, 0.8 * state.centrality, result)
 
-    def step(
+    def step(  # pyright: ignore (for now! TODO)
         self, step_size: Scalar, state: _InteriorDescentState
     ) -> tuple[Y, RESULTS]:
         return (step_size * state.step**ω).ω, state.result

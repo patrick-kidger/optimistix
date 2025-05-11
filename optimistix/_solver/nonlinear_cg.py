@@ -14,7 +14,7 @@ from .._misc import (
     tree_full_like,
     tree_where,
 )
-from .._search import AbstractDescent, AbstractSearch, FunctionInfo
+from .._search import AbstractDescent, AbstractSearch, FunctionInfo, Iterate
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .gradient_methods import AbstractGradientDescent
@@ -78,10 +78,13 @@ class _NonlinearCGDescentState(eqx.Module, Generic[Y]):
 class NonlinearCGDescent(
     AbstractDescent[
         Y,
-        FunctionInfo.EvalGrad
-        | FunctionInfo.EvalGradHessian
-        | FunctionInfo.EvalGradHessianInv
-        | FunctionInfo.ResidualJac,
+        Iterate.Primal,
+        (
+            FunctionInfo.EvalGrad |
+            FunctionInfo.EvalGradHessian |
+            FunctionInfo.EvalGradHessianInv |
+            FunctionInfo.ResidualJac
+        ),
         _NonlinearCGDescentState,
     ],
 ):
@@ -89,7 +92,7 @@ class NonlinearCGDescent(
 
     method: Callable[[Y, Y, Y], Scalar]
 
-    def init(
+    def init(  # pyright: ignore  # TODO: switch to working with iterates directly
         self,
         y: Y,
         f_info_struct: FunctionInfo.EvalGrad
@@ -103,7 +106,7 @@ class NonlinearCGDescent(
             grad=tree_full_like(y, 0),
         )
 
-    def query(
+    def query(  # pyright: ignore
         self,
         y: Y,
         f_info: FunctionInfo.EvalGrad
@@ -148,7 +151,7 @@ class NonlinearCGDescent(
         )
         return _NonlinearCGDescentState(y_diff=y_diff, grad=grad)
 
-    def step(
+    def step(  # pyright: ignore  TODO: switch to working with iterates directly
         self, step_size: Scalar, state: _NonlinearCGDescentState
     ) -> tuple[Y, RESULTS]:
         return (step_size * state.y_diff**ω).ω, RESULTS.successful

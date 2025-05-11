@@ -22,7 +22,7 @@ from .._misc import (
     tree_where,
 )
 from .._quadratic_solve import AbstractQuadraticSolver
-from .._search import AbstractDescent, FunctionInfo
+from .._search import AbstractDescent, FunctionInfo, Iterate
 from .._solution import RESULTS
 from .learning_rate import LearningRate
 
@@ -230,6 +230,7 @@ class _CauchyNewtonDescentState(eqx.Module, Generic[Y], strict=True):
 class CauchyNewtonDescent(
     AbstractDescent[
         Y,
+        Iterate.Primal,  # TODO: currently unused
         FunctionInfo.EvalGradHessian,
         _CauchyNewtonDescentState,
     ],
@@ -246,13 +247,13 @@ class CauchyNewtonDescent(
 
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
 
-    def init(  # pyright: ignore
+    def init(  # pyright: ignore  TODO
         self, y: Y, f_info_struct: FunctionInfo.EvalGradHessian
     ) -> _CauchyNewtonDescentState:
         del f_info_struct
         return _CauchyNewtonDescentState(cauchy_newton=y, result=RESULTS.successful)
 
-    def query(  # pyright: ignore
+    def query(  # pyright: ignore  TODO
         self,
         y: Y,
         f_info: FunctionInfo.EvalGradHessian,
@@ -262,7 +263,7 @@ class CauchyNewtonDescent(
         cauchy_newton, result = cauchy_newton_step(y, f_info, self.linear_solver)
         return _CauchyNewtonDescentState(cauchy_newton=cauchy_newton, result=result)
 
-    def step(
+    def step(  # pyright: ignore TODO
         self, step_size: Scalar, state: _CauchyNewtonDescentState
     ) -> tuple[Y, RESULTS]:
         # TODO(jhaffner): double check signs!
