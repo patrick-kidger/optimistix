@@ -31,7 +31,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, Bool, Scalar
+from jaxtyping import Array, Bool, PyTree, Scalar
 
 from ._custom_types import (
     DescentState,
@@ -52,7 +52,101 @@ from ._solution import RESULTS
 # need to be systematised later.
 
 
-class FunctionInfo(eqx.Module):
+class Iterate(eqx.Module):
+    """Different solvers require different types of iterates to compute the solution to
+    the optimisation problem. While a solver for an unconstrained problem may only need
+    access to the primal variable `y`, solving a constrained problem generally requires
+    the introduction of dual variables, or Lagrange multipliers, as well as potential
+    slack variables. These are updated iteratively alongside the primal variable `y`.
+
+    This enumeration-ish object captures the different variants of iterates.
+    """
+
+    Primal: ClassVar[Type["Primal"]]
+    ScalarPrimal: ClassVar[Type["ScalarPrimal"]]
+    PrimalDual: ClassVar[Type["PrimalDual"]]
+
+    @abc.abstractmethod
+    def nothing(self) -> None:
+        """Dummy thing to make sure that this is an abstract class."""
+
+
+class Primal(Iterate, Generic[Y], strict=True):
+    """The primal variable `y`. Used in unconstrained problems."""
+
+    y: Y
+
+    def nothing(self):  # Test method to make this concrete :D TODO fix, obviously
+        return None
+
+
+class ScalarPrimal(Iterate, Generic[Y]):
+    """The primal variable, which is restricted to be a scalar. Used in
+    [`optimistix.Bisection`][].
+    """
+
+    y: Scalar
+
+    def nothing(self):
+        return None
+
+
+_Multipliers = (
+    tuple[EqualityOut, None] |
+    tuple[EqualityOut, InequalityOut] |
+    tuple[None, InequalityOut] |
+    None
+)
+
+
+class PrimalDual(Iterate, Generic[Y, EqualityOut, InequalityOut]):
+    """Primal and dual variables for different types of constraints."""
+
+    y: Y
+    slack: InequalityOut | None
+    multipliers: _Multipliers
+    bound_multipliers: tuple[Y, Y] | None
+    barrier: Scalar | None
+
+    def nothing(self):
+        return None
+
+
+Primal.__qualname__ = "Iterate.Primal"
+ScalarPrimal.__qualname__ = "Iterate.ScalarPrimal"
+PrimalDual.__qualname__ = "Iterate.PrimalDual"
+Iterate.Primal = Primal
+Iterate.ScalarPrimal = ScalarPrimal
+Iterate.PrimalDual = PrimalDual
+
+# TODO(johanna) document __init__ for all flavors of Iterate
+
+_Iterate = TypeVar("_Iterate", contravariant=True, bound=Iterate)
+
+
+# TODO: should the slacks already be used when evaluating the constraints? (I.e. when
+# the constraint residuals are computed in the first place? Might be more intuitive.)
+def _constraint_violation(constraint_residual, iterate, norm):
+    """Compute the constraint violation for a given iterate - the iterate is used if
+    slack variables are present, to correct the residual of the inequality constraints.
+    """
+    constraint_violation = jnp.array(0.0)
+    if constraint_residual is None:
+        return constraint_violation
+    else:
+        equality_residual, inequality_residual = constraint_residual
+        constraint_violation += norm(equality_residual)
+        if inequality_residual is not None:
+            assert iterate.slack is not None  # pyright: ignore  # TODO!!!
+            # Currently only works with solvers that provide slack variables.
+            # If no slack variables are provided, then we could return the norm of
+            # the negative values of the inequality residuals.
+            inequality_residual = (inequality_residual**ω - iterate.slack**ω).ω  # pyright: ignore
+            constraint_violation += norm(inequality_residual)
+        return constraint_violation
+
+
+class FunctionInfo(eqx.Module, strict=eqx.StrictConfig(allow_abstract_name=True)):
     """Different solvers (BFGS, Levenberg--Marquardt, ...) evaluate different
     quantities of the objective function. Some may compute gradient information,
     some may provide approximate Hessian information, etc.
@@ -78,7 +172,7 @@ class FunctionInfo(eqx.Module):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class Eval(FunctionInfo, Generic[Y, EqualityOut, InequalityOut]):
+class Eval(FunctionInfo, Generic[Y, _Iterate, EqualityOut, InequalityOut]):
     """Has a `.f` attribute describing `fn(y)`. Used when no gradient information is
     available.
     """
@@ -89,6 +183,11 @@ class Eval(FunctionInfo, Generic[Y, EqualityOut, InequalityOut]):
 
     def as_min(self):
         return self.f
+
+    def constraint_violation(
+        self, iterate: _Iterate, norm: Callable[[PyTree], Scalar]
+    ) -> Scalar:
+        return _constraint_violation(self.constraint_residual, iterate, norm)
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
@@ -105,8 +204,10 @@ class EvalGrad(FunctionInfo, Generic[Y]):
     def as_min(self):
         return self.f
 
-    def compute_grad_dot(self, y: Y):
-        return tree_dot(self.grad, y)
+    def compute_grad_dot(self, y: Y):  # TODO(johanna) switch to iterate: _Iterate):
+        return tree_dot(self.grad, y)  # pyright: ignore
+        # TODO(johanna): All Iterates should implement a `y` attribute, but I'm not sure
+        # how to specify this such that pyright is happy.`
 
 
 _ConstraintJacobians = (
@@ -116,9 +217,19 @@ _ConstraintJacobians = (
     None
 )
 
+# TODO(johanna): We currently add the Hessians of the constraint functions to the
+# Hessian of the target function when working with Hessians of the Lagrangian. Not doing
+# so would be tricky when working with quasi-Newton updates, such as SLSQP, where we
+# need to dampen the update to maintain positive definiteness. I would have to take a
+# serious look at whether these can be decoupled in an SLSQP context, and how separate
+# quasi-Newton updates could be maintained. But in principle I like the idea of having
+# more cleanly separated derivatives of these two functions.
+
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGradHessian(FunctionInfo, Generic[Y, EqualityOut, InequalityOut]):
+class EvalGradHessian(
+    FunctionInfo, Generic[Y, _Iterate, EqualityOut, InequalityOut]
+):
     """Has `.f` and `.grad` attributes as with [`optimistix.FunctionInfo.EvalGrad`][].
     Also has a `.hessian` attribute describing (an approximation to) the Hessian of
     `fn` at `y`. Used with quasi-Newton minimisation algorithms, like BFGS.
@@ -127,20 +238,23 @@ class EvalGradHessian(FunctionInfo, Generic[Y, EqualityOut, InequalityOut]):
     f: Scalar
     grad: Y
     hessian: lx.AbstractLinearOperator
-    at: Y
     bounds: tuple[Y, Y] | None
 
     constraint_residual: tuple[EqualityOut, InequalityOut] | None
-    constraint_bounds: tuple[EqualityOut, InequalityOut] | None
     constraint_jacobians: _ConstraintJacobians
 
     def as_min(self):
         return self.f
 
-    def compute_grad_dot(self, y: Y):
-        return tree_dot(self.grad, y)
+    def compute_grad_dot(self, y: Y):  # TODO(johanna): switch to iterate: _Iterate):
+        return tree_dot(self.grad, y)  # pyright: ignore  # TODO
 
-    def to_quadratic(self) -> Callable[[Y, Any], Scalar]:
+    def constraint_violation(
+        self, iterate: _Iterate, norm: Callable[[PyTree], Scalar]
+    ) -> Scalar:
+        return _constraint_violation(self.constraint_residual, iterate, norm)
+
+    def to_quadratic(self, iterate: _Iterate) -> Callable[[Y, Any], Scalar]:
         # With the Hessian and gradient, we have created a quadratic approximation to
         # the target function. In unconstrained optimisation, we only need to take a
         # single step, computed using a linear solve. In constrained optimisation, we
@@ -149,15 +263,13 @@ class EvalGradHessian(FunctionInfo, Generic[Y, EqualityOut, InequalityOut]):
         # solve the problem for the current quadratic approximation to the target
         # function and the current linear approximation of the constraints.
 
-        # Note: since the quadratic approximation can be ASSUMED to only ever be called
-        # inside a sequential quadratic program descent, we could also pass `self.at` as
-        # y instead. However, this makes to many assumptions about the usage of this API
-        # for my taste, which is why I opted to write this information into the function
-        # information itself.
+        # TODO: quadratic approximations can induce infeasible subproblems, which one
+        # can guard against by introducing extra slack variables. This is not yet done
+        # here.
 
         def quadratic(_y, args):
             del args
-            ydiff = (_y**ω - self.at**ω).ω
+            ydiff = (_y**ω - iterate.y**ω).ω  # pyright: ignore
             quadratic_term = 0.5 * tree_dot(ydiff, self.hessian.mv(ydiff))
             linear_term = tree_dot(self.grad, ydiff)
             return quadratic_term + linear_term + self.f
@@ -166,6 +278,7 @@ class EvalGradHessian(FunctionInfo, Generic[Y, EqualityOut, InequalityOut]):
 
     def to_linear_constraints(
         self,
+        iterate: _Iterate,  # TODO(johanna): switch to iterate
     ) -> Callable[[Y], tuple[EqualityOut, InequalityOut]] | None:
         # Creates a linear approximation to the constraints that can be used as the
         # constraint function in a quadratic subproblem. For a more detailed
@@ -185,7 +298,7 @@ class EvalGradHessian(FunctionInfo, Generic[Y, EqualityOut, InequalityOut]):
         else:
 
             def linear_constraints(_y):
-                ydiff = (_y**ω - self.at**ω).ω
+                ydiff = (_y**ω - iterate.y**ω).ω  # pyright: ignore
                 ydiff_constraints = self.constraint_jac.mv(ydiff)  # pyright: ignore
                 return (self.constraint_residual**ω - ydiff_constraints**ω).ω
 
@@ -205,8 +318,8 @@ class EvalGradHessianInv(FunctionInfo, Generic[Y]):
     def as_min(self):
         return self.f
 
-    def compute_grad_dot(self, y: Y):
-        return tree_dot(self.grad, y)
+    def compute_grad_dot(self, y: Y):  # TODO (johanna): switch to iterate: _Iterate):
+        return tree_dot(self.grad, y)  # pyright: ignore  # TODO
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
@@ -324,101 +437,9 @@ _FnInfo = TypeVar("_FnInfo", contravariant=True, bound=FunctionInfo)
 _FnEvalInfo = TypeVar("_FnEvalInfo", contravariant=True, bound=FunctionInfo)
 
 
-class Iterate(eqx.Module):
-    """Different solvers require different types of iterates to compute the solution to
-    the optimisation problem. While a solver for an unconstrained problem may only need
-    access to the primal variable `y`, solving a constrained problem generally requires
-    the introduction of dual variables, or Lagrange multipliers, as well as potential
-    slack variables. These are updated iteratively alongside the primal variable `y`.
-
-    This enumeration-ish object captures the different variants of iterates.
-    """
-
-    Primal: ClassVar[Type["Primal"]]
-    ScalarPrimal: ClassVar[Type["ScalarPrimal"]]
-
-    @abc.abstractmethod
-    def nothing(self) -> None:
-        """Dummy thing to make sure that this is an abstract class."""
-
-
-class Primal(Iterate, Generic[Y]):
-    """The primal variable `y`. Used in unconstrained problems."""
-
-    y: Y
-
-    def nothing(self):  # Test method to make this concrete :D TODO fix, obviously
-        return None
-
-
-class ScalarPrimal(Iterate, Generic[Y]):
-    """The primal variable, which is restricted to be a scalar. Used in
-    [`optimistix.Bisection`][].
-    """
-
-    y: Y
-    bounds: tuple[Y, Y] | None
-
-    def nothing(self):
-        return None
-
-
-# TODO: if they all allow for things to be None, why are the "lower levels" needed at
-# all?
-
-
-# TODO: inequality out/ equality out can be restricted to be arrays, I think.
-class AllAtOnce(Iterate, Generic[Y, EqualityOut, InequalityOut]):
-    y: Y
-    bounds: tuple[Y, Y] | None
-    slack: InequalityOut | None
-    equality_dual: EqualityOut | None
-    inequality_dual: InequalityOut | None
-    boundary_multipliers: tuple[Y, Y] | None
-
-    # The primal variable y, of type Y
-    # Its bounds, of type tuple[Y, Y]
-    # The (primal) slack variables slack, of type InequalityOut
-    # The (dual) equality multipliers equality_dual, of type EqualityOut
-    # The (dual) inequality multipliers inequality_dual, of type InequalityOut
-    # The (dual) boundary multipliers boundary_multipliers, of type [Y, Y]
-    # Now the problem is that the bounds, equality constraints, inequality constraints,
-    # or all three, may be None. # That creates 2^3 = 8 cases, too many to create their
-    # own class for. So I have to allow the option for each of these attributes to be
-    # None.
-
-    # TODO: methods? Like a feasible update step size? The steps should be truncated
-    # in the descent, since methods might differ (allowing for nonsynchronous stepsizes,
-    # for instance, and the descent state should hold the step defined as a "full step"
-    # to make sure that the search step sizes and descent step sizes remain coupled).
-
-    # TODO: This could have a "to_barrier" method, I think. Not *quite* sure if I could
-    # put everything in there, but probably quite a lot of things.
-
-    def nothing(self):
-        return None
-
-
-Primal.__qualname__ = "Iterate.Primal"
-ScalarPrimal.__qualname__ = "Iterate.ScalarPrimal"
-
-Iterate.Primal = Primal
-Iterate.ScalarPrimal = ScalarPrimal
-
-
-Primal.__init__.__doc__ = """**Arguments:**
-
-- `y`: the (primal) optimisation variable `y`.
-"""
-
-
-# TODO(jhaffner): We probably need something like that again for the Iterate
-# TODO(jhaffner): are we re-defining _FnInfo?
-_FnInfo = TypeVar("_FnInfo", contravariant=True, bound=FunctionInfo)
-_FnEvalInfo = TypeVar("_FnEvalInfo", contravariant=True, bound=FunctionInfo)
-
-
-class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState]):
+class AbstractDescent(
+    eqx.Module, Generic[Y, _Iterate, _FnInfo, DescentState],
+):
     """The abstract base class for descents. A descent consumes a scalar (e.g. a step
     size), and returns the `diff` to take at point `y`, so that `y + diff` is the next
     iterate in a nonlinear optimisation problem.
