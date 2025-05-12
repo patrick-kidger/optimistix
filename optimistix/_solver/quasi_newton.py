@@ -69,58 +69,60 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
 @jax.jit
 def _lbfgs_operator_fn(
         pytree: PyTree[Array],
-        residual_par: PyTree[Array],
-        residual_grad: PyTree[Array],
-        rho: Array,
+        y_diff_history: PyTree[Array],
+        grad_diff_history: PyTree[Array],
+        inner_history: Array,
         index_start: Array
 ):
     """
     LBFGS descent linear operator.
 
     """
-    history_len = rho.shape[0]
+    history_len = inner_history.shape[0]
     circ_index = (jnp.arange(history_len) + index_start) % history_len
 
     # First loop: iterate backwards and compute alpha coefficients
-    def backward_iter(q, indx):
-        dy, dg, r = jtu.tree_map(lambda x: x[indx], (residual_par, residual_grad, rho))
-        alpha = r * tree_dot(dy, q)
-        q = (q ** ω - alpha * dg ** ω).ω
-        return q, alpha
+    def backward_iter(descent_direction, indx):
+        y_diff, grad_diff, inner = jtu.tree_map(lambda x: x[indx], (y_diff_history, grad_diff_history, inner_history))
+        alpha = inner * tree_dot(y_diff, descent_direction)
+        descent_direction = (descent_direction ** ω - alpha * grad_diff ** ω).ω
+        return descent_direction, alpha
 
     # Second loop: iterate forwards and apply correction using stored alpha
     def forward_iter(args, indx):
-        q, alpha = args
-        ai = alpha[indx]
-        r = rho[circ_index[indx]]
-        dy, dg = jtu.tree_map(
+        descent_direction, alpha = args
+        current_alpha = alpha[indx]
+        inner = inner_history[circ_index[indx]]
+        y_diff, grad_diff = jtu.tree_map(
             lambda x: x[circ_index[indx]],
-            (residual_par, residual_grad)
+            (y_diff_history, grad_diff_history)
         )
-        bi = r * tree_dot(dg, q)
-        q = (q ** ω + (dy ** ω * (ai - bi))).ω
-        return (q, alpha), None
+        current_beta = inner * tree_dot(grad_diff, descent_direction)
+        descent_direction = (descent_direction ** ω + (y_diff ** ω * (current_alpha - current_beta))).ω
+        return (descent_direction, alpha), None
 
 
-    q, alpha = jax.lax.scan(backward_iter, pytree, circ_index, reverse=True)
-    dym, dgm = jtu.tree_map(
+    descent_direction, alpha = jax.lax.scan(backward_iter, pytree, circ_index, reverse=True)
+    latest_y_diff, latest_grad_diff = jtu.tree_map(
         lambda x: x[index_start % history_len],
-        (residual_par, residual_grad)
+        (y_diff_history, grad_diff_history)
     )
-    dyg = tree_dot(dym, dgm)
-    dgg = tree_dot(dgm, dgm)
-    gamma_k = jnp.where(dgg > 1e-10, dyg / dgg, 1.0)
-    q = (gamma_k * q ** ω).ω
-    (q, _), _ = jax.lax.scan(
-        forward_iter, (q, alpha), jnp.arange(history_len), reverse=False
+    y_grad_diff_inner = tree_dot(latest_y_diff, latest_grad_diff)
+    grad_diff_norm_sq = tree_dot(latest_grad_diff, latest_grad_diff)
+    gamma_k = jnp.where(
+        grad_diff_norm_sq > 1e-10, y_grad_diff_inner / grad_diff_norm_sq, 1.0
     )
-    return q
+    descent_direction = (gamma_k * descent_direction ** ω).ω
+    (descent_direction, _), _ = jax.lax.scan(
+        forward_iter, (descent_direction, alpha), jnp.arange(history_len), reverse=False
+    )
+    return descent_direction
 
 
 def _make_lbfgs_operator(
         y_diff_history: PyTree[Array],
         grad_diff_history: PyTree[Array],
-        rho: Array,
+        inner_history: Array,
         index_start: Array,
 ):
     """Define a linear operator implementing the L-BFGS inverse Hessian approximation.
@@ -141,9 +143,9 @@ def _make_lbfgs_operator(
     """
     operator_func = eqx.Partial(
         _lbfgs_operator_fn,
-        residual_par=y_diff_history,
-        residual_grad=grad_diff_history,
-        rho=rho,
+        y_diff_history=y_diff_history,
+        grad_diff_history=grad_diff_history,
+        inner_history=inner_history,
         index_start=index_start
     )
     input_shape = jax.eval_shape(lambda: jtu.tree_map(lambda x: x[0], y_diff_history))
