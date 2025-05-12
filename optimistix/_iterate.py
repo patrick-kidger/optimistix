@@ -223,8 +223,8 @@ def _iterate(inputs):
     def cond_fun(carry):
         y, _, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        terminate, _ = solver.terminate(fn, y, args, options, state, tags)
-        return jnp.invert(terminate)
+        terminate, result = solver.terminate(fn, y, args, options, state, tags)
+        return jnp.invert(terminate) | (result != RESULTS.successful)
 
     def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
