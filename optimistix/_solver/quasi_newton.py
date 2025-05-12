@@ -83,7 +83,9 @@ def _lbfgs_operator_fn(
 
     # First loop: iterate backwards and compute alpha coefficients
     def backward_iter(descent_direction, indx):
-        y_diff, grad_diff, inner = jtu.tree_map(lambda x: x[indx], (y_diff_history, grad_diff_history, inner_history))
+        y_diff, grad_diff, inner = jtu.tree_map(
+            lambda x: x[indx], (y_diff_history, grad_diff_history, inner_history)
+        )
         alpha = inner * tree_dot(y_diff, descent_direction)
         descent_direction = (descent_direction ** ω - alpha * grad_diff ** ω).ω
         return descent_direction, alpha
@@ -98,11 +100,15 @@ def _lbfgs_operator_fn(
             (y_diff_history, grad_diff_history)
         )
         current_beta = inner * tree_dot(grad_diff, descent_direction)
-        descent_direction = (descent_direction ** ω + (y_diff ** ω * (current_alpha - current_beta))).ω
+        descent_direction = (
+                descent_direction ** ω + (y_diff ** ω * (current_alpha - current_beta))
+        ).ω
         return (descent_direction, alpha), None
 
 
-    descent_direction, alpha = jax.lax.scan(backward_iter, pytree, circ_index, reverse=True)
+    descent_direction, alpha = jax.lax.scan(
+        backward_iter, pytree, circ_index, reverse=True
+    )
     latest_y_diff, latest_grad_diff = jtu.tree_map(
         lambda x: x[index_start % history_len],
         (y_diff_history, grad_diff_history)
