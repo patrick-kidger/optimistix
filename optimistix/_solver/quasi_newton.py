@@ -140,7 +140,7 @@ def _make_lbfgs_operator(
 
     - `y_diff_history`: History of parameter updates `s_k = x_{k+1} - x_k`
     - `grad_diff_history`: History of gradient updates `y_k = g_{k+1} - g_k`
-    - `rho`: Reciprocal dot products `rho_k = 1 / ⟨s_k, y_k⟩`
+    - `inner_history`: Reciprocal dot products `inner_history_k = 1 / ⟨s_k, y_k⟩`
     - `index_start`: Index of the most recent update in the circular buffer
 
     Returns a `lineax.FunctionLinearOperator` with input and output shape
