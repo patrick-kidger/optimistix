@@ -222,7 +222,7 @@ class AbstractQuasiNewtonUpdate(eqx.Module):
 class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
     """Private intermediate class for BFGS/DFP updates."""
 
-    use_inverse : bool
+    use_inverse : AbstractVar[bool]
 
     def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, HessianUpdateState]:
         identity_op = _identity_pytree(y)
