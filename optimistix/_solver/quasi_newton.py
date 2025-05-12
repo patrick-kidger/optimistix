@@ -812,8 +812,8 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
         inner_history = jnp.where(jnp.isinf(inner_history), 0, inner_history)
 
         # fix the static arguments including the JAXPR.
-        # Note that the JAXPR inner var id is overwritten
-        # the closure variables are updated correctly, however.
+        # Note that the JAXPR inner var ids are overwritten but
+        # the closure variables are updated correctly.
         static = eqx.filter(f_info.hessian_inv, eqx.is_array, inverse=True)
 
         dynamic, update = filter_cond(
