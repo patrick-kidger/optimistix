@@ -73,7 +73,7 @@ def newton_step(
                 "Cannot use a Newton descent with a solver that only evaluates the "
                 "gradient, or only the function itself."
             )
-        out = lx.linear_solve(operator, vector, linear_solver)
+        out = lx.linear_solve(operator, vector, linear_solver, throw=False)
         newton = out.value
         result = RESULTS.promote(out.result)
     return newton, result
