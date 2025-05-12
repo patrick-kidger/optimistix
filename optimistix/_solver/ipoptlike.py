@@ -55,17 +55,6 @@ from .interior import NewInteriorDescent
 # these problems. (HATFLDH comes to mind.)
 
 
-# Some global flags strictly for use during development, these will be removed later.
-# I'm introducing them here to be able to selectively enable certain special features,
-# for use in testing and debugging.
-# Note that it generally does not make sense to enable the filtered line search without
-# enabling the feasibility restoration too, since this is currently the only place that
-# the filter gets re-set. (We don't support the heuristic filter reset in the search
-# yet.)
-SECOND_ORDER_CORRECTION = False
-FEASIBILITY_RESTORATION = False
-
-
 def _interior_tree_clip(
     tree: PyTree[ArrayLike],
     lower: PyTree[ArrayLike],
@@ -123,6 +112,10 @@ def _interior_tree_clip(
     return tree_clip(tree, moved_lower, moved_upper)
 
 
+def _truncate(x):  # TODO: expose cutoff values
+    return jnp.where(jnp.abs(x) > 1e3, 1e-2 * x, x)  # small value with the correct sign
+
+
 # TODO: After feasibility restoration (?) IPOPT apparently sets all multipliers to zero
 # IIUC: https://coin-or.github.io/Ipopt/OPTIONS.html
 # Should we do this here? Then we would need to set separate cutoff values for the
@@ -136,7 +129,7 @@ def _interior_tree_clip(
 # restricted with respect to the values they may take (currently strictly negative), so
 # this would require a non-negative least squares solve for them, or some other kind of
 # correction.
-def _initialise_multipliers(iterate__f_info):
+def _initialise_iterate(iterate__f_info):
     """Initialise the multipliers for the equality and inequality constraints. Both are
     initialised to the value they are expected to take at the optimum, with a safety
     factor for truncation if the computed values are unexpectedly large.
@@ -191,70 +184,61 @@ def _initialise_multipliers(iterate__f_info):
     that we move the slack variables less as the overall solve progresses. However, this
     somewhat contradicts the purpose of the initialisation here - which should be
     robust, since it is done at the start and after every feasibility restoration step.
+
+    TODO: copying what IPOPT does doesn't seem to work so well here, especially while we
+    continue to couple the step lengths of the primal variables and bound multipliers.
+    It looks like we should initialise everything, or nothing - which seems interesting
+    to me! While support for unequal step sizes is planned in the NewInteriorDescent, it
+    is not implemented yet and I don't want to make this solver assume that this is what
+    the descent does.
     """
     iterate, f_info = iterate__f_info
-    (equality_multipliers, _) = iterate.multipliers
-    _, inequality_residual = f_info.constraint_residual
 
-    # TODO: special case for when we don't have any inequality constraints
-    # TODO: this is currently a bit duplicate with code elsewhere! We initialise a slack
-    # variable here, but this might not be the best idea - this should be done in one
-    # place. And that place is probably not here.
-    # If I'm not initialising the slack variables here, then I also do not need to have
-    # this function be in the know about the truncation to the strict interior.
-    # (So we can remove the hard-coded parameters below.)
-    slack = inequality_residual
-    lower = tree_full_like(slack, 0.0)
-    upper = tree_full_like(slack, jnp.inf)
-    slack = _interior_tree_clip(slack, lower, upper, 0.01, 0.01)
-    inequality_multipliers = (-iterate.barrier / slack**ω).ω
+    if f_info.constraint_residual is not None:
+        equality_residual, inequality_residual = iterate.multipliers
+        equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
 
-    equality_jacobian, inequality_jacobian = f_info.constraint_jacobians
-    inequality_gradient = inequality_jacobian.T.mv(inequality_multipliers)
-    gradient = (-(f_info.grad**ω) - inequality_gradient**ω).ω
-    null = tree_full_like(equality_multipliers, 0.0)
-    vector = (gradient, null)
-    del equality_multipliers
+        if inequality_residual is not None:
+            lower = tree_full_like(inequality_residual, 0.0)
+            upper = tree_full_like(inequality_residual, jnp.inf)
+            slack = _interior_tree_clip(inequality_residual, lower, upper, 0.01, 0.01)
+            inequality_multipliers = (-iterate.barrier / slack**ω).ω
+            inequality_multipliers = jtu.tree_map(_truncate, inequality_multipliers)
+            inequality_gradient = inequality_jacobian.T.mv(inequality_multipliers)
+            upper_rhs = (-(f_info.grad**ω) - inequality_gradient**ω).ω
+        else:
+            slack = inequality_multipliers = None
+            upper_rhs = (-(f_info.grad**ω)).ω
 
-    def make_operator(equality_jacobian, input_structure):
-        jac = equality_jacobian  # for brevity
+        if equality_residual is not None:
+            null = tree_full_like(equality_residual, 0.0)
+            vector = (upper_rhs, null)
 
-        def operator(inputs):
-            orthogonal_component, parallel_component = inputs
-            r1 = (orthogonal_component**ω + jac.T.mv(parallel_component) ** ω).ω
-            r2 = jac.mv(orthogonal_component)
-            return r1, r2
+            def make_operator(jac, input_structure):
+                def operator(inputs):
+                    orthogonal, parallel = inputs
+                    r1 = (orthogonal**ω + jac.T.mv(parallel) ** ω).ω
+                    r2 = jac.mv(orthogonal)
+                    return r1, r2
 
-        return lx.FunctionLinearOperator(operator, input_structure)
+                return lx.FunctionLinearOperator(operator, input_structure)
 
-    operator = make_operator(equality_jacobian, jax.eval_shape(lambda: vector))
-    # TODO: we could allow a different choice of linear solver here
-    out = lx.linear_solve(operator, vector, lx.SVD())
-    _, equality_multipliers = out.value
+            operator = make_operator(equality_jacobian, jax.eval_shape(lambda: vector))
+            out = lx.linear_solve(operator, vector, lx.SVD())
+            _, equality_multipliers = out.value
+            equality_multipliers = jtu.tree_map(_truncate, equality_multipliers)
+        else:
+            equality_multipliers = None
 
-    # TODO: hard-coded cutoff value for now! In IPOPT this is an option to the solver
-    def truncate(x):
-        return jnp.where(jnp.abs(x) > 1e3, x, 0.0)
+        multipliers = (equality_multipliers, inequality_multipliers)
 
-    safe_equality_multipliers = jtu.tree_map(truncate, equality_multipliers)
-    safe_inequality_multipliers = jtu.tree_map(truncate, inequality_multipliers)
-    safe_duals = (safe_equality_multipliers, safe_inequality_multipliers)
-
-    return Iterate.PrimalDual(
-        iterate.y,
-        iterate.slack,  # TODO: we're not currently updating the slack variables here!
-        safe_duals,  # Only multipliers were updated
-        iterate.bound_multipliers,
-        iterate.barrier,
-    )
-
-
-# TODO: I think we should raise errata when y0 is infeasible with respect to the
-# inequality constraints, since this would mean that we have negative slack values.
-# It would be good to also provide an easy-to-use utility function that users can use to
-# compute an initial point that is feasible with respect to the inequality constraints.
-# Right now we don't raise an error for this and I don't think this is acceptable, since
-# we do not in fact know for sure that we do the right thing in this case.
+        return iterate
+        return Iterate.PrimalDual(
+            iterate.y, slack, multipliers, iterate.bound_multipliers, iterate.barrier
+        )
+    else:
+        # We do not initialise bound multipliers, so this gets returned here! TODO, tho
+        return iterate
 
 
 # TODO: I think it would make sense to have an `AbstractTermination` that just takes
@@ -302,10 +286,12 @@ def _error(
             # TODO: implement support for inequality residuals
             equality_residual, inequality_residual = f_info.constraint_residual
             constraint_norm += norm(equality_residual)
+            # jax.debug.print("{},", norm(equality_residual))
         if inequality_residual is not None:
             assert iterate.slack is not None
             corrected_residual = (inequality_residual**ω - iterate.slack**ω).ω
             constraint_norm += norm(corrected_residual)
+            # jax.debug.print("{},", norm(corrected_residual))
     # CONSTRUCTION SITE ENDS: ----------------------------------------------------------
 
     ### TO BE REFACTORED (made a separate optx.one_norm) -------------------------------
@@ -456,14 +442,10 @@ class _IPOPTLikeState(
 # not at all with respect to the equality constraints, where we only minimise their
 # constraint violation.
 # TODO:
-# - testing on a real benchmark problem
-# - adding support for inequality constraints
-# - trajectory optimisation example
 # - iterative refinement
 # - KKT error minimisation ahead of robust feasibility restoration
 # - inertia correction
 # - second-order correction
-# - what happens to dual variables after feasibility restoration?
 class AbstractIPOPTLike(
     AbstractMinimiser[Y, Iterate.PrimalDual, Aux, _IPOPTLikeState],
     Generic[Y, Aux],
@@ -593,6 +575,7 @@ class AbstractIPOPTLike(
             bound_multipliers = (lower_multipliers, upper_multipliers)
         else:
             bound_multipliers = None
+        # ------------------------------------------------------------------------------
 
         iterate = Iterate.PrimalDual(
             y,
@@ -710,7 +693,7 @@ class AbstractIPOPTLike(
                 jax.eval_shape(lambda: state.iterate_eval.y),
                 lx.positive_semidefinite_tag,  # TODO Not technically correct!
             )
-            f_eval_info_ = FunctionInfo.EvalGradHessian(
+            f_eval_info = FunctionInfo.EvalGradHessian(
                 f_eval,
                 grad,
                 lagrangian_hessian,
@@ -719,22 +702,34 @@ class AbstractIPOPTLike(
                 constraint_jacobians,
             )
 
-            error = _error(state.iterate_eval, f_eval_info_, self.norm)
+            # Initialise the iterate if we're taking the first step (or the first step)
+            # after a feasibility restoration. This initialises the Lagrange multipliers
+            # with a linear least squares solve.
+            def keep_iterate(iterate__f_info):
+                iterate, _ = iterate__f_info
+                return iterate
 
+            iterate__f_info = (state.iterate_eval, f_eval_info)
+            iterate_eval = filter_cond(
+                state.first_step, _initialise_iterate, keep_iterate, iterate__f_info
+            )
+
+            # Check for convergence
+            error = _error(iterate_eval, f_eval_info, self.norm)
+
+            # Barrier parameter update if we have converged ----------------------------
             # TODO: we're introducing new hyperparameters here! Hardcoded for now
-            converged_at_barrier = error <= 10 * state.iterate_eval.barrier
+            converged_at_barrier = error <= 10 * iterate_eval.barrier
             new_barrier = jnp.min(
-                jnp.array(
-                    [0.2 * state.iterate_eval.barrier, state.iterate_eval.barrier**1.5]
-                )
+                jnp.array([0.2 * iterate_eval.barrier, iterate_eval.barrier**1.5])
             )
             new_barrier = jnp.max(jnp.array([new_barrier, self.atol / 10]))
             new_barrier = jnp.where(
-                converged_at_barrier, new_barrier, state.iterate_eval.barrier
+                converged_at_barrier, new_barrier, iterate_eval.barrier
             )
-            iterate_eval = eqx.tree_at(
-                lambda i: i.barrier, state.iterate_eval, new_barrier
-            )
+            iterate_eval = eqx.tree_at(lambda i: i.barrier, iterate_eval, new_barrier)
+            # jax.debug.print("converged at barrier: {}", converged_at_barrier)
+            # --------------------------------------------------------------------------
 
             # TODO skip termination if barrier not low enough? How could this be checked
             # Perhaps by requiring that the barrier parameter is smaller than the
@@ -742,15 +737,11 @@ class AbstractIPOPTLike(
             terminate = error <= self.atol
             terminate = jnp.where(state.first_step, jnp.array(False), terminate)
 
-            descent_state = self.descent.query(
-                iterate_eval,
-                f_eval_info_,  # pyright: ignore
-                descent_state,
-            )
+            descent_state = self.descent.query(iterate_eval, f_eval_info, descent_state)
 
             return (
                 iterate_eval,
-                f_eval_info_,
+                f_eval_info,
                 aux_eval,
                 search_state,
                 descent_state,
@@ -844,6 +835,7 @@ class AbstractIPOPTLike(
 
         args = (search_result, descent_result)
         state = filter_cond(requires_restoration, restore, regular_update, args)
+        # jax.debug.print("")
         return iterate, state, aux
 
     def terminate(
