@@ -884,7 +884,6 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         self.atol = atol
         self.norm = norm
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
-        # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = search
         self.hessian_update = LBFGSUpdate(
             use_inverse=True,
