@@ -108,7 +108,7 @@ class AbstractIterativeSolver(
         bounds: tuple[Y, Y] | None,
         state: SolverState,
         tags: frozenset[object],
-    ) -> tuple[_Iterate, SolverState, Aux]:  # TODO type iterate
+    ) -> tuple[_Iterate, SolverState, Aux]:
         """Perform one step of the iterative solve.
 
         **Arguments:**

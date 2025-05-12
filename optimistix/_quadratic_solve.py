@@ -58,7 +58,7 @@ class _QuadraticSolverState(
     eqx.Module, Generic[Y, Aux, SearchState, DescentState], strict=True
 ):
     # Never updated
-    hessian: lx.AbstractLinearOperator  # TODO Part of f_info, re-using already possible
+    hessian: lx.AbstractLinearOperator
     # Updated every search step
     first_step: Bool[Array, ""]
     y_eval: Y
@@ -348,14 +348,9 @@ def quadratic_solve(
             bounds = checked_bounds(y0, jtu.tree_map(inexact_asarray, bounds))
 
         if constraint is not None:
-            constraint = OutAsArray(constraint)
+            constraint = OutAsArray(constraint)  # TODO repeat this in other APIs
             constraint = eqx.filter_closure_convert(constraint, y0)
             constraint = cast(Constraint[Y, EqualityOut, InequalityOut], constraint)
-
-            # # TODO(jhaffner): this can be done more elegantly
-            # msg = "The initial point must be feasible."
-            # pred = jnp.all(constraint(y0) >= 0)  # pyright: ignore (ConstraintOut arr
-            # eqx.error_if(y0, pred, msg)
 
         return iterative_solve(
             fn,

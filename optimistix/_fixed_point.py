@@ -2,7 +2,6 @@ from typing import Any, cast, Generic, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import PyTree
@@ -192,10 +191,6 @@ def fixed_point(
         if constraint is not None:
             constraint = eqx.filter_closure_convert(constraint, y0)
             constraint = cast(Constraint[Y, EqualityOut, InequalityOut], constraint)
-            # TODO(jhaffner): this can be done more elegantly
-            msg = "The initial point must be feasible."
-            pred = jnp.all(constraint(y0) >= 0)  # pyright: ignore (ConstraintOut array)
-            eqx.error_if(y0, pred, msg)
 
         return iterative_solve(
             fn,
