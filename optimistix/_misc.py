@@ -405,7 +405,9 @@ def scalarlike_asarray(x: ScalarLike) -> Array:
     return jnp.asarray(x)
 
 
-# TODO: typing
+# TODO: remove this function, we generally want to evalute the constraint function
+# more often and independently, and we only need a small utility to create the lineax
+# operators
 def evaluate_constraint(constraint, y):
     assert constraint is not None
 
