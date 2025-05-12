@@ -116,7 +116,7 @@ def _lbfgs_operator_fn(
     y_grad_diff_inner = tree_dot(latest_y_diff, latest_grad_diff)
     grad_diff_norm_sq = tree_dot(latest_grad_diff, latest_grad_diff)
     gamma_k = jnp.where(
-        grad_diff_norm_sq > 1e-10, y_grad_diff_inner / grad_diff_norm_sq, 1.0
+        grad_diff_norm_sq > 0, y_grad_diff_inner / grad_diff_norm_sq, 1.0
     )
     descent_direction = (gamma_k * descent_direction ** ω).ω
     (descent_direction, _), _ = jax.lax.scan(
