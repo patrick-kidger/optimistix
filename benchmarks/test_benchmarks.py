@@ -25,7 +25,7 @@ def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
             problem.objective,
             minimiser,
             args=problem.args(),
-            max_steps=2**8,  # Large number of steps to deal with tough problems
+            max_steps=2**8,  # TODO: increase number of steps - for tough problems
             throw=False,
         )
     )

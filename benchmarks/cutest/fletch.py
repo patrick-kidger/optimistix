@@ -3,6 +3,7 @@ import jax.numpy as jnp
 from .problem import AbstractUnconstrainedMinimisation
 
 
+# TODO: this has not yet been compared against another interface to CUTEst
 class FLETCBV3(AbstractUnconstrainedMinimisation, strict=True):
     """The FLETCBV3 function.
 
@@ -15,13 +16,13 @@ class FLETCBV3(AbstractUnconstrainedMinimisation, strict=True):
     Note J. Haffner --------------------------------------------------------------------
     The reference given appears to be incorrect, the PDF available under the title above
     does not include a problem description.
+
+    This can be defined for different dimensions (original SIF allows 10, 100, 1000,
+    5000, or 10000), with 5000 being the default in the SIF file.
     ------------------------------------------------------------------------------------
 
     SIF input: Nick Gould, Oct 1992.
     Classification: OUR2-AN-V-0
-
-    This can be defined for different dimensions (original SIF allows 10, 100, 1000,
-    5000, or 10000), with 5000 being the default in the SIF file.
     """
 
     n: int = 5000
