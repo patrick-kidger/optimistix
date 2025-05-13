@@ -754,7 +754,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
             grad_diff_history=jtu.tree_map(
                 lambda y: jnp.zeros((self.history_length, *y.shape)), y
             ),
-            inner_history=jnp.zeros(10),
+            inner_history=jnp.zeros(self.history_length),
         )
         op = _make_lbfgs_operator(
             state.y_diff_history,
@@ -817,7 +817,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
         static = eqx.filter(f_info.hessian_inv, eqx.is_array, inverse=True)
 
         dynamic, update = filter_cond(
-            inner_history[index_start] != 0,
+            jnp.sum(jnp.abs(inner_history)) != 0,
             self.update,
             self.no_update,
             inner_history,
