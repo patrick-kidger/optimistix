@@ -1,5 +1,6 @@
 from .arwhead import ARWHEAD as ARWHEAD
 from .fletch import FLETCBV3 as FLETCBV3
+from .himmelblau import HIMMELBG as HIMMELBG
 from .problem import (
     AbstractUnconstrainedMinimisation as AbstractUnconstrainedMinimisation,
 )
@@ -22,5 +23,6 @@ problems = (
     FLETCBV3(n=1000, extra_term=0),
     FLETCBV3(n=5000, extra_term=0),
     FLETCBV3(n=10000, extra_term=0),
+    HIMMELBG(),
     ROSENBR(),
 )
