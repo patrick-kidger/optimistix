@@ -1,11 +1,11 @@
 import abc
-from typing import Any, Union
+from typing import Any
 
 import equinox as eqx
 from jaxtyping import ArrayLike, PyTree, Scalar
 
 
-_Out = Union[Scalar, PyTree[ArrayLike]]
+_Out = Scalar | PyTree[ArrayLike] | None
 
 
 class AbstractProblem(eqx.Module, strict=True):
@@ -56,7 +56,7 @@ class AbstractUnconstrainedMinimisation(AbstractProblem, strict=True):
         """Objective function to be minimized. Must return a scalar value."""
 
     @abc.abstractmethod
-    def expected_objective_value(self) -> Scalar:
+    def expected_objective_value(self) -> Scalar | None:
         """Expected value of the objective function at the optimal solution. For a
         minimisation function, this is a scalar value.
         """
