@@ -4,6 +4,7 @@ from jaxtyping import Array
 from .problem import AbstractUnconstrainedMinimisation
 
 
+# TODO: this should still be compared against another CUTEst interface
 class CURLY20(AbstractUnconstrainedMinimisation, strict=True):
     """The CURLY 20 function.
 
