@@ -66,7 +66,6 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
     )
 
 
-@jax.jit
 def _lbfgs_operator_fn(
         pytree: PyTree[Array],
         y_diff_history: PyTree[Array],
