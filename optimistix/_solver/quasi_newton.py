@@ -883,7 +883,7 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.descent = NewtonDescent(linear_solver=lx.Cholesky())
+        self.descent = NewtonDescent()
         self.search = search
         self.hessian_update = LBFGSUpdate(
             use_inverse=True,
