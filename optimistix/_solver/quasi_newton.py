@@ -408,7 +408,7 @@ class _QuasiNewtonState(
     # Used in compat.py
     num_accepted_steps: Int[Array, ""]
     # update state
-    hess_update_state: HessianUpdateState
+    hessian_update_state: HessianUpdateState
 
 
 
@@ -466,7 +466,7 @@ class AbstractQuasiNewton(
             terminate=jnp.array(False),
             result=RESULTS.successful,
             num_accepted_steps=jnp.array(0),
-            hess_update_state=hessian_update_state
+            hessian_update_state=hessian_update_state
         )
 
     def step(
@@ -494,12 +494,12 @@ class AbstractQuasiNewton(
         def accepted(descent_state):
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
-            f_eval_info, hess_update_state = self.hessian_update(
+            f_eval_info, hessian_update_state = self.hessian_update(
                 y,
                 state.y_eval,
                 state.f_info,
                 FunctionInfo.EvalGrad(f_eval, grad),
-                state.hess_update_state
+                state.hessian_update_state
             )
 
             descent_state = self.descent.query(
@@ -521,7 +521,7 @@ class AbstractQuasiNewton(
                 aux_eval,
                 descent_state,
                 terminate,
-                hess_update_state
+                hessian_update_state
             )
 
         def rejected(descent_state):
@@ -531,10 +531,10 @@ class AbstractQuasiNewton(
                 state.aux,
                 descent_state,
                 jnp.array(False),
-                state.hess_update_state
+                state.hessian_update_state
             )
 
-        y, f_info, aux, descent_state, terminate, hess_update_state = filter_cond(
+        y, f_info, aux, descent_state, terminate, hessian_update_state = filter_cond(
             accept, accepted, rejected, state.descent_state
         )
 
@@ -568,7 +568,7 @@ class AbstractQuasiNewton(
             terminate=terminate,
             result=result,
             num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
-            hess_update_state=hess_update_state,
+            hessian_update_state=hessian_update_state,
         )
         return y, state, aux
 
