@@ -48,6 +48,6 @@ def test_lbfgs_operator_against_loop_implementation(history_len, start_index):
     sort_idx = (jnp.arange(history_len) + start_index) % history_len
     descent = loop_based_lbfgs_descent_dir(curr_descent, grad_diff_history[sort_idx], y_diff_history[sort_idx])
 
-    # define and apply operators
+    # define and apply operator
     op = _make_lbfgs_operator(y_diff_history, grad_diff_history, inner_history, jnp.array(start_index))
     assert tree_allclose(op.mv(curr_descent), descent, rtol=1e-12, atol=1e-12)
