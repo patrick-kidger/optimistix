@@ -11,7 +11,6 @@ Out = TypeVar("Out")
 SolverState = TypeVar("SolverState")
 SearchState = TypeVar("SearchState")
 DescentState = TypeVar("DescentState")
-HessianUpdateState = TypeVar("HessianUpdateState")
 Y = TypeVar("Y")
 
 Fn: TypeAlias = Callable[[Y, Args], tuple[Out, Aux]]
