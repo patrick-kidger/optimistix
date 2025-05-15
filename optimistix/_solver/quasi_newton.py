@@ -495,9 +495,9 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
 
         # check if the inner is positive otherwise, do not update hessian
         # and take gradient steps (same behavior as DSP or BFGS)
-        inner_non_zero = inner > jnp.finfo(inner.dtype).eps
+        inner_nonzero = inner > jnp.finfo(inner.dtype).eps
         inner_history = inner_history.at[index_start].set(
-            jnp.where(inner_non_zero, 1.0 / inner, inner_history[index_start])
+            jnp.where(inner_nonzero, 1.0 / inner, inner_history[index_start])
         )
 
         # fix the static arguments including the JAXPR.
@@ -506,7 +506,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
         static = eqx.filter(f_info.hessian_inv, eqx.is_array, inverse=True)
 
         dynamic, update = filter_cond(
-            inner_non_zero,
+            inner_nonzero,
             self.update,
             self.no_update,
             inner_history,
