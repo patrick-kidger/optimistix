@@ -180,6 +180,9 @@ class _LBFGSUpdateState(eqx.Module, strict=True):
     inner_history: Array
 
 
+_HessianUpdateState = TypeVar("_HessianUpdateState", _LBFGSUpdateState, None)
+
+
 class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
     """Abstract base class for quasi-Newton updates to the Hessian approximation. An
     update consumes information about the current and preceding step, the gradient
@@ -222,7 +225,7 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
     @abc.abstractmethod
     def init(
         self, y: Y, f: Scalar, grad: Y
-    ) -> tuple[_Hessian, Union[None, _LBFGSUpdateState]]:
+    ) -> tuple[_Hessian, _HessianUpdateState]:
         """
         Initialize the Hessian structure and Hessian update state.
 
@@ -242,7 +245,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
         self, y: Y, f: Scalar, grad: Y
     ) -> tuple[
         Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
-        Union[None, _LBFGSUpdateState],
+        _HessianUpdateState,
     ]:
         identity_op = _identity_pytree(y)
         if self.use_inverse:
@@ -273,10 +276,10 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
         y_eval: Y,
         f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
         f_eval_info: FunctionInfo.EvalGrad,
-        hessian_update_state: Union[None, _LBFGSUpdateState],
+        hessian_update_state: None,
     ) -> tuple[
         Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
-        Union[None, _LBFGSUpdateState],
+        None,
     ]:
         f_eval = f_eval_info.f
         grad = f_eval_info.grad
@@ -431,7 +434,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
         self, y: Y, f: Scalar, grad: Y
     ) -> tuple[
         Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
-        Union[None, _LBFGSUpdateState],
+        _LBFGSUpdateState,
     ]:
         state = _LBFGSUpdateState(
             index_start=jnp.array(0, dtype=int),
@@ -474,11 +477,8 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
         y_eval: Y,
         f_info: _Hessian,
         f_eval_info: FunctionInfo.EvalGrad,
-        hessian_update_state: Union[None, _LBFGSUpdateState],
-    ) -> tuple[FunctionInfo.EvalGradHessianInv, Union[None, _LBFGSUpdateState]]:
-        # please pyright
-        assert isinstance(f_info, FunctionInfo.EvalGradHessianInv)
-        assert isinstance(hessian_update_state, _LBFGSUpdateState)
+        hessian_update_state: _LBFGSUpdateState,
+    ) -> tuple[FunctionInfo.EvalGradHessianInv, _LBFGSUpdateState]:
         f_eval = f_eval_info.f
         grad = f_eval_info.grad
         y_diff = (y_eval**ω - y**ω).ω
@@ -551,7 +551,7 @@ class _QuasiNewtonState(
     # Used in compat.py
     num_accepted_steps: Int[Array, ""]
     # update state
-    hessian_update_state: Union[None, _LBFGSUpdateState]
+    hessian_update_state: _HessianUpdateState
 
 
 class AbstractQuasiNewton(
