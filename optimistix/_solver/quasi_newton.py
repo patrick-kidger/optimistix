@@ -899,8 +899,8 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
-        verbose: frozenset[str] = frozenset(),
         history_length: int = 10,
+        verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol
         self.atol = atol
