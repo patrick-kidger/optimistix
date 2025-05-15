@@ -685,9 +685,18 @@ class AbstractQuasiNewton(
             verbose_loss = "loss" in self.verbose
             verbose_step_size = "step_size" in self.verbose
             verbose_y = "y" in self.verbose
-            y_diff_history = isinstance(state.hessian_update_state, _LBFGSUpdateState) and "y_diff_history" in self.verbose
-            grad_diff_history = isinstance(state.hessian_update_state, _LBFGSUpdateState) and "grad_diff_history" in self.verbose
-            verbose_inner = isinstance(state.hessian_update_state, _LBFGSUpdateState) and "inner_history" in self.verbose
+            y_diff_history = (
+                isinstance(state.hessian_update_state, _LBFGSUpdateState)
+                and "y_diff_history" in self.verbose
+            )
+            grad_diff_history = (
+                isinstance(state.hessian_update_state, _LBFGSUpdateState)
+                and "grad_diff_history" in self.verbose
+            )
+            verbose_inner = (
+                isinstance(state.hessian_update_state, _LBFGSUpdateState)
+                and "inner_history" in self.verbose
+            )
             loss_eval = f_eval
             loss = state.f_info.f
             verbose_print(
@@ -696,9 +705,21 @@ class AbstractQuasiNewton(
                 (verbose_step_size, "Step size", step_size),
                 (verbose_y, "y", state.y_eval),
                 (verbose_y, "y on the last accepted step", y),
-                (y_diff_history, "y_diff_history", getattr(state.hessian_update_state, "y_diff_history", None)),
-                (grad_diff_history, "grad_diff_history", getattr(state.hessian_update_state, "grad_diff_history", None)),
-                (verbose_inner, "inner_history", getattr(state.hessian_update_state, "inner_history", None)),
+                (
+                    y_diff_history,
+                    "y_diff_history",
+                    getattr(state.hessian_update_state, "y_diff_history", None),
+                ),
+                (
+                    grad_diff_history,
+                    "grad_diff_history",
+                    getattr(state.hessian_update_state, "grad_diff_history", None),
+                ),
+                (
+                    verbose_inner,
+                    "inner_history",
+                    getattr(state.hessian_update_state, "inner_history", None),
+                ),
             )
 
         y_descent, descent_result = self.descent.step(step_size, descent_state)
