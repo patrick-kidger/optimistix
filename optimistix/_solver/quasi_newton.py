@@ -223,9 +223,7 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
         """
 
     @abc.abstractmethod
-    def init(
-        self, y: Y, f: Scalar, grad: Y
-    ) -> tuple[_Hessian, _HessianUpdateState]:
+    def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, _HessianUpdateState]:
         """
         Initialize the Hessian structure and Hessian update state.
 
@@ -245,7 +243,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
         self, y: Y, f: Scalar, grad: Y
     ) -> tuple[
         Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
-        _HessianUpdateState,
+        None,
     ]:
         identity_op = _identity_pytree(y)
         if self.use_inverse:
@@ -276,7 +274,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
         y_eval: Y,
         f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
         f_eval_info: FunctionInfo.EvalGrad,
-        hessian_update_state: None,
+        hessian_update_state: _HessianUpdateState,
     ) -> tuple[
         Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
         None,
@@ -479,6 +477,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
         f_eval_info: FunctionInfo.EvalGrad,
         hessian_update_state: _LBFGSUpdateState,
     ) -> tuple[FunctionInfo.EvalGradHessianInv, _LBFGSUpdateState]:
+        assert isinstance(f_info, FunctionInfo.EvalGradHessianInv)
         f_eval = f_eval_info.f
         grad = f_eval_info.grad
         y_diff = (y_eval**ω - y**ω).ω
@@ -551,7 +550,7 @@ class _QuasiNewtonState(
     # Used in compat.py
     num_accepted_steps: Int[Array, ""]
     # update state
-    hessian_update_state: _HessianUpdateState
+    hessian_update_state: _LBFGSUpdateState | None
 
 
 class AbstractQuasiNewton(
