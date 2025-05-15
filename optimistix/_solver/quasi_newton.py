@@ -890,7 +890,7 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
     atol: float
     norm: Callable[[PyTree], Scalar]
     descent: NewtonDescent
-    search: AbstractSearch
+    search: BacktrackingArmijo
     hessian_update: AbstractQuasiNewtonUpdate
     verbose: frozenset[str]
 
@@ -900,14 +900,13 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         verbose: frozenset[str] = frozenset(),
-        search: AbstractSearch = BacktrackingArmijo(),
         history_length: int = 10,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.descent = NewtonDescent()
-        self.search = search
+        self.search = BacktrackingArmijo()
         self.hessian_update = LBFGSUpdate(
             use_inverse=True, history_length=history_length
         )
