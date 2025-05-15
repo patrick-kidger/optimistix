@@ -199,10 +199,10 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
         y_eval: Y,
         f_info: FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
         f_eval_info: FunctionInfo.EvalGrad,
-        hessian_update_state: Union[None, _LBFGSUpdateState],
+        hessian_update_state: _HessianUpdateState,
     ) -> tuple[
         FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
-        None | _LBFGSUpdateState,
+        _HessianUpdateState,
     ]:
         """Called whenever we want to update the Hessian approximation. This is usually
         in the `accepted` branch of the `step` method of an
@@ -242,7 +242,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
     def init(
         self, y: Y, f: Scalar, grad: Y
     ) -> tuple[
-        Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
+        FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
         None,
     ]:
         identity_op = _identity_pytree(y)
@@ -274,7 +274,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
         y_eval: Y,
         f_info: FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
         f_eval_info: FunctionInfo.EvalGrad,
-        hessian_update_state: _HessianUpdateState,
+        hessian_update_state: None,
     ) -> tuple[
         FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
         None,
@@ -302,13 +302,9 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
         )
         if self.use_inverse:
             # in this case `hessian` is the new inverse hessian
-            return FunctionInfo.EvalGradHessianInv(
-                f_eval, grad, hessian
-            ), hessian_update_state
+            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None
         else:
-            return FunctionInfo.EvalGradHessian(
-                f_eval, grad, hessian
-            ), hessian_update_state
+            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None
 
 
 class DFPUpdate(_AbstractBFGSDFPUpdate):
@@ -534,7 +530,8 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
 
 
 class _QuasiNewtonState(
-    eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian]
+    eqx.Module,
+    Generic[Y, Aux, SearchState, DescentState, _Hessian, _HessianUpdateState],
 ):
     # Updated every search step
     first_step: Bool[Array, ""]
@@ -550,7 +547,7 @@ class _QuasiNewtonState(
     # Used in compat.py
     num_accepted_steps: Int[Array, ""]
     # update state
-    hessian_update_state: _LBFGSUpdateState | None
+    hessian_update_state: _HessianUpdateState
 
 
 class AbstractQuasiNewton(
