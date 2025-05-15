@@ -921,16 +921,12 @@ LBFGS.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
-- `verbose`: Whether to print out extra information about how the solve is
-    proceeding. Should be a frozenset of strings, specifying what information to print.
-    Valid entries are `step_size`, `loss`, `y`. For example
-    `verbose=frozenset({"step_size", "loss"})`.
-- `search`: The line search strategy to use for choosing step sizes. Defaults to
-    [`optimistix.BacktrackingArmijo`][].
-    Can be replaced with other search strategies that implement the 
-    `AbstractSearch` interface.
 - `history_length`: Number of parameter and gradient residuals to retain in the 
     L-BFGS history. Larger values can improve accuracy of the inverse Hessian 
     approximation, while smaller values reduce memory and computation. 
     The default is 10.
+- `verbose`: Whether to print out extra information about how the solve is
+    proceeding. Should be a frozenset of strings, specifying what information to print.
+    Valid entries are `step_size`, `loss`, `y`. For example
+    `verbose=frozenset({"step_size", "loss"})`.
 """
