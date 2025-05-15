@@ -448,22 +448,46 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
         )
         return FunctionInfo.EvalGradHessianInv(f, grad, op), state
 
-    def no_update(self, inner, grad_diff, y_diff, f_info, start_index):
-        return eqx.filter(f_info.hessian_inv, eqx.is_array), jnp.array(0)
+    def no_update(self, inner, grad_diff, y_diff, f_info, hessian_update_state):
+        return eqx.filter(f_info.hessian_inv, eqx.is_array), hessian_update_state
 
-    def update(self, inner, grad_diff, y_diff, f_info, start_index):
+    def update(self, inner, grad_diff, y_diff, f_info, hessian_update_state):
         assert isinstance(f_info, FunctionInfo.EvalGradHessianInv)
+
+        y_diff_history = hessian_update_state.y_diff_history
+        grad_diff_history = hessian_update_state.grad_diff_history
+        index_start = hessian_update_state.index_start
+        inner_history = hessian_update_state.inner_history
+
+        # update states
+        y_diff_history = jtu.tree_map(
+            lambda x, z: x.at[index_start].set(z), y_diff_history, y_diff
+        )
+        grad_diff_history = jtu.tree_map(
+            lambda x, z: x.at[index_start].set(z), grad_diff_history, grad_diff
+        )
+        inner_history = inner_history.at[index_start].set(1.0 / inner)
+        # increment circular index
+        index_start = (index_start + 1) % self.history_length
+
+        hessian_update_state = _LBFGSUpdateState(
+            index_start=index_start,
+            y_diff_history=y_diff_history,
+            grad_diff_history=grad_diff_history,
+            inner_history=inner_history,
+        )
+
         # update the start index
         dynamic = eqx.filter(
             _make_lbfgs_operator(
-                y_diff,
-                grad_diff,
-                inner,
-                start_index,
+                y_diff_history,
+                grad_diff_history,
+                inner_history,
+                index_start,
             ),
             eqx.is_array,
         )
-        return dynamic, jnp.array(1)
+        return dynamic, hessian_update_state
 
     def __call__(
         self,
@@ -478,54 +502,28 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
         grad = f_eval_info.grad
         y_diff = (y_eval**ω - y**ω).ω
         grad_diff = (grad**ω - f_info.grad**ω).ω
-
-        y_diff_history = hessian_update_state.y_diff_history
-        grad_diff_history = hessian_update_state.grad_diff_history
-        index_start = hessian_update_state.index_start
-        inner_history = hessian_update_state.inner_history
-
-        # update states
-        y_diff_history = jtu.tree_map(
-            lambda x, z: x.at[index_start].set(z), y_diff_history, y_diff
-        )
-        grad_diff_history = jtu.tree_map(
-            lambda x, z: x.at[index_start].set(z), grad_diff_history, grad_diff
-        )
         inner = tree_dot(y_diff, grad_diff)
 
         # check if the inner is positive otherwise, do not update hessian
         # and take gradient steps (same behavior as DSP or BFGS)
         inner_nonzero = inner > jnp.finfo(inner.dtype).eps
-        inner_history = inner_history.at[index_start].set(
-            jnp.where(inner_nonzero, 1.0 / inner, inner_history[index_start])
-        )
 
         # fix the static arguments including the JAXPR.
         # Note that the JAXPR inner var ids are overwritten but
         # the closure variables are updated correctly.
         static = eqx.filter(f_info.hessian_inv, eqx.is_array, inverse=True)
 
-        dynamic, update = filter_cond(
+        dynamic, hessian_update_state = filter_cond(
             inner_nonzero,
             self.update,
             self.no_update,
-            inner_history,
-            grad_diff_history,
-            y_diff_history,
+            inner,
+            grad_diff,
+            y_diff,
             f_info,
-            index_start,
+            hessian_update_state,
         )
         hessian = eqx.combine(static, dynamic)
-
-        # increment circular index
-        index_start = (index_start + update) % self.history_length
-
-        hessian_update_state = _LBFGSUpdateState(
-            index_start=jnp.array(index_start),
-            y_diff_history=y_diff_history,
-            grad_diff_history=grad_diff_history,
-            inner_history=inner_history,
-        )
 
         return (
             FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian),
