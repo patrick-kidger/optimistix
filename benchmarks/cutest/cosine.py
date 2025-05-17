@@ -4,7 +4,7 @@ from .problem import AbstractUnconstrainedMinimisation
 
 
 # TODO: Needs verification against another CUTEst interface
-class COSINE(AbstractUnconstrainedMinimisation, strict=True):
+class COSINE(AbstractUnconstrainedMinimisation):
     """The COSINE function.
 
     A function with nontrivial groups and repetitious elements.
@@ -33,4 +33,6 @@ class COSINE(AbstractUnconstrainedMinimisation, strict=True):
         return None
 
     def expected_objective_value(self):
+        # According to line 83 in the SIF file, the objective is bounded
+        # below by -(n-1), but no exact solution value is given
         return None

@@ -5,7 +5,7 @@ from .problem import AbstractUnconstrainedMinimisation
 
 
 # TODO: this should still be compared against another CUTEst interface
-class CURLY20(AbstractUnconstrainedMinimisation, strict=True):
+class CURLY20(AbstractUnconstrainedMinimisation):
     """The CURLY 20 function.
 
     A banded function with semi-bandwidth 20 and
