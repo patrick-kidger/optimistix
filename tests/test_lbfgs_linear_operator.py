@@ -1,3 +1,5 @@
+import itertools
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -6,59 +8,114 @@ from optimistix._solver.quasi_newton import _make_lbfgs_operator
 from .helpers import tree_allclose
 
 
-def loop_backward(current_grad, grad_diff_history, y_diff_history, inner_history):
-    """Follow the lbfgs update equation assuming history is sorted."""
-    descent = current_grad.copy()
-    alpha = jnp.zeros(y_diff_history.shape[0])
-    for i, pars in enumerate(
-        zip(inner_history[::-1], y_diff_history[::-1], grad_diff_history[::-1])
-    ):
-        inner_i, y_diff_i, grad_diff_i = pars
-        alpha = alpha.at[len(alpha) - i - 1].set(inner_i * jnp.dot(y_diff_i, descent))
-        descent = descent - alpha[len(alpha) - i - 1] * grad_diff_i
-    return descent, alpha
-
-
-def loop_forward(descent, alpha, grad_diff_history, y_diff_history, inner_history):
-    y_grad_inner = y_diff_history[0].dot(grad_diff_history[0])
-    y_y_inner = jnp.sum(grad_diff_history[0] ** 2)
-    gamma_k = jnp.where(y_y_inner > 1e-10, y_grad_inner / y_y_inner, 1.0)
-    search_dir = gamma_k * descent
-    for ri, si, yi, ai in zip(inner_history, y_diff_history, grad_diff_history, alpha):
-        bi = ri * yi.dot(search_dir)
-        search_dir += si * (ai - bi)
-    return search_dir
-
-
-def loop_based_lbfgs_descent_dir(current_grad, grad_diff_history, y_diff_history):
-    """Loop based LBFGS update implementation to test against for arrays."""
-    inner_history = 1.0 / (y_diff_history * grad_diff_history).sum(axis=1)
-    q, alp = loop_backward(
-        current_grad, grad_diff_history, y_diff_history, inner_history
-    )
-    return loop_forward(q, alp, grad_diff_history, y_diff_history, inner_history)
-
-
-@pytest.mark.parametrize("history_len", [1, 2, 3])
-@pytest.mark.parametrize("start_index", [0, 1])
-def test_lbfgs_operator_against_loop_implementation(history_len, start_index):
-    # generate some random data
-    jax.config.update("jax_enable_x64", True)
+@pytest.fixture()
+def generate_data(request):
+    history_len, start_index = request.param
     curr_descent = jax.random.normal(jax.random.PRNGKey(123), shape=(3,))
     grad_diff_history = jax.random.normal(
         jax.random.PRNGKey(124), shape=(history_len, 3)
     )
-    y_diff_history = jax.random.normal(jax.random.PRNGKey(125), shape=(history_len, 3))
+    # enforce positive curvature
+    y_diff_history = jnp.sign(grad_diff_history) * jax.random.uniform(
+        jax.random.PRNGKey(125), shape=(history_len, 3)
+    )
     inner_history = 1.0 / (y_diff_history * grad_diff_history).sum(axis=1)
+    start_index = jnp.array(start_index)
+    return curr_descent, grad_diff_history, y_diff_history, inner_history, start_index
 
-    # sort the time axis and compute descent with naive implementation
-    sort_idx = (jnp.arange(history_len) + start_index) % history_len
-    descent = loop_based_lbfgs_descent_dir(
-        curr_descent, grad_diff_history[sort_idx], y_diff_history[sort_idx]
+
+@pytest.mark.parametrize(
+    "generate_data", [*itertools.product([2, 3], [0, 1])], indirect=True
+)
+def test_against_naive_bfgs_hessian_inverse_update(generate_data):
+    """Naive implementation of a BFGS inverse hessian update.
+
+    See eqn 1.2 of,
+
+    Byrd, Richard H., et al. "A stochastic quasi-Newton method for large-scale
+    optimization." SIAM Journal on Optimization 26.2 (2016): 1008-1031.
+
+    """
+    (
+        curr_descent,
+        grad_diff_history,
+        y_diff_history,
+        inner_history,
+        start_index,
+    ) = generate_data
+    history_len = len(inner_history)
+
+    # initialize hess inv history (as a scaled identity)
+    hess_inv_hist = (
+        jnp.eye(curr_descent.shape[0])
+        * (y_diff_history[start_index] @ grad_diff_history[start_index])
+        / (grad_diff_history[start_index] @ grad_diff_history[start_index])
     )
+    for k in range(history_len):
+        circ_all = (jnp.arange(history_len) + start_index) % history_len
+        idx_circ = circ_all[k]
 
-    # define and apply operator
+        # implement recursion (1.2) from the reference paper, see docstrings
+        Vk = jnp.eye(hess_inv_hist.shape[0]) - inner_history[idx_circ] * jnp.outer(
+            grad_diff_history[idx_circ], y_diff_history[idx_circ]
+        )
+        hess_inv_hist = Vk.T @ hess_inv_hist @ Vk + inner_history[idx_circ] * jnp.outer(
+            y_diff_history[idx_circ], y_diff_history[idx_circ]
+        )
+
+    # recreate the hessian using the two-loops based operator
     op = _make_lbfgs_operator(
-        y_diff_history, grad_diff_history, inner_history, jnp.array(start_index)
+        True, y_diff_history, grad_diff_history, inner_history, start_index
     )
-    assert tree_allclose(op.mv(curr_descent), descent, rtol=1e-12, atol=1e-12)
+    assert tree_allclose(op.as_matrix(), hess_inv_hist)
+
+
+@pytest.mark.parametrize(
+    "generate_data", [*itertools.product([2, 3], [0, 1])], indirect=True
+)
+def test_against_naive_bfgs_hessian_update(generate_data):
+    """Naive implementation of a BFGS hessian update.
+
+    See eqn 2.16 of,
+
+    Byrd, Richard H., et al. "A stochastic quasi-Newton method for large-scale
+    optimization." SIAM Journal on Optimization 26.2 (2016): 1008-1031.
+
+    """
+    (
+        curr_descent,
+        grad_diff_history,
+        y_diff_history,
+        inner_history,
+        start_index,
+    ) = generate_data
+    history_len = len(inner_history)
+
+    # initialize hess inv history (as a scaled identity)
+    hess_hist = (
+        jnp.eye(curr_descent.shape[0])
+        * (grad_diff_history[start_index] @ grad_diff_history[start_index])
+        / (y_diff_history[start_index] @ grad_diff_history[start_index])
+    )
+
+    for k in range(history_len):
+        circ_all = (jnp.arange(history_len) + start_index) % history_len
+        idx_circ = circ_all[k]
+
+        # implement recursion (2.16) from the reference paper, see docstrings
+        # for reference paper
+        Bsk = jnp.dot(hess_hist, y_diff_history[idx_circ])
+        sk = y_diff_history[idx_circ]
+        hess_hist = (
+            hess_hist
+            - jnp.outer(Bsk, Bsk) / (sk @ hess_hist @ sk)
+            + jnp.outer(grad_diff_history[idx_circ], grad_diff_history[idx_circ])
+            * inner_history[idx_circ]
+        )
+
+    # recreate the hessian using (4.2), see docstrings for reference paper
+    b_history = jnp.sqrt(inner_history)[:, None] * grad_diff_history
+    op = _make_lbfgs_operator(
+        False, y_diff_history, grad_diff_history, b_history, start_index
+    )
+    assert tree_allclose(op.as_matrix(), hess_hist)
