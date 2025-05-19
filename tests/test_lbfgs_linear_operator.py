@@ -136,7 +136,6 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
         start_index,
     ) = generate_data
 
-    # recreate the hessian using (4.2), see docstrings for reference paper
     b_history = jnp.sqrt(inner_history)[:, None] * grad_diff_history
     op = _make_lbfgs_operator(
         False, y_diff_history, grad_diff_history, b_history, start_index
