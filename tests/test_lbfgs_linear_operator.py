@@ -119,3 +119,30 @@ def test_against_naive_bfgs_hessian_update(generate_data):
         False, y_diff_history, grad_diff_history, b_history, start_index
     )
     assert tree_allclose(op.as_matrix(), hess_hist)
+
+
+@pytest.mark.parametrize(
+    "generate_data", [*itertools.product([2, 3], [0, 1])], indirect=True
+)
+def test_inverse_vs_direct_hessian_operator(generate_data):
+    """Test that combining the operetors results in the identity.
+
+    """
+    (
+        curr_descent,
+        grad_diff_history,
+        y_diff_history,
+        inner_history,
+        start_index,
+    ) = generate_data
+
+    # recreate the hessian using (4.2), see docstrings for reference paper
+    b_history = jnp.sqrt(inner_history)[:, None] * grad_diff_history
+    op = _make_lbfgs_operator(
+        False, y_diff_history, grad_diff_history, b_history, start_index
+    )
+    op_inv = _make_lbfgs_operator(
+        True, y_diff_history, grad_diff_history, inner_history, start_index
+    )
+    identity = (op @ op_inv).as_matrix()
+    assert tree_allclose(identity, jnp.eye(identity.shape[0]))
