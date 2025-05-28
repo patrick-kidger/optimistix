@@ -48,8 +48,8 @@ def test_against_naive_bfgs_hessian_inverse_update(generate_data):
     # initialize hess inv history (as a scaled identity)
     hess_inv_hist = (
         jnp.eye(curr_descent.shape[0])
-        * (y_diff_history[start_index] @ grad_diff_history[start_index])
-        / (grad_diff_history[start_index] @ grad_diff_history[start_index])
+        * (y_diff_history[start_index - 1] @ grad_diff_history[start_index - 1])
+        / (grad_diff_history[start_index - 1] @ grad_diff_history[start_index - 1])
     )
     for k in range(history_len):
         circ_all = (jnp.arange(history_len) + start_index) % history_len
@@ -94,8 +94,8 @@ def test_against_naive_bfgs_hessian_update(generate_data):
     # initialize hess inv history (as a scaled identity)
     hess_hist = (
         jnp.eye(curr_descent.shape[0])
-        * (grad_diff_history[start_index] @ grad_diff_history[start_index])
-        / (y_diff_history[start_index] @ grad_diff_history[start_index])
+        * (grad_diff_history[start_index - 1] @ grad_diff_history[start_index - 1])
+        / (y_diff_history[start_index - 1] @ grad_diff_history[start_index - 1])
     )
 
     for k in range(history_len):
