@@ -107,7 +107,7 @@ def _lbfgs_inverse_hessian_operator_fn(
         backward_iter, pytree, circ_index, reverse=True
     )
     latest_y_diff, latest_grad_diff = jtu.tree_map(
-        lambda x: x[index_start % history_len], (y_diff_history, grad_diff_history)
+        lambda x: x[(index_start - 1) % history_len], (y_diff_history, grad_diff_history)
     )
     y_grad_diff_inner = tree_dot(latest_y_diff, latest_grad_diff)
     grad_diff_norm_sq = tree_dot(latest_grad_diff, latest_grad_diff)
@@ -138,7 +138,7 @@ def _lbfgs_hessian_operator_fn(
 
     # compute scaling
     latest_grad_diff, latest_y_diff = jtu.tree_map(
-        lambda x: x[index_start % history_len], (grad_diff_history, y_diff_history)
+        lambda x: x[(index_start - 1) % history_len], (grad_diff_history, y_diff_history)
     )
     grad_diff_norm_sq = tree_dot(latest_y_diff, latest_grad_diff)
     gamma_k = jnp.where(
