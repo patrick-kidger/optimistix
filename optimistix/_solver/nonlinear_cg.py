@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, cast, Generic, Union
+from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -78,12 +78,10 @@ class _NonlinearCGDescentState(eqx.Module, Generic[Y], strict=True):
 class NonlinearCGDescent(
     AbstractDescent[
         Y,
-        Union[
-            FunctionInfo.EvalGrad,
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        FunctionInfo.EvalGrad
+        | FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
         _NonlinearCGDescentState,
     ],
     strict=True,
@@ -95,12 +93,10 @@ class NonlinearCGDescent(
     def init(
         self,
         y: Y,
-        f_info_struct: Union[
-            FunctionInfo.EvalGrad,
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        f_info_struct: FunctionInfo.EvalGrad
+        | FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
     ) -> _NonlinearCGDescentState:
         del f_info_struct
         return _NonlinearCGDescentState(
@@ -111,12 +107,10 @@ class NonlinearCGDescent(
     def query(
         self,
         y: Y,
-        f_info: Union[
-            FunctionInfo.EvalGrad,
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        f_info: FunctionInfo.EvalGrad
+        | FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
         state: _NonlinearCGDescentState,
     ) -> _NonlinearCGDescentState:
         del y

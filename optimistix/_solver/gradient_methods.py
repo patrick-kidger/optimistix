@@ -1,6 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Generic, Optional, Union
-from typing_extensions import TypeAlias
+from typing import Any, Generic, TypeAlias
 
 import equinox as eqx
 import jax
@@ -31,18 +30,18 @@ class _SteepestDescentState(eqx.Module, Generic[Y], strict=True):
     grad: Y
 
 
-_FnInfo: TypeAlias = Union[
-    FunctionInfo.EvalGrad,
-    FunctionInfo.EvalGradHessian,
-    FunctionInfo.EvalGradHessianInv,
-    FunctionInfo.ResidualJac,
-]
+_FnInfo: TypeAlias = (
+    FunctionInfo.EvalGrad
+    | FunctionInfo.EvalGradHessian
+    | FunctionInfo.EvalGradHessianInv
+    | FunctionInfo.ResidualJac
+)
 
 
 class SteepestDescent(AbstractDescent[Y, _FnInfo, _SteepestDescentState], strict=True):
     """The descent direction given by locally following the gradient."""
 
-    norm: Optional[Callable[[PyTree], Scalar]] = None
+    norm: Callable[[PyTree], Scalar] | None = None
 
     def init(self, y: Y, f_info_struct: _FnInfo) -> _SteepestDescentState:
         del f_info_struct

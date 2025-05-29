@@ -1,7 +1,6 @@
 import abc
 import functools as ft
 from collections.abc import Callable
-from typing import Optional
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -104,7 +103,7 @@ class RecursiveCheckpointAdjoint(AbstractAdjoint, strict=True):
         ```
     """
 
-    checkpoints: Optional[int] = None
+    checkpoints: int | None = None
 
     def apply(self, primal_fn, rewrite_fn, inputs, tags):
         del rewrite_fn, tags
