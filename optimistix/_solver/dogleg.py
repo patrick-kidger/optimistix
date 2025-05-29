@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, cast, Generic, Union
+from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax.lax as lax
@@ -36,7 +36,7 @@ class _DoglegDescentState(eqx.Module, Generic[Y], strict=True):
 class DoglegDescent(
     AbstractDescent[
         Y,
-        Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         _DoglegDescentState,
     ],
     strict=True,
@@ -54,7 +54,7 @@ class DoglegDescent(
     def init(
         self,
         y: Y,
-        f_info_struct: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        f_info_struct: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
     ) -> _DoglegDescentState:
         # Dummy values; unused
         del f_info_struct
@@ -69,7 +69,7 @@ class DoglegDescent(
     def query(
         self,
         y: Y,
-        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         state: _DoglegDescentState,
     ) -> _DoglegDescentState:
         del y, state

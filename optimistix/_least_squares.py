@@ -1,4 +1,4 @@
-from typing import Any, cast, Generic, Optional, Union
+from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax
@@ -47,13 +47,13 @@ class _ToMinimiseFn(eqx.Module, Generic[Y, Out, Aux]):
 def least_squares(
     fn: MaybeAuxFn[Y, Out, Aux],
     # no type parameters, see https://github.com/microsoft/pyright/discussions/5599
-    solver: Union[AbstractLeastSquaresSolver, AbstractMinimiser],
+    solver: AbstractLeastSquaresSolver | AbstractMinimiser,
     y0: Y,
     args: PyTree[Any] = None,
-    options: Optional[dict[str, Any]] = None,
+    options: dict[str, Any] | None = None,
     *,
     has_aux: bool = False,
-    max_steps: Optional[int] = 256,
+    max_steps: int | None = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),

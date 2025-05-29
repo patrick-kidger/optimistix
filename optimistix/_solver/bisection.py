@@ -1,6 +1,6 @@
 import functools as ft
 from collections.abc import Callable
-from typing import Any, ClassVar, Literal, Union
+from typing import Any, ClassVar, Literal
 
 import equinox as eqx
 import jax
@@ -100,7 +100,7 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState], strict
 
     rtol: float
     atol: float
-    flip: Union[bool, Literal["detect"]] = "detect"
+    flip: bool | Literal["detect"] = "detect"
     expand_if_necessary: bool = False
     # All norms are the same for scalars.
     norm: ClassVar[Callable[[PyTree], Scalar]] = jnp.abs

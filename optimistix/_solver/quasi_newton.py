@@ -1,6 +1,6 @@
 import abc
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar, Union
+from typing import Any, Generic, TypeVar
 
 import equinox as eqx
 import jax
@@ -94,9 +94,9 @@ class AbstractQuasiNewtonUpdate(eqx.Module, strict=True):
         self,
         y: Y,
         y_eval: Y,
-        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
+        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
         f_eval_info: FunctionInfo.EvalGrad,
-    ) -> Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv]:
+    ) -> FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv:
         """Called whenever we want to update the Hessian approximation. This is usually
         in the `accepted` branch of the `step` method of an
         [`optimistix.AbstractQuasiNewton`][] minimiser.
@@ -133,7 +133,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
         inner: PyTree,
         grad_diff: PyTree,
         y_diff: PyTree,
-        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
+        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
     ) -> lx.PyTreeLinearOperator:
         ...
 
@@ -141,9 +141,9 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate, strict=True):
         self,
         y: Y,
         y_eval: Y,
-        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv],
+        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
         f_eval_info: FunctionInfo.EvalGrad,
-    ) -> Union[FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv]:
+    ) -> FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv:
         f_eval = f_eval_info.f
         grad = f_eval_info.grad
         y_diff = (y_eval**ω - y**ω).ω

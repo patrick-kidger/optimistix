@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TYPE_CHECKING
+from typing import Any, Generic, TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -39,7 +39,7 @@ def _converged(factor: Scalar, tol: float) -> Bool[Array, " "]:
 
 class _NewtonChordState(eqx.Module, Generic[Y], strict=True):
     f: PyTree[Array]
-    linear_state: Optional[tuple[lx.AbstractLinearOperator, PyTree]]
+    linear_state: tuple[lx.AbstractLinearOperator, PyTree] | None
     diff: Y
     diffsize: Scalar
     diffsize_prev: Scalar

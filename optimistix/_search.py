@@ -23,7 +23,7 @@ For an in-depth discussion of how these pieces fit together, see the documentati
 """
 
 import abc
-from typing import ClassVar, Generic, Type, TypeVar
+from typing import ClassVar, Generic, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -52,12 +52,12 @@ class FunctionInfo(eqx.Module, strict=eqx.StrictConfig(allow_abstract_name=True)
     `optimistix.FunctionInfo.{Eval, EvalGrad, EvalGradHessian, EvalGradHessianInv, Residual, ResidualJac}`.
     """  # noqa: E501
 
-    Eval: ClassVar[Type["Eval"]]
-    EvalGrad: ClassVar[Type["EvalGrad"]]
-    EvalGradHessian: ClassVar[Type["EvalGradHessian"]]
-    EvalGradHessianInv: ClassVar[Type["EvalGradHessianInv"]]
-    Residual: ClassVar[Type["Residual"]]
-    ResidualJac: ClassVar[Type["ResidualJac"]]
+    Eval: ClassVar[type["Eval"]]
+    EvalGrad: ClassVar[type["EvalGrad"]]
+    EvalGradHessian: ClassVar[type["EvalGradHessian"]]
+    EvalGradHessianInv: ClassVar[type["EvalGradHessianInv"]]
+    Residual: ClassVar[type["Residual"]]
+    ResidualJac: ClassVar[type["ResidualJac"]]
 
     @abc.abstractmethod
     def as_min(self) -> Scalar:

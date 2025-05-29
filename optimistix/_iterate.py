@@ -1,7 +1,7 @@
 import abc
 import warnings
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TYPE_CHECKING
+from typing import Any, Generic, TYPE_CHECKING
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -272,9 +272,9 @@ def iterative_solve(
     solver: AbstractIterativeSolver,
     y0: PyTree[Array],
     args: PyTree = None,
-    options: Optional[dict[str, Any]] = None,
+    options: dict[str, Any] | None = None,
     *,
-    max_steps: Optional[int],
+    max_steps: int | None,
     adjoint: AbstractAdjoint,
     throw: bool,
     tags: frozenset[object],
