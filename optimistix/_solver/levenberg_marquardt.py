@@ -20,7 +20,7 @@ from .newton_chord import Newton
 from .trust_region import ClassicalTrustRegion
 
 
-class _Damped(eqx.Module, strict=True):
+class _Damped(eqx.Module):
     operator: lx.AbstractLinearOperator
     damping: Float[Array, ""]
 
@@ -76,7 +76,7 @@ def damped_newton_step(
     return linear_sol.value, RESULTS.promote(linear_sol.result)
 
 
-class _DampedNewtonDescentState(eqx.Module, strict=True):
+class _DampedNewtonDescentState(eqx.Module):
     f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac
 
 
@@ -86,7 +86,6 @@ class DampedNewtonDescent(
         FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         _DampedNewtonDescentState,
     ],
-    strict=True,
 ):
     """The damped Newton (Levenberg--Marquardt) descent.
 
@@ -140,7 +139,7 @@ DampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class _IndirectDampedNewtonDescentState(eqx.Module, Generic[Y], strict=True):
+class _IndirectDampedNewtonDescentState(eqx.Module, Generic[Y]):
     f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac
     newton: Y
     newton_norm: Scalar
@@ -153,7 +152,6 @@ class IndirectDampedNewtonDescent(
         FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         _IndirectDampedNewtonDescentState,
     ],
-    strict=True,
 ):
     """The indirect damped Newton (Levenberg--Marquardt) trust-region descent.
 
@@ -255,7 +253,7 @@ IndirectDampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux], strict=True):
+class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     """The Levenberg--Marquardt method.
 
     This is a classical solver for nonlinear least squares, which works by regularising
@@ -313,7 +311,7 @@ LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 """
 
 
-class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux], strict=True):
+class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     """The Levenberg--Marquardt method as a true trust-region method.
 
     This is a variant of [`optimistix.LevenbergMarquardt`][]. The other algorithm works
