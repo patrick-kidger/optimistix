@@ -1,4 +1,4 @@
-from typing import Any, cast, Optional, Union
+from typing import Any, cast
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -122,13 +122,13 @@ class _LstsqToRoot(AbstractLeastSquaresSolver, _ToRoot):
 def root_find(
     fn: MaybeAuxFn[Y, Out, Aux],
     # no type parameters, see https://github.com/microsoft/pyright/discussions/5599
-    solver: Union[AbstractRootFinder, AbstractLeastSquaresSolver, AbstractMinimiser],
+    solver: AbstractRootFinder | AbstractLeastSquaresSolver | AbstractMinimiser,
     y0: Y,
     args: PyTree = None,
-    options: Optional[dict[str, Any]] = None,
+    options: dict[str, Any] | None = None,
     *,
     has_aux: bool = False,
-    max_steps: Optional[int] = 256,
+    max_steps: int | None = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),

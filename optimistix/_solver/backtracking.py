@@ -1,5 +1,4 @@
-from typing import cast, Union
-from typing_extensions import TypeAlias
+from typing import cast, TypeAlias
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -15,12 +14,12 @@ class _BacktrackingState(eqx.Module, strict=True):
     step_size: Scalar
 
 
-_FnInfo: TypeAlias = Union[
-    FunctionInfo.EvalGrad,
-    FunctionInfo.EvalGradHessian,
-    FunctionInfo.EvalGradHessianInv,
-    FunctionInfo.ResidualJac,
-]
+_FnInfo: TypeAlias = (
+    FunctionInfo.EvalGrad
+    | FunctionInfo.EvalGradHessian
+    | FunctionInfo.EvalGradHessianInv
+    | FunctionInfo.ResidualJac
+)
 _FnEvalInfo: TypeAlias = FunctionInfo
 
 

@@ -1,6 +1,6 @@
 import inspect
 from collections.abc import Callable
-from typing import Any, Literal, overload, TypeVar, Union
+from typing import Any, Literal, overload, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -46,7 +46,7 @@ two_norm = _wrap(_two_norm)
 
 @overload
 def tree_full_like(
-    struct: PyTree[Union[Array, jax.ShapeDtypeStruct]],
+    struct: PyTree[Array | jax.ShapeDtypeStruct],
     fill_value: ArrayLike,
     allow_static: Literal[False] = False,
 ):

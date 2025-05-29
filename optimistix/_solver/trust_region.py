@@ -1,6 +1,5 @@
 import abc
-from typing import TypeVar, Union
-from typing_extensions import TypeAlias
+from typing import TypeAlias, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -111,9 +110,7 @@ class _AbstractTrustRegion(
 
 
 class ClassicalTrustRegion(
-    _AbstractTrustRegion[
-        Y, Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac]
-    ],
+    _AbstractTrustRegion[Y, FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac],
     strict=True,
 ):
     """The classic trust-region update algorithm which uses a quadratic approximation of
@@ -137,7 +134,7 @@ class ClassicalTrustRegion(
     def predict_reduction(
         self,
         y_diff: Y,
-        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
     ) -> Scalar:
         """Compute the expected decrease in loss from taking the step `y_diff`.
 
@@ -208,12 +205,10 @@ class ClassicalTrustRegion(
 class LinearTrustRegion(
     _AbstractTrustRegion[
         Y,
-        Union[
-            FunctionInfo.EvalGrad,
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        FunctionInfo.EvalGrad
+        | FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
     ],
     strict=True,
 ):
@@ -235,12 +230,10 @@ class LinearTrustRegion(
     def predict_reduction(
         self,
         y_diff: Y,
-        f_info: Union[
-            FunctionInfo.EvalGrad,
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        f_info: FunctionInfo.EvalGrad
+        | FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
     ) -> Scalar:
         """Compute the expected decrease in loss from taking the step `y_diff`.
 
