@@ -16,7 +16,7 @@ from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
 
-class _TrustRegionState(eqx.Module, strict=True):
+class _TrustRegionState(eqx.Module):
     step_size: Scalar
 
 
@@ -24,9 +24,7 @@ _FnInfo = TypeVar("_FnInfo", bound=FunctionInfo)
 _FnEvalInfo: TypeAlias = FunctionInfo
 
 
-class _AbstractTrustRegion(
-    AbstractSearch[Y, _FnInfo, _FnEvalInfo, _TrustRegionState], strict=True
-):
+class _AbstractTrustRegion(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _TrustRegionState]):
     """The abstract base class of the trust-region update algorithm.
 
     Trust region line searches compute the ratio
@@ -111,7 +109,6 @@ class _AbstractTrustRegion(
 
 class ClassicalTrustRegion(
     _AbstractTrustRegion[Y, FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac],
-    strict=True,
 ):
     """The classic trust-region update algorithm which uses a quadratic approximation of
     the objective function to predict reduction.
@@ -210,7 +207,6 @@ class LinearTrustRegion(
         | FunctionInfo.EvalGradHessianInv
         | FunctionInfo.ResidualJac,
     ],
-    strict=True,
 ):
     """The trust-region update algorithm which uses a linear approximation of
     the objective function to predict reduction.

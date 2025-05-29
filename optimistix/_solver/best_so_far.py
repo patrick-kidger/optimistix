@@ -18,7 +18,7 @@ from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
 
 
-class _BestSoFarState(eqx.Module, Generic[Y, Aux, SolverState], strict=True):
+class _BestSoFarState(eqx.Module, Generic[Y, Aux, SolverState]):
     best_y: Y
     best_aux: Aux
     best_loss: Scalar
@@ -30,9 +30,7 @@ def _auxmented(fn, y, args):
     return out, (out, aux)
 
 
-class _AbstractBestSoFarSolver(
-    AbstractIterativeSolver, Generic[Y, Out, Aux], strict=True
-):
+class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
     solver: AbstractVar[AbstractIterativeSolver[Y, Out, tuple[Out, Aux], Any]]
 
     @abc.abstractmethod
@@ -121,7 +119,6 @@ class _AbstractBestSoFarSolver(
 class BestSoFarMinimiser(  # pyright: ignore
     _AbstractBestSoFarSolver[Y, Scalar, Aux],
     AbstractMinimiser[Y, Aux, _BestSoFarState],
-    strict=True,
 ):
     """Wraps another minimiser, to return the best-so-far value. That is, it makes a
     copy of the best `y` seen, and returns that.
@@ -160,7 +157,6 @@ BestSoFarMinimiser.__init__.__doc__ = """**Arguments:**
 class BestSoFarLeastSquares(  # pyright: ignore
     _AbstractBestSoFarSolver[Y, Out, Aux],
     AbstractLeastSquaresSolver[Y, Out, Aux, _BestSoFarState],
-    strict=True,
 ):
     """Wraps another least-squares solver, to return the best-so-far value. That is, it
     makes a copy of the best `y` seen, and returns that.
@@ -201,7 +197,6 @@ BestSoFarLeastSquares.__init__.__doc__ = """**Arguments:**
 class BestSoFarRootFinder(  # pyright: ignore
     _AbstractBestSoFarSolver[Y, Out, Aux],
     AbstractRootFinder[Y, Out, Aux, _BestSoFarState],
-    strict=True,
 ):
     """Wraps another root-finder, to return the best-so-far value. That is, it
     makes a copy of the best `y` seen, and returns that.
@@ -240,7 +235,6 @@ BestSoFarRootFinder.__init__.__doc__ = """**Arguments:**
 class BestSoFarFixedPoint(  # pyright: ignore
     _AbstractBestSoFarSolver[Y, Y, Aux],
     AbstractFixedPointSolver[Y, Aux, _BestSoFarState],
-    strict=True,
 ):
     """Wraps another fixed-point solver, to return the best-so-far value. That is, it
     makes a copy of the best `y` seen, and returns that.

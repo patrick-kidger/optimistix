@@ -16,9 +16,7 @@ from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
 
 
-class AbstractFixedPointSolver(
-    AbstractIterativeSolver[Y, Y, Aux, SolverState], strict=True
-):
+class AbstractFixedPointSolver(AbstractIterativeSolver[Y, Y, Aux, SolverState]):
     """Abstract base class for all fixed point solvers."""
 
 
