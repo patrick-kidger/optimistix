@@ -51,7 +51,7 @@ def roll_low_triangular_matrix(array, new_vals, index_start):
 
         # sort history buffer
         last_index = index_start % array.shape[0]
-        sort_idx = (jnp.arange(array.shape[0]) + last_index + 1) % array.shape[0]#jnp.arange(last_index + 1 - array.shape[0], last_index + 1) % array.shape[0]
+        sort_idx = (jnp.arange(array.shape[0]) + last_index + 1) % array.shape[0]
         new_vals = new_vals[sort_idx]
         # set new history values
         x_shifted = x_shifted.at[-1, :-1].set(new_vals[:-1])
