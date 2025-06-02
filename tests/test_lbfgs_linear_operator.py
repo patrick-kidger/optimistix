@@ -7,7 +7,7 @@ from optimistix._solver.quasi_newton import (
     _LBFGSHessianUpdateState,
     _LBFGSInverseHessianUpdateState,
     _make_lbfgs_operator,
-    v_tree_dot,
+    v_tree_dot, LBFGSUpdate,
 )
 
 from .helpers import tree_allclose
@@ -137,12 +137,12 @@ def test_against_naive_bfgs_hessian_update(generate_data):
         grad_diff_history,
         y_diff_history,
         y_diff_cross_inner,
-        l_history,
-        d_history,
+        y_diff_grad_diff_cross_inner,
+        y_diff_grad_diff_inner,
         inner_history,
         start_index,
     ) = generate_data
-    history_len = len(d_history)
+    history_len = len(y_diff_grad_diff_cross_inner)
 
     # initialize hess inv history (as a scaled identity)
     hess_hist = (
@@ -171,8 +171,8 @@ def test_against_naive_bfgs_hessian_update(generate_data):
         y_diff_history=y_diff_history,
         grad_diff_history=grad_diff_history,
         index_start=start_index,
-        y_diff_grad_diff_cross_inner=l_history,
-        y_diff_grad_diff_inner=d_history,
+        y_diff_grad_diff_cross_inner=y_diff_grad_diff_cross_inner,
+        y_diff_grad_diff_inner=y_diff_grad_diff_inner,
         y_diff_cross_inner=y_diff_cross_inner,
     )
     op = _make_lbfgs_operator(state)
@@ -214,3 +214,59 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
     op_inv = _make_lbfgs_operator(state_hess_inv)
     identity = (op @ op_inv).as_matrix()
     assert tree_allclose(identity, jnp.eye(identity.shape[0]))
+
+
+@pytest.mark.parametrize(
+    "generate_data", [*itertools.product([2, 3], [0, 1, 7], [False])], indirect=True
+)
+def test_warmup_phase_compact(generate_data):
+    """Test that warm-up and full-buffer L-BFGS states produce the same Hessian.
+
+    During the early iterations of L-BFGS, the history buffers are only
+    partially filled. This test verifies that the resulting approximate
+    Hessian from such a "warm-up" state matches the one produced by a
+    full-length buffer containing the same data in its first `k` slots
+    and padding elsewhere.
+
+    The test constructs two `_LBFGSHessianUpdateState` objects:
+    - `state_short_hist` with exactly `k` entries.
+    - `state_long_hist` with full buffer size and the same `k` entries
+      in the beginning, followed by unused space.
+
+    It then checks that both states produce equivalent linear operators.
+    """
+    (
+        curr_descent,
+        grad_diff_history,
+        y_diff_history,
+        y_diff_cross_inner,
+        y_diff_grad_diff_cross_inner,
+        y_diff_grad_diff_inner,
+        inner_history,
+        start_index,
+    ) = generate_data
+    state_short_hist = _LBFGSHessianUpdateState(
+        index_start=jnp.array(0, dtype=int),
+        y_diff_history=y_diff_history,
+        grad_diff_history=grad_diff_history,
+        y_diff_grad_diff_cross_inner=l_history,
+        y_diff_grad_diff_inner=y_diff_grad_diff_inner,
+        y_diff_cross_inner=y_diff_outer,
+    )
+
+    extra_hist = 3
+    history_len = len(inner_history)
+    update = LBFGSUpdate(history_length=history_len, use_inverse=False)
+    _, state_init = update.init(curr_descent, jnp.array(0.), curr_descent)
+
+    state_long_hist = _LBFGSHessianUpdateState(
+        y_diff_history=state_init.y_diff_history.at[:history_len].set(state_short_hist.y_diff_history),
+        grad_diff_history=state_init.grad_diff_history.at[:history_len].set(state_short_hist.grad_diff_history),
+        y_diff_grad_diff_cross_inner=state_init.y_diff_grad_diff_cross_inner.at[:history_len].set(state_short_hist.y_diff_grad_diff_cross_inner),
+        y_diff_grad_diff_inner=state_init.y_diff_grad_diff_inner.at[:history_len].set(state_short_hist.y_diff_grad_diff_inner),
+        y_diff_cross_inner=state_init.y_diff_cross_inner.at[:history_len].set(state_short_hist.y_diff_cross_inner),
+        index_start=state_init.index_start
+    )
+    op = _make_lbfgs_operator(state_short_hist)
+    op2 = _make_lbfgs_operator(state_long_hist)
+    assert tree_allclose(op.as_matrix(), op2.as_matrix())
