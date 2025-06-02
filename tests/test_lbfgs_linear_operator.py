@@ -3,9 +3,17 @@ import itertools
 import jax
 import jax.numpy as jnp
 import pytest
-from optimistix._solver.quasi_newton import _make_lbfgs_operator, _LBFGSInverseHessianUpdateState, _LBFGSHessianUpdateState, vv_tree_dot
+from optimistix._solver.quasi_newton import (
+    _LBFGSHessianUpdateState,
+    _LBFGSInverseHessianUpdateState,
+    _make_lbfgs_operator,
+    v_tree_dot,
+)
 
 from .helpers import tree_allclose
+
+
+vv_tree_dot = jax.vmap(v_tree_dot, in_axes=(None, 0), out_axes=0)
 
 
 @pytest.fixture()
@@ -24,16 +32,36 @@ def generate_data(request):
     inner_history = 1.0 / (y_diff_history * grad_diff_history).sum(axis=1)
     # two-loop recursion state
     if return_inverse_state:
-        return curr_descent, grad_diff_history, y_diff_history, inner_history, start_index
+        return (
+            curr_descent,
+            grad_diff_history,
+            y_diff_history,
+            inner_history,
+            start_index,
+        )
     # compact representation state variables
     else:
         y_diff_cross_inner = vv_tree_dot(y_diff_history, y_diff_history)
         y_diff_grad_diff_cross_inner = jnp.dot(
-            y_diff_history, grad_diff_history.T, precision=jax.lax.Precision.HIGHEST)
-        y_diff_grad_diff_cross_inner = y_diff_grad_diff_cross_inner - jnp.triu(y_diff_grad_diff_cross_inner)
-        y_diff_grad_diff_inner = jnp.einsum('i...,i...->i', y_diff_history, grad_diff_history)
+            y_diff_history, grad_diff_history.T, precision=jax.lax.Precision.HIGHEST
+        )
+        y_diff_grad_diff_cross_inner = y_diff_grad_diff_cross_inner - jnp.triu(
+            y_diff_grad_diff_cross_inner
+        )
+        y_diff_grad_diff_inner = jnp.einsum(
+            "i...,i...->i", y_diff_history, grad_diff_history
+        )
 
-        return curr_descent, grad_diff_history, y_diff_history, y_diff_cross_inner, y_diff_grad_diff_cross_inner, y_diff_grad_diff_inner, inner_history, start_index
+        return (
+            curr_descent,
+            grad_diff_history,
+            y_diff_history,
+            y_diff_cross_inner,
+            y_diff_grad_diff_cross_inner,
+            y_diff_grad_diff_inner,
+            inner_history,
+            start_index,
+        )
 
 
 @pytest.mark.parametrize(
@@ -60,8 +88,14 @@ def test_against_naive_bfgs_hessian_inverse_update(generate_data):
     # initialize hess inv history (as a scaled identity)
     hess_inv_hist = (
         jnp.eye(curr_descent.shape[0])
-        * (y_diff_history[(start_index - 1) % history_len] @ grad_diff_history[(start_index - 1) % history_len])
-        / (grad_diff_history[(start_index - 1) % history_len] @ grad_diff_history[(start_index - 1) % history_len])
+        * (
+            y_diff_history[(start_index - 1) % history_len]
+            @ grad_diff_history[(start_index - 1) % history_len]
+        )
+        / (
+            grad_diff_history[(start_index - 1) % history_len]
+            @ grad_diff_history[(start_index - 1) % history_len]
+        )
     )
     for k in range(history_len):
         circ_all = (jnp.arange(history_len) + start_index) % history_len
@@ -149,9 +183,7 @@ def test_against_naive_bfgs_hessian_update(generate_data):
     "generate_data", [*itertools.product([2, 3], [0], [False])], indirect=True
 )
 def test_inverse_vs_direct_hessian_operator(generate_data):
-    """Test that combining the operetors results in the identity.
-
-    """
+    """Test that combining the operetors results in the identity."""
     (
         curr_descent,
         grad_diff_history,
@@ -182,4 +214,3 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
     op_inv = _make_lbfgs_operator(state_hess_inv)
     identity = (op @ op_inv).as_matrix()
     assert tree_allclose(identity, jnp.eye(identity.shape[0]))
-

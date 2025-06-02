@@ -185,7 +185,7 @@ def _lbfgs_hessian_operator_fn(
     y_diff_grad_diff_cross_inner: Array,
     y_diff_grad_diff_inner: Array,
     y_diff_cross_inner: Array,
-    index_start: int,
+    index_start: Array,
 ):
     """Compact representation of the L-BFGS Hessian update.
 
