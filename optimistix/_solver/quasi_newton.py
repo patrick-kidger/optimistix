@@ -31,34 +31,37 @@ from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .gauss_newton import NewtonDescent
 
+import jax.flatten_util as jfu
+
 
 v_tree_dot = jax.vmap(tree_dot, in_axes=(0, None), out_axes=0)
 vv_tree_dot = jax.vmap(v_tree_dot, in_axes=(None, 0), out_axes=0)
 v_tree_dot_transpose = jax.vmap(tree_dot, in_axes=(1, None), out_axes=0)
 
 
-def roll_low_triangular_matrix(array, new_vals, start_index):
+def roll_low_triangular_matrix(array, new_vals, index_start):
     """
     Update the L matrix maintaining the columns temporal ordering.
     """
 
     def _roll_and_set(x, new_vals):
+        # roll the matrix
         x_shifted = jnp.empty_like(x)
-        x_shifted = x_shifted.at[1:, 1:].set(x[:-1, :-1])
+        x_shifted = x_shifted.at[:-1, :-1].set(x[1:, 1:])
 
-        perm_index = (jnp.arange(x.shape[0]) + start_index - 2) % x.shape[0]
-        new_vals = new_vals[perm_index]
-
+        # sort history buffer
+        last_index = index_start % array.shape[0]
+        sort_idx = jnp.arange(last_index + 1 - array.shape[0], last_index + 1) % array.shape[0]
+        new_vals = new_vals[sort_idx]
+        # set new history values
         x_shifted = x_shifted.at[-1, :-1].set(new_vals[:-1])
-        x_shifted = x_shifted.at[:, -1].set(new_vals)
-
         return x_shifted
 
     def _set_at_index(x, new_vals):
-        return jnp.tril(x.at[start_index, :-1].set(new_vals[:-1]), -1)
+        return x.at[index_start, :-1].set(new_vals[:-1])
 
     return jax.lax.cond(
-        start_index < array.shape[0],
+        index_start < array.shape[0],
         _set_at_index,
         _roll_and_set,
         array,
@@ -66,22 +69,29 @@ def roll_low_triangular_matrix(array, new_vals, start_index):
     )
 
 
-def roll_symmetric_matrix(array, new_vals, start_index):
+def roll_symmetric_matrix(array, new_vals, index_start):
     r"""
     Update the `S_k^T \cdot S_k` matrix maintaining the temporal ordering.
     """
     def _roll_and_set(x, new_vals):
-        x = jnp.roll(x, (-1, -1), axis=[0, 1])
-        new_vals = new_vals[(jnp.arange(x.shape[0]) + start_index - 2) % x.shape[0]]
+        # roll matrix
+        x = jnp.empty_like(x).at[:-1, :-1].set(x[1:, 1:])
+
+        # sort history buffer
+        last_index = index_start % array.shape[0]
+        sort_idx = jnp.arange(last_index + 1 - array.shape[0], last_index + 1) % array.shape[0]
+        new_vals = new_vals[sort_idx]
+
+        # set last row and col
         x = x.at[-1, :-1].set(new_vals[:-1])
         return x.at[:, -1].set(new_vals)
 
     def _set_at_index(x, new_vals):
-        x = x.at[start_index, :-1].set(new_vals[:-1])
-        return x.at[:, start_index].set(new_vals)
+        x = x.at[index_start, :-1].set(new_vals[:-1])
+        return x.at[:, index_start].set(new_vals)
 
     return jax.lax.cond(
-        start_index < array.shape[0],
+        index_start < array.shape[0],
         _set_at_index,
         _roll_and_set,
         array,
@@ -257,8 +267,12 @@ def _lbfgs_hessian_operator_fn(
     descent = descent.at[history_len:].set(conditional_sort(descent[history_len:], -roll_by))
     descent = (
             gamma_k * pytree ** ω
-            - jtu.tree_map(lambda x: v_tree_dot_transpose(x, descent[:history_len]), grad_diff_history) ** ω
-            - jtu.tree_map(lambda x: gamma_k * v_tree_dot_transpose(x, descent[history_len:]), y_diff_history) ** ω
+            - jtu.tree_map(
+                lambda x: jnp.einsum("h,h...->...", descent[:history_len], x, precision=jax.lax.Precision.HIGHEST), grad_diff_history
+            ) ** ω
+            - jtu.tree_map(
+                lambda x: gamma_k * jnp.einsum("h,h...->...", descent[history_len:], x, precision=jax.lax.Precision.HIGHEST), y_diff_history
+            ) ** ω
     ).ω
     return descent
 
@@ -368,10 +382,6 @@ def _make_lbfgs_operator(
         input_shape,
         tags=lx.positive_semidefinite_tag,
     )
-    print("\noperator\n", op.as_matrix())
-    len_hist = jtu.tree_leaves(hessian_state.y_diff_history)[0].shape[1]
-    v = operator_func(jnp.eye(len_hist)[0])
-    print(v)
     return op
 
 
@@ -689,13 +699,13 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
             curvature_history = hessian_update_state.curvature_history
             curvature_history = curvature_history.at[index_start % self.history_length].set(1.0 / inner)
         else:
-
+            # roll the lower-triangular matrix, sort the inner product
+            # according to history, set the last row as the new inner product.
             y_diff_grad_diff_cross_inner = roll_low_triangular_matrix(
                 hessian_update_state.y_diff_grad_diff_cross_inner,
                 v_tree_dot(grad_diff_history, y_diff),
                 index_start
             )
-
 
         # update states
         y_diff_history = jtu.tree_map(
@@ -715,7 +725,12 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
             )
 
         else:
-            y_diff_grad_diff_inner = jnp.roll(hessian_update_state.y_diff_grad_diff_inner, -1 * (index_start > self.history_length -1))
+            y_diff_grad_diff_inner = jnp.roll(
+                hessian_update_state.y_diff_grad_diff_inner, -1 * (index_start > self.history_length -1)
+            )
+            # this history buffer (as well as y_diff_cross_inner and y_diff_grad_diff_cross_inner) must
+            # be ordered for the update to work correctly. Set the most recent history as the last element.
+            # If the index_start < history_length, then set the index_start element.
             y_diff_grad_diff_inner = y_diff_grad_diff_inner.at[
                 jnp.min(jnp.array([index_start, self.history_length-1]))
             ].set(
@@ -726,14 +741,18 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
             )
 
             # compute S_{k} \cdot s_{k-1} and roll to update the S_k^T \cdot S_k
+            cross_inner = v_tree_dot(
+                y_diff_history,
+                jtu.tree_map(lambda x: x[index_start % self.history_length], y_diff_history)
+            )
+            # roll the matrix (keep ordering), sort cross_inner and set last column and row to
+            # sorted cross_inner.
             y_diff_cross_inner = roll_symmetric_matrix(
                 hessian_update_state.y_diff_cross_inner,
-                v_tree_dot(
-                    y_diff_history,
-                    jtu.tree_map(lambda x: x[index_start % self.history_length], y_diff_history)
-                ),
+                cross_inner,
                 index_start
             )
+
             hessian_update_state = _LBFGSHessianUpdateState(
                 index_start=index_start + 1,
                 y_diff_history=y_diff_history,
