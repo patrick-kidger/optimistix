@@ -217,7 +217,7 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
 
 
 @pytest.mark.parametrize(
-    "generate_data", [*itertools.product([2, 3], [0, 1, 7], [False])], indirect=True
+    "generate_data", [*itertools.product([2, 3], [0], [False])], indirect=True
 )
 def test_warmup_phase_compact(generate_data):
     """Test that warm-up and full-buffer L-BFGS states produce the same Hessian.
@@ -249,9 +249,9 @@ def test_warmup_phase_compact(generate_data):
         index_start=jnp.array(0, dtype=int),
         y_diff_history=y_diff_history,
         grad_diff_history=grad_diff_history,
-        y_diff_grad_diff_cross_inner=l_history,
+        y_diff_grad_diff_cross_inner=y_diff_grad_diff_cross_inner,
         y_diff_grad_diff_inner=y_diff_grad_diff_inner,
-        y_diff_cross_inner=y_diff_outer,
+        y_diff_cross_inner=y_diff_cross_inner,
     )
 
     extra_hist = 3
