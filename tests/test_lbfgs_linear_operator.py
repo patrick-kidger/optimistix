@@ -281,6 +281,11 @@ def test_warmup_phase_compact(generate_data, extra_history):
         ),
         index_start=jnp.array(history_len, dtype=int),
     )
+    # just to be sure that the init is different
+    assert state_long_hist.y_diff_grad_diff_cross_inner.shape[0] == history_len + extra_history
+    assert state_long_hist.y_diff_grad_diff_inner.shape[0] == history_len + extra_history
+    assert state_long_hist.y_diff_cross_inner.shape[0] == history_len + extra_history
+
     op_full = _make_lbfgs_operator(state_short_hist)
     op_warmup = _make_lbfgs_operator(state_long_hist)
     assert jnp.allclose(op_full.as_matrix(), op_warmup.as_matrix())
