@@ -7,7 +7,8 @@ from optimistix._solver.quasi_newton import (
     _LBFGSHessianUpdateState,
     _LBFGSInverseHessianUpdateState,
     _make_lbfgs_operator,
-    v_tree_dot, LBFGSUpdate,
+    LBFGSUpdate,
+    v_tree_dot,
 )
 
 from .helpers import tree_allclose
@@ -216,10 +217,11 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
     assert tree_allclose(identity, jnp.eye(identity.shape[0]))
 
 
+@pytest.mark.parametrize("extra_history", [1, 9])
 @pytest.mark.parametrize(
     "generate_data", [*itertools.product([2, 3], [0], [False])], indirect=True
 )
-def test_warmup_phase_compact(generate_data):
+def test_warmup_phase_compact(generate_data, extra_history):
     """Test that warm-up and full-buffer L-BFGS states produce the same Hessian.
 
     During the early iterations of L-BFGS, the history buffers are only
@@ -254,19 +256,31 @@ def test_warmup_phase_compact(generate_data):
         y_diff_cross_inner=y_diff_cross_inner,
     )
 
-    extra_hist = 3
     history_len = len(inner_history)
-    update = LBFGSUpdate(history_length=history_len, use_inverse=False)
-    _, state_init = update.init(curr_descent, jnp.array(0.), curr_descent)
+    update = LBFGSUpdate(history_length=history_len + extra_history, use_inverse=False)
+
+    _, state_init = update.init(curr_descent, jnp.array(0.0), curr_descent)
+
+    assert isinstance(state_init, _LBFGSHessianUpdateState)
 
     state_long_hist = _LBFGSHessianUpdateState(
-        y_diff_history=state_init.y_diff_history.at[:history_len].set(state_short_hist.y_diff_history),
-        grad_diff_history=state_init.grad_diff_history.at[:history_len].set(state_short_hist.grad_diff_history),
-        y_diff_grad_diff_cross_inner=state_init.y_diff_grad_diff_cross_inner.at[:history_len].set(state_short_hist.y_diff_grad_diff_cross_inner),
-        y_diff_grad_diff_inner=state_init.y_diff_grad_diff_inner.at[:history_len].set(state_short_hist.y_diff_grad_diff_inner),
-        y_diff_cross_inner=state_init.y_diff_cross_inner.at[:history_len].set(state_short_hist.y_diff_cross_inner),
-        index_start=state_init.index_start
+        y_diff_history=state_init.y_diff_history.at[:history_len].set(
+            state_short_hist.y_diff_history
+        ),
+        grad_diff_history=state_init.grad_diff_history.at[:history_len].set(
+            state_short_hist.grad_diff_history
+        ),
+        y_diff_grad_diff_cross_inner=state_init.y_diff_grad_diff_cross_inner.at[
+            :history_len, :history_len
+        ].set(state_short_hist.y_diff_grad_diff_cross_inner),
+        y_diff_grad_diff_inner=state_init.y_diff_grad_diff_inner.at[:history_len].set(
+            state_short_hist.y_diff_grad_diff_inner
+        ),
+        y_diff_cross_inner=state_init.y_diff_cross_inner.at[:history_len, :history_len].set(
+            state_short_hist.y_diff_cross_inner
+        ),
+        index_start=jnp.array(history_len, dtype=int),
     )
-    op = _make_lbfgs_operator(state_short_hist)
-    op2 = _make_lbfgs_operator(state_long_hist)
-    assert tree_allclose(op.as_matrix(), op2.as_matrix())
+    op_full = _make_lbfgs_operator(state_short_hist)
+    op_warmup = _make_lbfgs_operator(state_long_hist)
+    assert jnp.allclose(op_full.as_matrix(), op_warmup.as_matrix())
