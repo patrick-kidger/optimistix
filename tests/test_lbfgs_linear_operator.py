@@ -3,14 +3,14 @@ import itertools
 import jax
 import jax.numpy as jnp
 import pytest
-from optimistix._solver.quasi_newton import _make_lbfgs_operator
+from optimistix._solver.quasi_newton import _make_lbfgs_operator, _LBFGSInverseHessianUpdateState, _LBFGSHessianUpdateState, vv_tree_dot
 
 from .helpers import tree_allclose
 
 
 @pytest.fixture()
 def generate_data(request):
-    history_len, start_index = request.param
+    history_len, start_index, return_inverse_state = request.param
     curr_descent = jax.random.normal(jax.random.PRNGKey(123), shape=(3,))
     grad_diff_history = jax.random.normal(
         jax.random.PRNGKey(124), shape=(history_len, 3)
@@ -19,13 +19,25 @@ def generate_data(request):
     y_diff_history = jnp.sign(grad_diff_history) * jax.random.uniform(
         jax.random.PRNGKey(125), shape=(history_len, 3)
     )
-    inner_history = 1.0 / (y_diff_history * grad_diff_history).sum(axis=1)
+
     start_index = jnp.array(start_index)
-    return curr_descent, grad_diff_history, y_diff_history, inner_history, start_index
+    inner_history = 1.0 / (y_diff_history * grad_diff_history).sum(axis=1)
+    # two-loop recursion state
+    if return_inverse_state:
+        return curr_descent, grad_diff_history, y_diff_history, inner_history, start_index
+    # compact representation state variables
+    else:
+        y_diff_cross_inner = vv_tree_dot(y_diff_history, y_diff_history)
+        y_diff_grad_diff_cross_inner = jnp.dot(
+            y_diff_history, grad_diff_history.T, precision=jax.lax.Precision.HIGHEST)
+        y_diff_grad_diff_cross_inner = y_diff_grad_diff_cross_inner - jnp.triu(y_diff_grad_diff_cross_inner)
+        y_diff_grad_diff_inner = jnp.einsum('i...,i...->i', y_diff_history, grad_diff_history)
+
+        return curr_descent, grad_diff_history, y_diff_history, y_diff_cross_inner, y_diff_grad_diff_cross_inner, y_diff_grad_diff_inner, inner_history, start_index
 
 
 @pytest.mark.parametrize(
-    "generate_data", [*itertools.product([2, 3], [0, 1])], indirect=True
+    "generate_data", [*itertools.product([2, 3], [0, 1, 7], [True])], indirect=True
 )
 def test_against_naive_bfgs_hessian_inverse_update(generate_data):
     """Naive implementation of a BFGS inverse hessian update.
@@ -48,8 +60,8 @@ def test_against_naive_bfgs_hessian_inverse_update(generate_data):
     # initialize hess inv history (as a scaled identity)
     hess_inv_hist = (
         jnp.eye(curr_descent.shape[0])
-        * (y_diff_history[start_index - 1] @ grad_diff_history[start_index - 1])
-        / (grad_diff_history[start_index - 1] @ grad_diff_history[start_index - 1])
+        * (y_diff_history[(start_index - 1) % history_len] @ grad_diff_history[(start_index - 1) % history_len])
+        / (grad_diff_history[(start_index - 1) % history_len] @ grad_diff_history[(start_index - 1) % history_len])
     )
     for k in range(history_len):
         circ_all = (jnp.arange(history_len) + start_index) % history_len
@@ -64,14 +76,18 @@ def test_against_naive_bfgs_hessian_inverse_update(generate_data):
         )
 
     # recreate the hessian using the two-loops based operator
-    op = _make_lbfgs_operator(
-        True, y_diff_history, grad_diff_history, inner_history, start_index
+    state = _LBFGSInverseHessianUpdateState(
+        y_diff_history=y_diff_history,
+        grad_diff_history=grad_diff_history,
+        curvature_history=inner_history,
+        index_start=start_index,
     )
+    op = _make_lbfgs_operator(state)
     assert tree_allclose(op.as_matrix(), hess_inv_hist)
 
 
 @pytest.mark.parametrize(
-    "generate_data", [*itertools.product([2, 3], [0, 1])], indirect=True
+    "generate_data", [*itertools.product([2, 3], [0], [False])], indirect=True
 )
 def test_against_naive_bfgs_hessian_update(generate_data):
     """Naive implementation of a BFGS hessian update.
@@ -86,10 +102,13 @@ def test_against_naive_bfgs_hessian_update(generate_data):
         curr_descent,
         grad_diff_history,
         y_diff_history,
+        y_diff_cross_inner,
+        l_history,
+        d_history,
         inner_history,
         start_index,
     ) = generate_data
-    history_len = len(inner_history)
+    history_len = len(d_history)
 
     # initialize hess inv history (as a scaled identity)
     hess_hist = (
@@ -114,15 +133,20 @@ def test_against_naive_bfgs_hessian_update(generate_data):
         )
 
     # recreate the hessian using (4.2), see docstrings for reference paper
-    b_history = jnp.sqrt(inner_history)[:, None] * grad_diff_history
-    op = _make_lbfgs_operator(
-        False, y_diff_history, grad_diff_history, b_history, start_index
+    state = _LBFGSHessianUpdateState(
+        y_diff_history=y_diff_history,
+        grad_diff_history=grad_diff_history,
+        index_start=start_index,
+        y_diff_grad_diff_cross_inner=l_history,
+        y_diff_grad_diff_inner=d_history,
+        y_diff_cross_inner=y_diff_cross_inner,
     )
+    op = _make_lbfgs_operator(state)
     assert tree_allclose(op.as_matrix(), hess_hist)
 
 
 @pytest.mark.parametrize(
-    "generate_data", [*itertools.product([2, 3], [0, 1])], indirect=True
+    "generate_data", [*itertools.product([2, 3], [0], [False])], indirect=True
 )
 def test_inverse_vs_direct_hessian_operator(generate_data):
     """Test that combining the operetors results in the identity.
@@ -132,16 +156,30 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
         curr_descent,
         grad_diff_history,
         y_diff_history,
+        y_diff_cross_inner,
+        l_history,
+        d_history,
         inner_history,
         start_index,
     ) = generate_data
 
-    b_history = jnp.sqrt(inner_history)[:, None] * grad_diff_history
-    op = _make_lbfgs_operator(
-        False, y_diff_history, grad_diff_history, b_history, start_index
+    state_hess_inv = _LBFGSInverseHessianUpdateState(
+        y_diff_history=y_diff_history,
+        grad_diff_history=grad_diff_history,
+        curvature_history=inner_history,
+        index_start=start_index,
     )
-    op_inv = _make_lbfgs_operator(
-        True, y_diff_history, grad_diff_history, inner_history, start_index
+    state_hess = _LBFGSHessianUpdateState(
+        y_diff_history=y_diff_history,
+        grad_diff_history=grad_diff_history,
+        index_start=start_index,
+        y_diff_grad_diff_cross_inner=l_history,
+        y_diff_grad_diff_inner=d_history,
+        y_diff_cross_inner=y_diff_cross_inner,
     )
+
+    op = _make_lbfgs_operator(state_hess)
+    op_inv = _make_lbfgs_operator(state_hess_inv)
     identity = (op @ op_inv).as_matrix()
     assert tree_allclose(identity, jnp.eye(identity.shape[0]))
+
