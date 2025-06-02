@@ -41,10 +41,18 @@ def roll_low_triangular_matrix(array, new_vals, start_index):
     """
     Update the L matrix maintaining the columns temporal ordering.
     """
+
     def _roll_and_set(x, new_vals):
-        x = jnp.roll(x, (-1, -1), axis=[0, 1])
-        new_vals = new_vals[(jnp.arange(x.shape[0] - 1) + start_index - 2) % x.shape[0]]
-        return x.at[:, -1].set(0).at[-1, :-1].set(new_vals)
+        x_shifted = jnp.empty_like(x)
+        x_shifted = x_shifted.at[1:, 1:].set(x[:-1, :-1])
+
+        perm_index = (jnp.arange(x.shape[0]) + start_index - 2) % x.shape[0]
+        new_vals = new_vals[perm_index]
+
+        x_shifted = x_shifted.at[-1, :-1].set(new_vals[:-1])
+        x_shifted = x_shifted.at[:, -1].set(new_vals)
+
+        return x_shifted
 
     def _set_at_index(x, new_vals):
         return jnp.tril(x.at[start_index, :-1].set(new_vals[:-1]), -1)
@@ -59,7 +67,7 @@ def roll_low_triangular_matrix(array, new_vals, start_index):
 
 
 def roll_symmetric_matrix(array, new_vals, start_index):
-    """
+    r"""
     Update the `S_k^T \cdot S_k` matrix maintaining the temporal ordering.
     """
     def _roll_and_set(x, new_vals):
@@ -204,10 +212,13 @@ def _lbfgs_hessian_operator_fn(
     # computation of eqn (3.22) in Byrd at al. 1994
     # eqn (2.26)
     y_diff_grad_diff_inner = jnp.where(y_diff_grad_diff_inner == 0, 1, y_diff_grad_diff_inner)
-    J = jnp.linalg.cholesky(
-        gamma_k * y_diff_cross_inner +
-        y_diff_grad_diff_cross_inner / y_diff_grad_diff_inner @ y_diff_grad_diff_cross_inner.T
+    J_square = gamma_k * y_diff_cross_inner + (
+        jnp.dot(
+            y_diff_grad_diff_cross_inner / y_diff_grad_diff_inner,
+            y_diff_grad_diff_cross_inner.T, precision=jax.lax.Precision.HIGHEST
+        )
     )
+    J = jnp.linalg.cholesky(J_square)
 
     # step 5 of algorithm 3.2 of Byrd at al. 1994
     descent = jnp.hstack([v_tree_dot(grad_diff_history, pytree), gamma_k * v_tree_dot(y_diff_history, pytree)])
@@ -357,6 +368,10 @@ def _make_lbfgs_operator(
         input_shape,
         tags=lx.positive_semidefinite_tag,
     )
+    print("\noperator\n", op.as_matrix())
+    len_hist = jtu.tree_leaves(hessian_state.y_diff_history)[0].shape[1]
+    v = operator_func(jnp.eye(len_hist)[0])
+    print(v)
     return op
 
 
