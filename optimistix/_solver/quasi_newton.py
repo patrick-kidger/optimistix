@@ -33,8 +33,6 @@ from .gauss_newton import NewtonDescent
 
 
 v_tree_dot = jax.vmap(tree_dot, in_axes=(0, None), out_axes=0)
-vv_tree_dot = jax.vmap(v_tree_dot, in_axes=(None, 0), out_axes=0)
-v_tree_dot_transpose = jax.vmap(tree_dot, in_axes=(1, None), out_axes=0)
 
 
 def roll_low_triangular_matrix(array, new_vals, index_start):
