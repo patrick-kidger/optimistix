@@ -1016,18 +1016,6 @@ class AbstractQuasiNewton(
             verbose_loss = "loss" in self.verbose
             verbose_step_size = "step_size" in self.verbose
             verbose_y = "y" in self.verbose
-            y_diff_history = (
-                isinstance(state.hessian_update_state, _LBFGSInverseHessianUpdateState)
-                and "y_diff_history" in self.verbose
-            )
-            grad_diff_history = (
-                isinstance(state.hessian_update_state, _LBFGSInverseHessianUpdateState)
-                and "grad_diff_history" in self.verbose
-            )
-            verbose_inner = (
-                isinstance(state.hessian_update_state, _LBFGSInverseHessianUpdateState)
-                and "curvature_history" in self.verbose
-            )
             loss_eval = f_eval
             loss = state.f_info.f
             verbose_print(
