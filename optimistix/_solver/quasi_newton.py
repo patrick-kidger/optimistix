@@ -51,7 +51,7 @@ def roll_low_triangular_matrix(array, new_vals, index_start):
 
         # sort history buffer
         last_index = index_start % array.shape[0]
-        sort_idx = jnp.arange(last_index + 1 - array.shape[0], last_index + 1) % array.shape[0]
+        sort_idx = (jnp.arange(array.shape[0]) + last_index + 1) % array.shape[0]#jnp.arange(last_index + 1 - array.shape[0], last_index + 1) % array.shape[0]
         new_vals = new_vals[sort_idx]
         # set new history values
         x_shifted = x_shifted.at[-1, :-1].set(new_vals[:-1])
@@ -79,7 +79,7 @@ def roll_symmetric_matrix(array, new_vals, index_start):
 
         # sort history buffer
         last_index = index_start % array.shape[0]
-        sort_idx = jnp.arange(last_index + 1 - array.shape[0], last_index + 1) % array.shape[0]
+        sort_idx = (jnp.arange(array.shape[0]) + last_index + 1) % array.shape[0]
         new_vals = new_vals[sort_idx]
 
         # set last row and col
@@ -224,7 +224,7 @@ def _lbfgs_hessian_operator_fn(
     y_diff_grad_diff_inner = jnp.where(y_diff_grad_diff_inner == 0, 1, y_diff_grad_diff_inner)
     J_square = gamma_k * y_diff_cross_inner + (
         jnp.dot(
-            y_diff_grad_diff_cross_inner / y_diff_grad_diff_inner,
+            y_diff_grad_diff_cross_inner / y_diff_grad_diff_inner[jnp.newaxis],
             y_diff_grad_diff_cross_inner.T, precision=jax.lax.Precision.HIGHEST
         )
     )
@@ -249,7 +249,7 @@ def _lbfgs_hessian_operator_fn(
     low_tri = jnp.block(
         [
             [jnp.diag(sqrt_diag), jnp.zeros((history_len, history_len))],
-            [-y_diff_grad_diff_cross_inner / sqrt_diag, J]
+            [-y_diff_grad_diff_cross_inner / sqrt_diag[jnp.newaxis], J]
         ]
     )
     descent = jax.scipy.linalg.solve_triangular(low_tri, descent, lower=True)
@@ -726,7 +726,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
 
         else:
             y_diff_grad_diff_inner = jnp.roll(
-                hessian_update_state.y_diff_grad_diff_inner, -1 * (index_start > self.history_length -1)
+                hessian_update_state.y_diff_grad_diff_inner, -1 * (index_start > self.history_length -1).astype(int)
             )
             # this history buffer (as well as y_diff_cross_inner and y_diff_grad_diff_cross_inner) must
             # be ordered for the update to work correctly. Set the most recent history as the last element.
