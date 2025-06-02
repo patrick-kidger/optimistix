@@ -36,8 +36,41 @@ v_tree_dot = jax.vmap(tree_dot, in_axes=(0, None), out_axes=0)
 
 
 def roll_low_triangular_matrix(array, new_vals, index_start):
-    """
-    Update the L matrix maintaining the columns temporal ordering.
+    """Update a lower-triangular cross-product matrix with new values.
+
+    This function updates a lower-triangular matrix `array` representing the
+    temporally ordered inner products between vectors in the `y_diff_history`
+    and `grad_diff_history` buffers (e.g., `Y_k^T S_k` in L-BFGS methods). It
+    preserves the temporal ordering of the columns and maintains the
+    lower-triangular structure of the matrix.
+
+    If `index_start < array.shape[0]`, the values are written in-place at
+    the given index. Otherwise, the matrix is rolled to discard the oldest
+    column, and `new_vals` is inserted at the end.
+
+    See Equation (3.6) of:
+
+        Byrd, R. H., Nocedal, J., & Schnabel, R. B. (1994).
+        "Representations of quasi-Newton matrices and their use in limited
+        memory methods." *Mathematical Programming*, 63(1), 129–156.
+
+    **Arguments**:
+
+    - `array`: A square JAX array of shape `(n, n)` representing a
+        lower-triangular history matrix (e.g., `Y_k^T S_k`), where `n`
+        is the maximum history length.
+
+    - `new_vals`: A JAX array of shape `(n,)` representing the inner products
+        between a new `y_diff` vector and all `s_diff` vectors in memory.
+
+    - `index_start`: An integer indicating where to insert `new_vals`. If it
+        is greater than or equal to the matrix size, the matrix is rolled and
+        `new_vals` is inserted at the final column.
+
+    **Returns**:
+
+    A JAX array of shape `(n, n)` with `new_vals` inserted into the appropriate
+    column, preserving lower-triangular structure and temporal ordering.
     """
 
     def _roll_and_set(x, new_vals):
@@ -62,8 +95,35 @@ def roll_low_triangular_matrix(array, new_vals, index_start):
 
 
 def roll_symmetric_matrix(array, new_vals, index_start):
-    r"""
-    Update the `S_k^T \cdot S_k` matrix maintaining the temporal ordering.
+    """Update a symmetric matrix buffer with a new outer product.
+
+    This function updates a symmetric matrix `array`, which stores
+    inner products such as `S_k^T S_k` in L-BFGS-type algorithms.
+    Depending on `index_start`, it either overwrites an existing entry
+    or rolls the buffer and inserts `new_vals` at the end.
+
+    See Equation (3.2) of:
+
+        Byrd, R. H., Nocedal, J., & Schnabel, R. B. (1994).
+        "Representations of quasi-Newton matrices and their use in limited
+        memory methods." *Mathematical Programming*, 63(1), 129–156.
+
+    **Arguments**:
+
+    - `array`: A square `(n, n)` JAX array representing the symmetric
+        inner product history matrix (e.g., `S_k^T S_k`).
+
+    - `new_vals`: A JAX array of shape `(n,)` containing new inner
+        product values to insert into the matrix.
+
+    - `index_start`: An integer index indicating where to insert
+        `new_vals`. If `index_start >= array.shape[0]`, the matrix is
+        rolled to discard the oldest entry.
+
+    **Returns**:
+
+    An updated `(n, n)` JAX array with `new_vals` inserted, either
+    in-place or after rolling.
     """
 
     def _roll_and_set(x, new_vals):
