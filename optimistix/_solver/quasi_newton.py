@@ -374,15 +374,15 @@ class _LBFGSInverseHessianUpdateState(eqx.Module, strict=True):
           in the notation od the paper.
         - `grad_diff_history`: History of gradient updates `y_k = g_{k+1} - g_k`,
           in the notation od the paper.
-        - `curvature_history`: Reciprocal dot products
-          `curvature_history = 1 / ⟨s_k, y_k⟩`,
+        - `inner_history`: Reciprocal dot products
+          `inner_history = 1 / ⟨s_k, y_k⟩`,
           in the notation od the paper.
     """
 
     index_start: Array
     y_diff_history: PyTree[Array]
     grad_diff_history: PyTree[Array]
-    curvature_history: PyTree[Array]
+    inner_history: PyTree[Array]
 
 
 class _LBFGSHessianUpdateState(eqx.Module, strict=True):
@@ -459,7 +459,7 @@ def _make_lbfgs_operator(
             _lbfgs_inverse_hessian_operator_fn,
             y_diff_history=hessian_state.y_diff_history,
             grad_diff_history=hessian_state.grad_diff_history,
-            inner_history=hessian_state.curvature_history,
+            inner_history=hessian_state.inner_history,
             index_start=hessian_state.index_start,
         )
     else:
@@ -753,7 +753,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
                 grad_diff_history=jtu.tree_map(
                     lambda y: jnp.zeros((self.history_length, *y.shape)), y
                 ),
-                curvature_history=jnp.zeros(self.history_length),
+                inner_history=jnp.zeros(self.history_length),
             )
         else:
             state = _LBFGSHessianUpdateState(
@@ -815,15 +815,15 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate, strict=True):
 
         # update conditionally
         if self.use_inverse:
-            curvature_history = hessian_update_state.curvature_history
-            curvature_history = curvature_history.at[
+            inner_history = hessian_update_state.inner_history
+            inner_history = inner_history.at[
                 index_start % self.history_length
             ].set(1.0 / inner)
             hessian_update_state = _LBFGSInverseHessianUpdateState(
                 index_start=index_start + 1,
                 y_diff_history=y_diff_history,
                 grad_diff_history=grad_diff_history,
-                curvature_history=curvature_history,
+                inner_history=inner_history,
             )
 
         else:

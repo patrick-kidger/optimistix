@@ -114,7 +114,7 @@ def test_against_naive_bfgs_hessian_inverse_update(generate_data):
     state = _LBFGSInverseHessianUpdateState(
         y_diff_history=y_diff_history,
         grad_diff_history=grad_diff_history,
-        curvature_history=inner_history,
+        inner_history=inner_history,
         index_start=start_index,
     )
     op = _make_lbfgs_operator(state)
@@ -199,7 +199,7 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
     state_hess_inv = _LBFGSInverseHessianUpdateState(
         y_diff_history=y_diff_history,
         grad_diff_history=grad_diff_history,
-        curvature_history=inner_history,
+        inner_history=inner_history,
         index_start=start_index,
     )
     state_hess = _LBFGSHessianUpdateState(
