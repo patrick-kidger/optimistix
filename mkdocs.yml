@@ -65,37 +65,38 @@ markdown_extensions:
         toc_depth: 4
 
 plugins:
-    - search  # default search plugin; needs manually re-enabling when using any other plugins
-    - autorefs  # Cross-links to headings
+    - search:
+        separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
     - include_exclude_files:
         include:
             - ".htaccess"
         exclude:
             - "_overrides"
-    - mknotebooks  # Jupyter notebooks
+            - "examples/.ipynb_checkpoints/"
+    - ipynb
+    - hippogriffe:
+        extra_public_objects:
+            - jax.Array
+            - lineax.AutoLinearSolver
+            - lineax.AbstractLinearSolver
+            - lineax.AbstractLinearOperator
+            - lineax.QR
     - mkdocstrings:
         handlers:
             python:
-                setup_commands:
-                    - import pytkdocs_tweaks
-                    - pytkdocs_tweaks.main()
-                    - import jaxtyping
-                    - jaxtyping.set_array_name_format("array")
-                    - import jax
-                    - jax.ShapeDtypeStruct.__module__ = "jax"
-                    - import typing
-                    - typing.Any.__module__ = "builtins"
-
-                selection:
-                    inherited_members: true  # Allow looking up inherited methods
-                rendering:
-                    show_root_heading: true  # actually display anything at all...
-                    show_root_full_path: true  # display "optimistix.asdf" not just "asdf"
-                    show_if_no_docstring: true
-                    show_signature_annotations: true
-                    show_source: false  # don't include source code
-                    members_order: source  # order methods according to their order of definition in the source code, not alphabetical order
+                options:
+                    force_inspection: true
                     heading_level: 4
+                    inherited_members: true
+                    members_order: source
+                    show_bases: false
+                    show_if_no_docstring: true
+                    show_overloads: false
+                    show_root_heading: true
+                    show_signature_annotations: true
+                    show_source: false
+                    show_symbol_type_heading: true
+                    show_symbol_type_toc: true
 
 nav:
     - 'index.md'

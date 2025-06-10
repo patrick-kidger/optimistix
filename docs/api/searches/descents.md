@@ -3,46 +3,46 @@
 ??? abstract "`optimistix.AbstractDescent`"
 
     ::: optimistix.AbstractDescent
-        selection:
+        options:
             members:
                 - __call__
 
 ::: optimistix.SteepestDescent
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.NonlinearCGDescent
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.NewtonDescent
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.DampedNewtonDescent
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.IndirectDampedNewtonDescent
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.DoglegDescent
-    selection:
+    options:
         members:
             - __init__

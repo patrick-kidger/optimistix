@@ -1,36 +1,36 @@
 # Function information
 
 ::: optimistix.FunctionInfo
-    selection:
+    options:
         members:
             - as_min
 
 ::: optimistix.FunctionInfo.Eval
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 ::: optimistix.FunctionInfo.EvalGrad
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 ::: optimistix.FunctionInfo.EvalGradHessian
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 ::: optimistix.FunctionInfo.EvalGradHessianInv
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 ::: optimistix.FunctionInfo.Residual
-    selection:
+    options:
         members:
-            false
+            - __init__
 
 ::: optimistix.FunctionInfo.ResidualJac
-    selection:
+    options:
         members:
-            false
+            - __init__

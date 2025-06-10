@@ -1,13 +1,13 @@
 # Solution
 
 ::: optimistix.Solution
-    selection:
+    options:
         members:
             false
 
 ---
 
 ::: optimistix.RESULTS
-    selection:
+    options:
         members:
             false

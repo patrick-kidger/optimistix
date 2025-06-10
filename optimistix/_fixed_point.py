@@ -1,4 +1,4 @@
-from typing import Any, cast, Generic, Optional, Union
+from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax
@@ -16,9 +16,7 @@ from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
 
 
-class AbstractFixedPointSolver(
-    AbstractIterativeSolver[Y, Y, Aux, SolverState], strict=True
-):
+class AbstractFixedPointSolver(AbstractIterativeSolver[Y, Y, Aux, SolverState]):
     """Abstract base class for all fixed point solvers."""
 
 
@@ -52,18 +50,16 @@ class _ToRootFn(eqx.Module, Generic[Y, Aux]):
 @eqx.filter_jit
 def fixed_point(
     fn: MaybeAuxFn[Y, Y, Aux],
-    solver: Union[
-        AbstractFixedPointSolver,
-        AbstractRootFinder,
-        AbstractLeastSquaresSolver,
-        AbstractMinimiser,
-    ],
+    solver: AbstractFixedPointSolver
+    | AbstractRootFinder
+    | AbstractLeastSquaresSolver
+    | AbstractMinimiser,
     y0: Y,
     args: PyTree[Any] = None,
-    options: Optional[dict[str, Any]] = None,
+    options: dict[str, Any] | None = None,
     *,
     has_aux: bool = False,
-    max_steps: Optional[int] = 256,
+    max_steps: int | None = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),

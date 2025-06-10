@@ -1,5 +1,6 @@
+import inspect
 from collections.abc import Callable
-from typing import Any, Literal, overload, TypeVar, Union
+from typing import Any, Literal, overload, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -11,20 +12,41 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 from lineax.internal import (
-    default_floating_dtype as default_floating_dtype,
-    max_norm as max_norm,
-    rms_norm as rms_norm,
-    sum_squares as sum_squares,
-    tree_dot as tree_dot,
-    two_norm as two_norm,
+    default_floating_dtype as _default_floating_dtype,
+    max_norm as _max_norm,
+    rms_norm as _rms_norm,
+    sum_squares as _sum_squares,
+    tree_dot as _tree_dot,
+    two_norm as _two_norm,
 )
 
 from ._custom_types import Y
 
 
+# Make the wrapped function a genuine member of this module.
+def _wrap(fn):
+    # Not using `functools.wraps` as our docgen will chase that.
+    def wrapped_fn(*args, **kwargs):
+        return fn(*args, **kwargs)
+
+    wrapped_fn.__signature__ = inspect.signature(fn)
+    wrapped_fn.__name__ = wrapped_fn.__qualname__ = fn.__name__
+    wrapped_fn.__module__ = __name__
+    wrapped_fn.__doc__ = fn.__doc__
+    return wrapped_fn
+
+
+default_floating_dtype = _wrap(_default_floating_dtype)
+max_norm = _wrap(_max_norm)
+rms_norm = _wrap(_rms_norm)
+sum_squares = _wrap(_sum_squares)
+tree_dot = _wrap(_tree_dot)
+two_norm = _wrap(_two_norm)
+
+
 @overload
 def tree_full_like(
-    struct: PyTree[Union[Array, jax.ShapeDtypeStruct]],
+    struct: PyTree[Array | jax.ShapeDtypeStruct],
     fill_value: ArrayLike,
     allow_static: Literal[False] = False,
 ):
@@ -76,7 +98,7 @@ def resolve_rcond(rcond, n, m, dtype):
         return jnp.where(rcond < 0, jnp.finfo(dtype).eps, rcond)
 
 
-class NoneAux(eqx.Module, strict=True):
+class NoneAux(eqx.Module):
     """Wrap a function `fn` so it returns a dummy aux value `None`
 
     NoneAux is used to give a consistent API between functions which have an aux
@@ -89,7 +111,7 @@ class NoneAux(eqx.Module, strict=True):
         return self.fn(*args, **kwargs), None
 
 
-class OutAsArray(eqx.Module, strict=True):
+class OutAsArray(eqx.Module):
     """Wrap a minimisation/root-find/etc. function so that its mathematical outputs are
     all inexact arrays, and its auxiliary outputs are all arrays.
     """

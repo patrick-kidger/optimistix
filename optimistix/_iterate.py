@@ -1,7 +1,7 @@
 import abc
 import warnings
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TYPE_CHECKING
+from typing import Any, Generic, TYPE_CHECKING
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -23,9 +23,7 @@ else:
     _Node = eqxi.doc_repr(Any, "Node")
 
 
-class AbstractIterativeSolver(
-    eqx.Module, Generic[Y, Out, Aux, SolverState], strict=True
-):
+class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
     """Abstract base class for all iterative solvers."""
 
     rtol: AbstractVar[float]
@@ -223,8 +221,8 @@ def _iterate(inputs):
     def cond_fun(carry):
         y, _, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        terminate, _ = solver.terminate(fn, y, args, options, state, tags)
-        return jnp.invert(terminate)
+        terminate, result = solver.terminate(fn, y, args, options, state, tags)
+        return jnp.invert(terminate) | (result != RESULTS.successful)
 
     def body_fun(carry):
         y, num_steps, dynamic_state, _ = carry
@@ -272,9 +270,9 @@ def iterative_solve(
     solver: AbstractIterativeSolver,
     y0: PyTree[Array],
     args: PyTree = None,
-    options: Optional[dict[str, Any]] = None,
+    options: dict[str, Any] | None = None,
     *,
-    max_steps: Optional[int],
+    max_steps: int | None,
     adjoint: AbstractAdjoint,
     throw: bool,
     tags: frozenset[object],

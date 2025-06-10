@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, cast, Generic, Union
+from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -70,7 +70,7 @@ def dai_yuan(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     return jnp.where(pred, numerator / safe_denom, 0)
 
 
-class _NonlinearCGDescentState(eqx.Module, Generic[Y], strict=True):
+class _NonlinearCGDescentState(eqx.Module, Generic[Y]):
     y_diff: Y
     grad: Y
 
@@ -78,15 +78,12 @@ class _NonlinearCGDescentState(eqx.Module, Generic[Y], strict=True):
 class NonlinearCGDescent(
     AbstractDescent[
         Y,
-        Union[
-            FunctionInfo.EvalGrad,
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        FunctionInfo.EvalGrad
+        | FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
         _NonlinearCGDescentState,
     ],
-    strict=True,
 ):
     """The nonlinear conjugate gradient step."""
 
@@ -95,12 +92,10 @@ class NonlinearCGDescent(
     def init(
         self,
         y: Y,
-        f_info_struct: Union[
-            FunctionInfo.EvalGrad,
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        f_info_struct: FunctionInfo.EvalGrad
+        | FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
     ) -> _NonlinearCGDescentState:
         del f_info_struct
         return _NonlinearCGDescentState(
@@ -111,12 +106,10 @@ class NonlinearCGDescent(
     def query(
         self,
         y: Y,
-        f_info: Union[
-            FunctionInfo.EvalGrad,
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        f_info: FunctionInfo.EvalGrad
+        | FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
         state: _NonlinearCGDescentState,
     ) -> _NonlinearCGDescentState:
         del y
@@ -175,7 +168,7 @@ NonlinearCGDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class NonlinearCG(AbstractGradientDescent[Y, Aux], strict=True):
+class NonlinearCG(AbstractGradientDescent[Y, Aux]):
     """The nonlinear conjugate gradient method.
 
     Supports the following `options`:

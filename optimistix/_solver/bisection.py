@@ -1,6 +1,6 @@
 import functools as ft
 from collections.abc import Callable
-from typing import Any, ClassVar, Literal, Union
+from typing import Any, ClassVar, Literal
 
 import equinox as eqx
 import jax
@@ -12,14 +12,14 @@ from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
 
 
-class _BisectionState(eqx.Module, strict=True):
+class _BisectionState(eqx.Module):
     lower: Scalar
     upper: Scalar
     flip: Bool[Array, ""]
     error: Float[Array, ""]
 
 
-class _ExpansionCarry(eqx.Module, strict=True):
+class _ExpansionCarry(eqx.Module):
     lower: Scalar
     upper: Scalar
 
@@ -76,7 +76,7 @@ def _expand_interval_repeatedly(
     return lower, upper
 
 
-class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState], strict=True):
+class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
     """The bisection method of root finding. This may only be used with functions
     `R->R`, i.e. functions with scalar input and scalar output.
 
@@ -100,7 +100,7 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState], strict
 
     rtol: float
     atol: float
-    flip: Union[bool, Literal["detect"]] = "detect"
+    flip: bool | Literal["detect"] = "detect"
     expand_if_necessary: bool = False
     # All norms are the same for scalars.
     norm: ClassVar[Callable[[PyTree], Scalar]] = jnp.abs

@@ -11,7 +11,7 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 ??? abstract "`optimistix.AbstractMinimiser`"
 
     ::: optimistix.AbstractMinimiser
-        selection:
+        options:
             members:
                 - init
                 - step
@@ -21,42 +21,64 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 ??? abstract "`optimistix.AbstractGradientDescent`"
 
     ::: optimistix.AbstractGradientDescent
-        selection:
+        options:
             members:
                 false
 
 ::: optimistix.GradientDescent
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
-??? abstract "`optimistix.AbstractBFGS`"
+??? abstract "`optimistix.AbstractQuasiNewton`"
 
-    ::: optimistix.AbstractBFGS
-        selection:
+    ::: optimistix.AbstractQuasiNewton
+        options:
             members:
                 false
 
+    [`optimistix.AbstractQuasiNewton`][] supports several update methods for the Hessian approximation. Optimistix currently provides two of these ([`optimistix.BFGSUpdate`][] and [`optimistix.DFPUpdate`][]), but you can also implement your own using the [`optimistix.AbstractQuasiNewtonUpdate`][] interface.
+
+    ::: optimistix.AbstractQuasiNewtonUpdate
+        options:
+            members:
+                - __call__
+
+    ::: optimistix.BFGSUpdate
+        options:
+            members:
+                - __init__
+
+    ::: optimistix.DFPUpdate
+        options:
+            members:
+                - __init__
+
 ::: optimistix.BFGS
-    selection:
+    options:
+        members:
+            - __init__
+
+::: optimistix.DFP
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.OptaxMinimiser
-    selection:
+    options:
         members:
             - __init__
 
-`optim` in [`optimistix.OptaxMinimiser`][] is an instance of an Optax minimiser. For example, correct usage is `optimistix.OptaxMinimiser(optax.adam(...), ...)`, not `optimistix.OptaxMinimiser(optax.adam, ...)`. 
+`optim` in [`optimistix.OptaxMinimiser`][] is an instance of an Optax minimiser. For example, correct usage is `optimistix.OptaxMinimiser(optax.adam(...), ...)`, not `optimistix.OptaxMinimiser(optax.adam, ...)`.
 
 ---
 
 ::: optimistix.NonlinearCG
-    selection:
+    options:
         members:
             - __init__
 
@@ -73,13 +95,13 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 ---
 
 ::: optimistix.NelderMead
-    selection:
+    options:
         members:
             - __init__
 
 ---
 
 ::: optimistix.BestSoFarMinimiser
-    selection:
+    options:
         members:
             - __init__
