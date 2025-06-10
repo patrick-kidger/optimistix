@@ -3,8 +3,7 @@ import functools as ft
 import jax
 import optimistix as optx
 import pytest
-
-from .helpers import cutest_unconstrained_problems
+import sif2jax
 
 
 cutest = pytest.mark.skipif("not config.getoption('cutest')")
@@ -16,7 +15,7 @@ unconstrained_minimisers = (optx.BFGS(rtol=1e-3, atol=1e-6),)
 
 @cutest
 @pytest.mark.benchmark
-@pytest.mark.parametrize("problem", cutest_unconstrained_problems)
+@pytest.mark.parametrize("problem", sif2jax.unconstrained_minimisation_problems)
 @pytest.mark.parametrize("minimiser", unconstrained_minimisers)
 def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
     solve = jax.jit(
