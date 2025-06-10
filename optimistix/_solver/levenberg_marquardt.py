@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import cast, Generic, Union
+from typing import cast, Generic
 
 import equinox as eqx
 import jax
@@ -20,7 +20,7 @@ from .newton_chord import Newton
 from .trust_region import ClassicalTrustRegion
 
 
-class _Damped(eqx.Module, strict=True):
+class _Damped(eqx.Module):
     operator: lx.AbstractLinearOperator
     damping: Float[Array, ""]
 
@@ -33,7 +33,7 @@ class _Damped(eqx.Module, strict=True):
 
 def damped_newton_step(
     step_size: Scalar,
-    f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+    f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
     linear_solver: lx.AbstractLinearSolver,
 ) -> tuple[PyTree[Array], RESULTS]:
     """Compute a damped Newton step.
@@ -76,17 +76,16 @@ def damped_newton_step(
     return linear_sol.value, RESULTS.promote(linear_sol.result)
 
 
-class _DampedNewtonDescentState(eqx.Module, strict=True):
-    f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac]
+class _DampedNewtonDescentState(eqx.Module):
+    f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac
 
 
 class DampedNewtonDescent(
     AbstractDescent[
         Y,
-        Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         _DampedNewtonDescentState,
     ],
-    strict=True,
 ):
     """The damped Newton (Levenberg--Marquardt) descent.
 
@@ -109,7 +108,7 @@ class DampedNewtonDescent(
     def init(
         self,
         y: Y,
-        f_info_struct: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        f_info_struct: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
     ) -> _DampedNewtonDescentState:
         del y
         f_info_init = tree_full_like(f_info_struct, 0, allow_static=True)
@@ -118,7 +117,7 @@ class DampedNewtonDescent(
     def query(
         self,
         y: Y,
-        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         state: _DampedNewtonDescentState,
     ) -> _DampedNewtonDescentState:
         del y, state
@@ -140,8 +139,8 @@ DampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class _IndirectDampedNewtonDescentState(eqx.Module, Generic[Y], strict=True):
-    f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac]
+class _IndirectDampedNewtonDescentState(eqx.Module, Generic[Y]):
+    f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac
     newton: Y
     newton_norm: Scalar
     result: RESULTS
@@ -150,10 +149,9 @@ class _IndirectDampedNewtonDescentState(eqx.Module, Generic[Y], strict=True):
 class IndirectDampedNewtonDescent(
     AbstractDescent[
         Y,
-        Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         _IndirectDampedNewtonDescentState,
     ],
-    strict=True,
 ):
     """The indirect damped Newton (Levenberg--Marquardt) trust-region descent.
 
@@ -179,7 +177,7 @@ class IndirectDampedNewtonDescent(
     def init(
         self,
         y: Y,
-        f_info_struct: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        f_info_struct: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
     ) -> _IndirectDampedNewtonDescentState:
         return _IndirectDampedNewtonDescentState(
             f_info=tree_full_like(f_info_struct, 0, allow_static=True),
@@ -191,7 +189,7 @@ class IndirectDampedNewtonDescent(
     def query(
         self,
         y: Y,
-        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         state: _IndirectDampedNewtonDescentState,
     ) -> _IndirectDampedNewtonDescentState:
         del y
@@ -255,7 +253,7 @@ IndirectDampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux], strict=True):
+class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     """The Levenberg--Marquardt method.
 
     This is a classical solver for nonlinear least squares, which works by regularising
@@ -313,7 +311,7 @@ LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 """
 
 
-class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux], strict=True):
+class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     """The Levenberg--Marquardt method as a true trust-region method.
 
     This is a variant of [`optimistix.LevenbergMarquardt`][]. The other algorithm works

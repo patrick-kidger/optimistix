@@ -23,7 +23,7 @@ For an in-depth discussion of how these pieces fit together, see the documentati
 """
 
 import abc
-from typing import ClassVar, Generic, Type, TypeVar
+from typing import ClassVar, Generic, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -41,7 +41,7 @@ from ._misc import sum_squares, tree_dot
 from ._solution import RESULTS
 
 
-class FunctionInfo(eqx.Module, strict=eqx.StrictConfig(allow_abstract_name=True)):
+class FunctionInfo(eqx.Module):
     """Different solvers (BFGS, Levenberg--Marquardt, ...) evaluate different
     quantities of the objective function. Some may compute gradient information,
     some may provide approximate Hessian information, etc.
@@ -52,12 +52,12 @@ class FunctionInfo(eqx.Module, strict=eqx.StrictConfig(allow_abstract_name=True)
     `optimistix.FunctionInfo.{Eval, EvalGrad, EvalGradHessian, EvalGradHessianInv, Residual, ResidualJac}`.
     """  # noqa: E501
 
-    Eval: ClassVar[Type["Eval"]]
-    EvalGrad: ClassVar[Type["EvalGrad"]]
-    EvalGradHessian: ClassVar[Type["EvalGradHessian"]]
-    EvalGradHessianInv: ClassVar[Type["EvalGradHessianInv"]]
-    Residual: ClassVar[Type["Residual"]]
-    ResidualJac: ClassVar[Type["ResidualJac"]]
+    Eval: ClassVar[type["Eval"]]
+    EvalGrad: ClassVar[type["EvalGrad"]]
+    EvalGradHessian: ClassVar[type["EvalGradHessian"]]
+    EvalGradHessianInv: ClassVar[type["EvalGradHessianInv"]]
+    Residual: ClassVar[type["Residual"]]
+    ResidualJac: ClassVar[type["ResidualJac"]]
 
     @abc.abstractmethod
     def as_min(self) -> Scalar:
@@ -67,7 +67,7 @@ class FunctionInfo(eqx.Module, strict=eqx.StrictConfig(allow_abstract_name=True)
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class Eval(FunctionInfo, strict=True):
+class Eval(FunctionInfo):
     """Has a `.f` attribute describing `fn(y)`. Used when no gradient information is
     available.
     """
@@ -79,7 +79,7 @@ class Eval(FunctionInfo, strict=True):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGrad(FunctionInfo, Generic[Y], strict=True):
+class EvalGrad(FunctionInfo, Generic[Y]):
     """Has a `.f` attribute as with [`optimistix.FunctionInfo.Eval`][]. Also has a
     `.grad` attribute describing `d(fn)/dy`. Used with first-order solvers for
     minimisation problems. (E.g. gradient descent; nonlinear CG.)
@@ -96,7 +96,7 @@ class EvalGrad(FunctionInfo, Generic[Y], strict=True):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGradHessian(FunctionInfo, Generic[Y], strict=True):
+class EvalGradHessian(FunctionInfo, Generic[Y]):
     """Has `.f` and `.grad` attributes as with [`optimistix.FunctionInfo.EvalGrad`][].
     Also has a `.hessian` attribute describing (an approximation to) the Hessian of
     `fn` at `y`. Used with quasi-Newton minimisation algorithms, like BFGS.
@@ -114,7 +114,7 @@ class EvalGradHessian(FunctionInfo, Generic[Y], strict=True):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGradHessianInv(FunctionInfo, Generic[Y], strict=True):
+class EvalGradHessianInv(FunctionInfo, Generic[Y]):
     """As [`optimistix.FunctionInfo.EvalGradHessian`][], but records the (approximate)
     inverse-Hessian instead. Has `.f` and `.grad` and `.hessian_inv` attributes.
     """
@@ -131,7 +131,7 @@ class EvalGradHessianInv(FunctionInfo, Generic[Y], strict=True):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class Residual(FunctionInfo, Generic[Out], strict=True):
+class Residual(FunctionInfo, Generic[Out]):
     """Has a `.residual` attribute describing `fn(y)`. Used with least squares problems,
     for which `fn` returns residuals.
     """
@@ -143,7 +143,7 @@ class Residual(FunctionInfo, Generic[Out], strict=True):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class ResidualJac(FunctionInfo, Generic[Y, Out], strict=True):
+class ResidualJac(FunctionInfo, Generic[Y, Out]):
     """Records the Jacobian `d(fn)/dy` as a linear operator. Used for least squares
     problems, for which `fn` returns residuals. Has `.residual` and `.jac` attributes,
     where `residual = fn(y)`, `jac = d(fn)/dy`.
@@ -245,7 +245,7 @@ _FnInfo = TypeVar("_FnInfo", contravariant=True, bound=FunctionInfo)
 _FnEvalInfo = TypeVar("_FnEvalInfo", contravariant=True, bound=FunctionInfo)
 
 
-class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState], strict=True):
+class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState]):
     """The abstract base class for descents. A descent consumes a scalar (e.g. a step
     size), and returns the `diff` to take at point `y`, so that `y + diff` is the next
     iterate in a nonlinear optimisation problem.
@@ -313,9 +313,7 @@ class AbstractDescent(eqx.Module, Generic[Y, _FnInfo, DescentState], strict=True
         """
 
 
-class AbstractSearch(
-    eqx.Module, Generic[Y, _FnInfo, _FnEvalInfo, SearchState], strict=True
-):
+class AbstractSearch(eqx.Module, Generic[Y, _FnInfo, _FnEvalInfo, SearchState]):
     """The abstract base class for all searches. (Which are our generalisation of
     line searches, trust regions, and learning rates.)
 

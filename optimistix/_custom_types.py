@@ -1,6 +1,5 @@
 from collections.abc import Callable
-from typing import Any, TypeVar, Union
-from typing_extensions import TypeAlias
+from typing import Any, TypeAlias, TypeVar
 
 import equinox.internal as eqxi
 
@@ -15,6 +14,6 @@ Y = TypeVar("Y")
 
 Fn: TypeAlias = Callable[[Y, Args], tuple[Out, Aux]]
 NoAuxFn: TypeAlias = Callable[[Y, Args], Out]
-MaybeAuxFn: TypeAlias = Union[Fn[Y, Out, Aux], NoAuxFn[Y, Out]]
+MaybeAuxFn: TypeAlias = Fn[Y, Out, Aux] | NoAuxFn[Y, Out]
 
 sentinel: Any = eqxi.doc_repr(object(), "sentinel")

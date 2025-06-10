@@ -1,4 +1,4 @@
-from typing import Any, cast, Optional
+from typing import Any, cast
 
 import equinox as eqx
 import jax
@@ -13,9 +13,7 @@ from ._misc import inexact_asarray, NoneAux, OutAsArray
 from ._solution import Solution
 
 
-class AbstractMinimiser(
-    AbstractIterativeSolver[Y, Scalar, Aux, SolverState], strict=True
-):
+class AbstractMinimiser(AbstractIterativeSolver[Y, Scalar, Aux, SolverState]):
     """Abstract base class for all minimisers."""
 
 
@@ -43,10 +41,10 @@ def minimise(
     solver: AbstractMinimiser,
     y0: Y,
     args: PyTree[Any] = None,
-    options: Optional[dict[str, Any]] = None,
+    options: dict[str, Any] | None = None,
     *,
     has_aux: bool = False,
-    max_steps: Optional[int] = 256,
+    max_steps: int | None = 256,
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),

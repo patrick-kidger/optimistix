@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Generic, Literal, Optional, Union
+from typing import Any, Generic, Literal
 
 import equinox as eqx
 import jax
@@ -29,11 +29,9 @@ from .learning_rate import LearningRate
 
 
 def newton_step(
-    f_info: Union[
-        FunctionInfo.EvalGradHessian,
-        FunctionInfo.EvalGradHessianInv,
-        FunctionInfo.ResidualJac,
-    ],
+    f_info: FunctionInfo.EvalGradHessian
+    | FunctionInfo.EvalGradHessianInv
+    | FunctionInfo.ResidualJac,
     linear_solver: lx.AbstractLinearSolver,
 ) -> tuple[PyTree[Array], RESULTS]:
     """Compute a Newton step.
@@ -73,13 +71,13 @@ def newton_step(
                 "Cannot use a Newton descent with a solver that only evaluates the "
                 "gradient, or only the function itself."
             )
-        out = lx.linear_solve(operator, vector, linear_solver)
+        out = lx.linear_solve(operator, vector, linear_solver, throw=False)
         newton = out.value
         result = RESULTS.promote(out.result)
     return newton, result
 
 
-class _NewtonDescentState(eqx.Module, Generic[Y], strict=True):
+class _NewtonDescentState(eqx.Module, Generic[Y]):
     newton: Y
     result: RESULTS
 
@@ -87,14 +85,11 @@ class _NewtonDescentState(eqx.Module, Generic[Y], strict=True):
 class NewtonDescent(
     AbstractDescent[
         Y,
-        Union[
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
         _NewtonDescentState,
     ],
-    strict=True,
 ):
     """Newton descent direction.
 
@@ -105,7 +100,7 @@ class NewtonDescent(
     This is done by solving a linear system of the form `Hess^{-1} grad`.
     """
 
-    norm: Optional[Callable[[PyTree], Scalar]] = None
+    norm: Callable[[PyTree], Scalar] | None = None
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
     def init(self, y: Y, f_info_struct: FunctionInfo) -> _NewtonDescentState:
@@ -116,11 +111,9 @@ class NewtonDescent(
     def query(
         self,
         y: Y,
-        f_info: Union[
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        f_info: FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
         state: _NewtonDescentState,
     ) -> _NewtonDescentState:
         del state
@@ -143,9 +136,7 @@ NewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class _GaussNewtonState(
-    eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState], strict=True
-):
+class _GaussNewtonState(eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState]):
     # Updated every search step
     first_step: Bool[Array, ""]
     y_eval: Y
@@ -189,9 +180,7 @@ def _make_f_info(
     return FunctionInfo.ResidualJac(f_eval, jac_eval), aux_eval
 
 
-class AbstractGaussNewton(
-    AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState], strict=True
-):
+class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonState]):
     """Abstract base class for all Gauss-Newton type methods.
 
     This includes methods such as [`optimistix.GaussNewton`][],
@@ -382,7 +371,7 @@ class AbstractGaussNewton(
         return y, aux, {}
 
 
-class GaussNewton(AbstractGaussNewton[Y, Out, Aux], strict=True):
+class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
     """Gauss-Newton algorithm, for solving nonlinear least-squares problems.
 
     Note that regularised approaches like [`optimistix.LevenbergMarquardt`][] are

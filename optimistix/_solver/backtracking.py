@@ -1,5 +1,4 @@
-from typing import cast, Union
-from typing_extensions import TypeAlias
+from typing import cast, TypeAlias
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -11,22 +10,20 @@ from .._search import AbstractSearch, FunctionInfo
 from .._solution import RESULTS
 
 
-class _BacktrackingState(eqx.Module, strict=True):
+class _BacktrackingState(eqx.Module):
     step_size: Scalar
 
 
-_FnInfo: TypeAlias = Union[
-    FunctionInfo.EvalGrad,
-    FunctionInfo.EvalGradHessian,
-    FunctionInfo.EvalGradHessianInv,
-    FunctionInfo.ResidualJac,
-]
+_FnInfo: TypeAlias = (
+    FunctionInfo.EvalGrad
+    | FunctionInfo.EvalGradHessian
+    | FunctionInfo.EvalGradHessianInv
+    | FunctionInfo.ResidualJac
+)
 _FnEvalInfo: TypeAlias = FunctionInfo
 
 
-class BacktrackingArmijo(
-    AbstractSearch[Y, _FnInfo, _FnEvalInfo, _BacktrackingState], strict=True
-):
+class BacktrackingArmijo(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _BacktrackingState]):
     """Perform a backtracking Armijo line search."""
 
     decrease_factor: ScalarLike = 0.5
