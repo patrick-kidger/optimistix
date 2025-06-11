@@ -24,7 +24,7 @@ For an in-depth discussion of how these pieces fit together, see the documentati
 
 import abc
 from collections.abc import Callable
-from typing import Any, ClassVar, Generic, Type, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -62,16 +62,16 @@ class Iterate(eqx.Module):
     This enumeration-ish object captures the different variants of iterates.
     """
 
-    Primal: ClassVar[Type["Primal"]]
-    ScalarPrimal: ClassVar[Type["ScalarPrimal"]]
-    PrimalDual: ClassVar[Type["PrimalDual"]]
+    Primal: ClassVar[type["Primal"]]
+    ScalarPrimal: ClassVar[type["ScalarPrimal"]]
+    PrimalDual: ClassVar[type["PrimalDual"]]
 
     @abc.abstractmethod
     def nothing(self) -> None:
         """Dummy thing to make sure that this is an abstract class."""
 
 
-class Primal(Iterate, Generic[Y], strict=True):
+class Primal(Iterate, Generic[Y]):
     """The primal variable `y`. Used in unconstrained problems."""
 
     y: Y
@@ -92,10 +92,10 @@ class ScalarPrimal(Iterate, Generic[Y]):
 
 
 _Multipliers = (
-    tuple[EqualityOut, None] |
-    tuple[EqualityOut, InequalityOut] |
-    tuple[None, InequalityOut] |
-    None
+    tuple[EqualityOut, None]
+    | tuple[EqualityOut, InequalityOut]
+    | tuple[None, InequalityOut]
+    | None
 )
 
 
@@ -211,10 +211,10 @@ class EvalGrad(FunctionInfo, Generic[Y]):
 
 
 _ConstraintJacobians = (
-    tuple[lx.AbstractLinearOperator, None] |
-    tuple[lx.AbstractLinearOperator, lx.AbstractLinearOperator] |
-    tuple[None, lx.AbstractLinearOperator] |
-    None
+    tuple[lx.AbstractLinearOperator, None]
+    | tuple[lx.AbstractLinearOperator, lx.AbstractLinearOperator]
+    | tuple[None, lx.AbstractLinearOperator]
+    | None
 )
 
 # TODO(johanna): We currently add the Hessians of the constraint functions to the
@@ -227,9 +227,7 @@ _ConstraintJacobians = (
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGradHessian(
-    FunctionInfo, Generic[Y, _Iterate, EqualityOut, InequalityOut]
-):
+class EvalGradHessian(FunctionInfo, Generic[Y, _Iterate, EqualityOut, InequalityOut]):
     """Has `.f` and `.grad` attributes as with [`optimistix.FunctionInfo.EvalGrad`][].
     Also has a `.hessian` attribute describing (an approximation to) the Hessian of
     `fn` at `y`. Used with quasi-Newton minimisation algorithms, like BFGS.
@@ -438,7 +436,8 @@ _FnEvalInfo = TypeVar("_FnEvalInfo", contravariant=True, bound=FunctionInfo)
 
 
 class AbstractDescent(
-    eqx.Module, Generic[Y, _Iterate, _FnInfo, DescentState],
+    eqx.Module,
+    Generic[Y, _Iterate, _FnInfo, DescentState],
 ):
     """The abstract base class for descents. A descent consumes a scalar (e.g. a step
     size), and returns the `diff` to take at point `y`, so that `y + diff` is the next
@@ -489,9 +488,7 @@ class AbstractDescent(
         The updated descent state.
         """
 
-    def correct(
-        self, y: Iterate, f_info: _FnInfo, state: DescentState
-    ) -> DescentState:
+    def correct(self, y: Iterate, f_info: _FnInfo, state: DescentState) -> DescentState:
         """A correction step, based on updated function information, to be taken when
         the search has rejected the current iterate. This is useful in constrained
         optimisation, where the constraints may be strongly nonlinear, and where the

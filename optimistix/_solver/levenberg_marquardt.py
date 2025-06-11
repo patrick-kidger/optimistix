@@ -83,12 +83,8 @@ class _DampedNewtonDescentState(eqx.Module):
 class DampedNewtonDescent(
     AbstractDescent[
         Y,
-<<<<<<< HEAD
-        FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
-=======
         Iterate.Primal,
-        Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
->>>>>>> 5f725c3 (add iterate type to descents)
+        FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         _DampedNewtonDescentState,
     ],
 ):

@@ -17,7 +17,7 @@ from .._solution import RESULTS
 # would never reset, it would just request a feasibility restoration that never comes.
 
 
-class _Filter(eqx.Module, strict=True):
+class _Filter(eqx.Module):
     """Implements a filter for the filtered line search. The filter is a buffer that
     contains previous values of the objective function and the constraint violation at
     visited points. By comparing the current values at a given step to the values in the
@@ -43,7 +43,7 @@ class _Filter(eqx.Module, strict=True):
         return jnp.invert(filter_out), _Filter(filter_by)
 
 
-class _IPOPTLikeFilteredLineSearchState(eqx.Module, strict=True):
+class _IPOPTLikeFilteredLineSearchState(eqx.Module):
     step_size: Scalar
     filter: _Filter
 
@@ -58,7 +58,6 @@ class IPOPTLikeFilteredLineSearch(
         FunctionInfo.Eval,
         _IPOPTLikeFilteredLineSearchState,
     ],
-    strict=True,
 ):
     """A filtered line search. At every step, the search will evaluate the Armijo
     condition on the merit function of the barrier problem if the constraint violation

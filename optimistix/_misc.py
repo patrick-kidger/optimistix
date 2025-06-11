@@ -141,7 +141,7 @@ def feasible_step_length(
     *,
     offset: ScalarLike = jnp.array(0.0),
     reduce: bool = True,
-) -> Union[ScalarLike, PyTree[ScalarLike]]:
+) -> ScalarLike | PyTree[ScalarLike]:
     """Returns the maximum feasible step length for any current value, its bounds, and a
     proposed step. The current value can be an instance of an optimisation variable `y`,
     a dual variable, or a slack variable.

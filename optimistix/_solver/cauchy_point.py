@@ -222,7 +222,7 @@ def cauchy_newton_step(y, f_info, linear_solver):
     return cauchy_newton, result
 
 
-class _CauchyNewtonDescentState(eqx.Module, Generic[Y], strict=True):
+class _CauchyNewtonDescentState(eqx.Module, Generic[Y]):
     cauchy_newton: Y
     result: RESULTS
 
@@ -234,7 +234,6 @@ class CauchyNewtonDescent(
         FunctionInfo.EvalGradHessian,
         _CauchyNewtonDescentState,
     ],
-    strict=True,
 ):
     """Computes the Cauchy point to make an educated guess of the set of active bound
     constraints. Then, a Newton step is computed using the KKT system, where the active
@@ -270,7 +269,7 @@ class CauchyNewtonDescent(
         return (step_size * state.cauchy_newton**ω).ω, state.result
 
 
-class CauchyNewton(AbstractQuadraticSolver[Y, Out, Aux], strict=True):
+class CauchyNewton(AbstractQuadraticSolver[Y, Out, Aux]):
     """A simple quadratic solver that projects the gradient onto the feasible set, which
     is defined by a hypercube, to find the first minimiser along the resulting piecewise
     linear path. It will then constrain all elements of `y` that are at their bounds,

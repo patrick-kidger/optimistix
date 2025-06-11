@@ -1,6 +1,6 @@
 import functools as ft
 from collections.abc import Callable
-from typing import Any, cast, Generic, Union
+from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax
@@ -89,7 +89,7 @@ def _update_stats(
     )
 
 
-class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
+class NelderMead(AbstractMinimiser[Y, Iterate.Primal, Aux, _NelderMeadState[Y, Aux]]):
     """The Nelder-Mead minimisation algorithm. (Downhill simplex derivative-free
     method.)
 

@@ -1,7 +1,7 @@
 import abc
 import warnings
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TYPE_CHECKING, TypeVar, Union
+from typing import Any, Generic, TYPE_CHECKING, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -293,7 +293,9 @@ def _iterate(inputs):
     def cond_fun(carry):
         iterate, _, dynamic_state, _ = carry
         state = eqx.combine(static_state, dynamic_state)
-        terminate, result = solver.terminate(fn, y, args, options, state, tags)
+        terminate, result = solver.terminate(
+            fn, iterate, args, options, constraint, bounds, state, tags
+        )
         return jnp.invert(terminate) | (result != RESULTS.successful)
 
     def body_fun(carry):

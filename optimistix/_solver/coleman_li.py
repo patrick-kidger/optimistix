@@ -99,7 +99,7 @@ def _interior_reflected_newton_step(
     return interior_reflected_newton, result
 
 
-class _ColemanLiDescentState(eqx.Module, Generic[Y], strict=True):
+class _ColemanLiDescentState(eqx.Module, Generic[Y]):
     newton: Y
     result: RESULTS
 
@@ -110,7 +110,6 @@ class ColemanLiDescent(
     AbstractDescent[
         Y, Iterate.Primal, FunctionInfo.EvalGradHessian, _ColemanLiDescentState
     ],
-    strict=True,
 ):
     """Coleman-Li descent."""
 
@@ -155,7 +154,7 @@ ColemanLiDescent.__init__.__doc__ = """**Arguments**:
 # be dramatically different from the one computed in the original space, but willing to
 # convince myself otherwise with pen and paper.)
 # Reference for this solver: https://link.springer.com/article/10.1007/BF01582221
-class ColemanLi(AbstractOldBFGS[Y, Aux, FunctionInfo.EvalGradHessian], strict=True):
+class ColemanLi(AbstractOldBFGS[Y, Aux, FunctionInfo.EvalGradHessian]):
     """Coleman-Li solver for bounded optimisation problems. This solver uses the
     distance to the bounds to define a scaling operator for the Hessian and gradient
     before computing the direction in the transformed space. This results in a search
