@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, cast, Generic, Union
+from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax.lax as lax
@@ -25,7 +25,7 @@ from .gauss_newton import AbstractGaussNewton, newton_step
 from .trust_region import ClassicalTrustRegion
 
 
-class _DoglegDescentState(eqx.Module, Generic[Y], strict=True):
+class _DoglegDescentState(eqx.Module, Generic[Y]):
     newton: Y
     cauchy: Y
     newton_norm: Scalar
@@ -36,10 +36,9 @@ class _DoglegDescentState(eqx.Module, Generic[Y], strict=True):
 class DoglegDescent(
     AbstractDescent[
         Y,
-        Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         _DoglegDescentState,
     ],
-    strict=True,
 ):
     """The Dogleg descent step, which switches between the Cauchy and the Newton
     descent directions.
@@ -54,7 +53,7 @@ class DoglegDescent(
     def init(
         self,
         y: Y,
-        f_info_struct: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        f_info_struct: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
     ) -> _DoglegDescentState:
         # Dummy values; unused
         del f_info_struct
@@ -69,7 +68,7 @@ class DoglegDescent(
     def query(
         self,
         y: Y,
-        f_info: Union[FunctionInfo.EvalGradHessian, FunctionInfo.ResidualJac],
+        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
         state: _DoglegDescentState,
     ) -> _DoglegDescentState:
         del y, state
@@ -214,7 +213,7 @@ DoglegDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-class Dogleg(AbstractGaussNewton[Y, Out, Aux], strict=True):
+class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
     """Dogleg algorithm. Used for nonlinear least squares problems.
 
     Given a quadratic bowl that locally approximates the function to be minimised, then

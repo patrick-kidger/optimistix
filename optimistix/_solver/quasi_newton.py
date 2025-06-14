@@ -864,7 +864,7 @@ class _QuasiNewtonState(
 
 
 class AbstractQuasiNewton(
-    AbstractMinimiser[Y, Aux, _QuasiNewtonState], Generic[Y, Aux, _Hessian], strict=True
+    AbstractMinimiser[Y, Aux, _QuasiNewtonState], Generic[Y, Aux, _Hessian]
 ):
     """Abstract quasi-Newton minimisation algorithm.
 
@@ -1048,7 +1048,7 @@ class AbstractQuasiNewton(
         return y, aux, {}
 
 
-class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
+class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
     """BFGS (Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
@@ -1114,7 +1114,7 @@ BFGS.__init__.__doc__ = """**Arguments:**
 """
 
 
-class DFP(AbstractQuasiNewton[Y, Aux, _Hessian], strict=True):
+class DFP(AbstractQuasiNewton[Y, Aux, _Hessian]):
     """DFP (Davidon–Fletcher–Powell) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way

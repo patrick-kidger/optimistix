@@ -244,7 +244,7 @@ _lsqr_only = (
 
 
 atol = rtol = 1e-8
-minimisers = (
+_general_minimisers = (
     optx.NelderMead(rtol, atol),
     optx.BFGS(rtol, atol, use_inverse=False),
     optx.BFGS(rtol, atol, use_inverse=True),
@@ -254,6 +254,12 @@ minimisers = (
     BFGSIndirectDampedNewton(rtol, atol),
     # Tighter tolerance needed to have BFGSDogleg pass the JVP test.
     BFGSDogleg(1e-10, 1e-10),
+    optx.OptaxMinimiser(optax.adam(learning_rate=3e-3), rtol=rtol, atol=atol),
+    # optax.lbfgs includes their linesearch by default
+    optx.OptaxMinimiser(optax.lbfgs(), rtol=rtol, atol=atol),
+)
+
+_minim_only = (
     BFGSClassicalTrustRegionHessian(rtol, atol),
     BFGSLinearTrustRegionHessian(rtol, atol),
     BFGSLinearTrustRegion(rtol, atol),
@@ -267,18 +273,32 @@ minimisers = (
     optx.GradientDescent(1.5e-2, rtol, atol),
     # Tighter tolerance needed to have NonlinearCG pass the JVP test.
     optx.NonlinearCG(1e-10, 1e-10),
-    optx.OptaxMinimiser(optax.adam(learning_rate=3e-3), rtol=rtol, atol=atol),
+    # explicitly including a linesearch
+    optx.OptaxMinimiser(
+        optax.chain(
+            optax.sgd(learning_rate=1.0),
+            optax.scale_by_zoom_linesearch(15, curv_rtol=jnp.inf),
+        ),
+        rtol=rtol,
+        atol=atol,
+    ),
+    optx.OptaxMinimiser(
+        optax.chain(
+            optax.sgd(learning_rate=1.0),
+            optax.scale_by_backtracking_linesearch(15),
+        ),
+        rtol=rtol,
+        atol=atol,
+    ),
 )
+
+minimisers = _general_minimisers + _minim_only
 
 # the minimisers can handle least squares problems, but the least squares
 # solvers cannot handle general minimisation problems.
-least_squares_optimisers = _lsqr_only + minimisers
-# Remove ones that work, but are just pretty bad!
-least_squares_optimisers = [
-    x
-    for x in least_squares_optimisers
-    if not isinstance(x, (optx.GradientDescent, optx.NonlinearCG))
-]
+# without the ones that work, but are just pretty bad!
+least_squares_optimisers = _lsqr_only + _general_minimisers
+
 
 #
 # MINIMISATION PROBLEMS

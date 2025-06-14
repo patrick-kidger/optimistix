@@ -1,6 +1,6 @@
 import inspect
 from collections.abc import Callable
-from typing import Any, Literal, overload, TypeVar, Union
+from typing import Any, Literal, overload, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -47,7 +47,7 @@ two_norm = _wrap(_two_norm)
 
 @overload
 def tree_full_like(
-    struct: PyTree[Union[Array, jax.ShapeDtypeStruct]],
+    struct: PyTree[Array | jax.ShapeDtypeStruct],
     fill_value: ArrayLike,
     allow_static: Literal[False] = False,
 ):
@@ -140,7 +140,7 @@ def resolve_rcond(rcond, n, m, dtype):
         return jnp.where(rcond < 0, jnp.finfo(dtype).eps, rcond)
 
 
-class NoneAux(eqx.Module, strict=True):
+class NoneAux(eqx.Module):
     """Wrap a function `fn` so it returns a dummy aux value `None`
 
     NoneAux is used to give a consistent API between functions which have an aux
@@ -153,7 +153,7 @@ class NoneAux(eqx.Module, strict=True):
         return self.fn(*args, **kwargs), None
 
 
-class OutAsArray(eqx.Module, strict=True):
+class OutAsArray(eqx.Module):
     """Wrap a minimisation/root-find/etc. function so that its mathematical outputs are
     all inexact arrays, and its auxiliary outputs are all arrays.
     """

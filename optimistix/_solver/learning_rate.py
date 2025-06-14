@@ -13,7 +13,7 @@ def _typed_asarray(x: ScalarLike) -> Array:
     return jnp.asarray(x)
 
 
-class LearningRate(AbstractSearch[Y, FunctionInfo, FunctionInfo, None], strict=True):
+class LearningRate(AbstractSearch[Y, FunctionInfo, FunctionInfo, None]):
     """Move downhill by taking a step of the fixed size `learning_rate`."""
 
     learning_rate: ScalarLike = eqx.field(converter=_typed_asarray)
