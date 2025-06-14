@@ -29,11 +29,9 @@ from .learning_rate import LearningRate
 
 
 def newton_step(
-    f_info: (
-        FunctionInfo.EvalGradHessian
-        | FunctionInfo.EvalGradHessianInv
-        | FunctionInfo.ResidualJac
-    ),
+    f_info: FunctionInfo.EvalGradHessian
+    | FunctionInfo.EvalGradHessianInv
+    | FunctionInfo.ResidualJac,
     linear_solver: lx.AbstractLinearSolver,
 ) -> tuple[PyTree[Array], RESULTS]:
     """Compute a Newton step.
