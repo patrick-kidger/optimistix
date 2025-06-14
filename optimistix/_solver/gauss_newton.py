@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Generic, Literal, Optional, Union
+from typing import Any, Generic, Literal
 
 import equinox as eqx
 import jax
@@ -29,11 +29,11 @@ from .learning_rate import LearningRate
 
 
 def newton_step(
-    f_info: Union[
-        FunctionInfo.EvalGradHessian,
-        FunctionInfo.EvalGradHessianInv,
-        FunctionInfo.ResidualJac,
-    ],
+    f_info: (
+        FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac
+    ),
     linear_solver: lx.AbstractLinearSolver,
 ) -> tuple[PyTree[Array], RESULTS]:
     """Compute a Newton step.
@@ -87,11 +87,11 @@ class _NewtonDescentState(eqx.Module, Generic[Y], strict=True):
 class NewtonDescent(
     AbstractDescent[
         Y,
-        Union[
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        (
+            FunctionInfo.EvalGradHessian
+            | FunctionInfo.EvalGradHessianInv
+            | FunctionInfo.ResidualJac
+        ),
         _NewtonDescentState,
     ],
     strict=True,
@@ -105,7 +105,7 @@ class NewtonDescent(
     This is done by solving a linear system of the form `Hess^{-1} grad`.
     """
 
-    norm: Optional[Callable[[PyTree], Scalar]] = None
+    norm: Callable[[PyTree], Scalar] | None = None
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 
     def init(self, y: Y, f_info_struct: FunctionInfo) -> _NewtonDescentState:
@@ -116,11 +116,11 @@ class NewtonDescent(
     def query(
         self,
         y: Y,
-        f_info: Union[
-            FunctionInfo.EvalGradHessian,
-            FunctionInfo.EvalGradHessianInv,
-            FunctionInfo.ResidualJac,
-        ],
+        f_info: (
+            FunctionInfo.EvalGradHessian
+            | FunctionInfo.EvalGradHessianInv
+            | FunctionInfo.ResidualJac
+        ),
         state: _NewtonDescentState,
     ) -> _NewtonDescentState:
         del state

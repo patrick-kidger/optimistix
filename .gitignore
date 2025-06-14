@@ -10,3 +10,5 @@ examples/data
 .idea
 .venv
 .DS_Store
+.benchmarks
+.devcontainer
