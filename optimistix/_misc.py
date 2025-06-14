@@ -92,7 +92,7 @@ def tree_where(
     return jtu.tree_map(keep, true, false)
 
 
-# TODO tagging
+# TODO(jhaffner) tagging
 def identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
     """Create an identity pytree `I` such that
     `pytree = lx.PyTreeLinearOperator(I).mv(pytree)`. This is useful in various solvers
