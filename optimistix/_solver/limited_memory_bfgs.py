@@ -91,19 +91,16 @@ class _LBFGSHessianUpdateState(eqx.Module, Generic[Y]):
 
             L[ij] = y_diff[i-1}^T grad_diff[j-1] if i > j, 0 otherwise,
 
-        for each iteration `k` that is part of the history (k omitted for clarity
-        ).
-
-    - `y_diff_grad_diff_inner`: Array containing the inner products of the .
-       This parameter corresponds to `diag(D_k)` from the paper, see def. (2.7).
-      `[D_k]_{ii} = s_{i-1}^T \cdot y_{i-1}`.
-    - `y_diff_cross_inner`: outer product of the parameter difference history.
-       In the paper notation, this is equal to `S_{k-1}^T \cdot S_{k-1}`,
-       which is a matrix of shape `(history_length, history_length)`.
-
+        for each iteration `k` that is part of the history (k omitted for clarity).
+    - `y_diff_grad_diff_inner`: Array containing the inner products of the differences
+        in `y` and the gradients. This parameter corresponds to `diag(D_k)` from the
+        paper, see def. (2.7). `[D_k]_{ii} = s_{i-1}^T \cdot y_{i-1}`.
+    - `y_diff_cross_inner`: outer product of the parameter difference history. In the
+        paper notation, this is equal to `S_{k-1}^T \cdot S_{k-1}`, which is a matrix of
+        shape `(history_length, history_length)`.
     """
 
-    index_start: Array
+    index_start: Array  # Make this type more descriptive
     y_diff_history: PyTree[Y]
     grad_diff_history: PyTree[Y]
     y_diff_grad_diff_cross_inner: Array
@@ -341,11 +338,14 @@ def _lbfgs_hessian_operator_fn(
 
     # step 5 of algorithm 3.2 of Byrd at al. 1994
     # TODO: needs addressing: https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341592
+    # This is surprisingly tricky here - I need to understand how this would interact
+    # with pytree shapes. jnp.stack creates a new dimension, and we seem to rely on some
+    # implicit broadcasting here.
     descent = jnp.hstack(
-        [
+        (
             v_tree_dot(state.grad_diff_history, step),
             gamma_k * v_tree_dot(state.y_diff_history, step),
-        ]
+        ),
     )
 
     # sort history to match lower triangular structure.
