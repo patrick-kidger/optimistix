@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
+import numpy as np
 from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
@@ -52,6 +53,16 @@ class AbstractQuasiNewtonUpdate(eqx.Module, Generic[Y, _Hessian, HessianUpdateSt
     """
 
     @abc.abstractmethod
+    def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, HessianUpdateState]:
+        """
+        Initialize the Hessian structure and Hessian update state.
+
+        Set up a template structure of the Hessian to be used (with dummy values), as
+        well as the state of the update method, which stores a history of gradients for
+        limited-memory Hessian approximations.
+        """
+
+    @abc.abstractmethod
     def __call__(
         self,
         y: Y,
@@ -78,17 +89,6 @@ class AbstractQuasiNewtonUpdate(eqx.Module, Generic[Y, _Hessian, HessianUpdateSt
         The updated Hessian (or Hessian-inverse) approximation.
         """
 
-    @abc.abstractmethod
-    def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, HessianUpdateState]:
-        """
-        Initialize the Hessian structure and Hessian update state.
-
-        Set up a template structure of the Hessian to be used (with dummy values), as
-        well as the state of the update method, which stores a history of gradients for
-        limited-memory Hessian approximations.
-        """
-        pass
-
 
 class _LBFGSInverseHessianUpdateState(eqx.Module, Generic[Y]):
     """
@@ -99,6 +99,7 @@ class _LBFGSInverseHessianUpdateState(eqx.Module, Generic[Y]):
         methods." *Mathematical Programming*, 63(1), 129–156.
 
     **Arguments**:
+
         - `index_start`: Index of the most recent update in the circular buffer.
         - `y_diff_history`: History of parameter updates `s_k = x_{k+1} - x_k`,
           in the notation od the paper.
@@ -106,7 +107,7 @@ class _LBFGSInverseHessianUpdateState(eqx.Module, Generic[Y]):
           in the notation od the paper.
         - `inner_history`: Reciprocal dot products
           `inner_history = 1 / ⟨s_k, y_k⟩`,
-          in the notation od the paper.
+          in the notation of the paper.
     """
 
     index_start: Array
@@ -300,7 +301,7 @@ def _lbfgs_inverse_hessian_operator_fn(
     LBFGS descent linear operator.
 
     """
-    history_len = state.inner_history.shape[0]
+    history_len, *_ = state.inner_history.shape
     circ_index = (jnp.arange(history_len) + state.index_start) % history_len
 
     # First loop: iterate backwards and compute alpha coefficients
@@ -365,7 +366,7 @@ def _lbfgs_hessian_operator_fn(
     and apply approximate Hessians without forming full matrices.
     """
 
-    history_len = jtu.tree_leaves(state.y_diff_history)[0].shape[0]
+    history_len, *_ = jtu.tree_leaves(state.y_diff_history)[0].shape
 
     latest_grad_diff, latest_y_diff = jtu.tree_map(
         lambda x: x[(state.index_start - 1) % history_len],
@@ -558,7 +559,10 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
 
             y_diff_grad_diff_inner = jnp.roll(
                 state.y_diff_grad_diff_inner,
-                -1 * (state.index_start > self.history_length - 1).astype(int),
+                -1
+                * jnp.asarray(
+                    state.index_start > self.history_length - 1, dtype=np.int32
+                ),
             )
             # this history buffer (as well as y_diff_cross_inner and
             # y_diff_grad_diff_cross_inner) must be ordered for the update to work
