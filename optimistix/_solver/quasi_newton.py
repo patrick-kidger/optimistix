@@ -414,13 +414,15 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
         else:
             # if not self.use_inverse:
             y_diff_grad_diff_cross_inner = state.y_diff_grad_diff_cross_inner.at[
-                state.index_start % self.history_length].set(
-                v_tree_dot(state.grad_diff_history, y_diff)
-            )
-            y_diff_grad_diff_cross_inner = y_diff_grad_diff_cross_inner.at[:,
-                                               state.index_start % self.history_length].set(0)
+                state.index_start % self.history_length
+            ].set(v_tree_dot(state.grad_diff_history, y_diff))
+            y_diff_grad_diff_cross_inner = y_diff_grad_diff_cross_inner.at[
+                :, state.index_start % self.history_length
+            ].set(0)
 
-            y_diff_grad_diff_inner = state.y_diff_grad_diff_inner.at[state.index_start % self.history_length].set(
+            y_diff_grad_diff_inner = state.y_diff_grad_diff_inner.at[
+                state.index_start % self.history_length
+            ].set(
                 tree_dot(
                     jtu.tree_map(
                         lambda x: x[state.index_start % self.history_length],
@@ -439,8 +441,12 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                 ),
             )
 
-            y_diff_cross_inner = state.y_diff_cross_inner.at[state.index_start % self.history_length].set(cross_inner)
-            y_diff_cross_inner = y_diff_cross_inner.at[:, state.index_start % self.history_length].set(cross_inner)
+            y_diff_cross_inner = state.y_diff_cross_inner.at[
+                state.index_start % self.history_length
+            ].set(cross_inner)
+            y_diff_cross_inner = y_diff_cross_inner.at[
+                :, state.index_start % self.history_length
+            ].set(cross_inner)
 
             updated_state = _LBFGSHessianUpdateState(
                 index_start=state.index_start + 1,
