@@ -180,118 +180,6 @@ _LBFGSUpdateState = TypeVar(
 v_tree_dot = jax.vmap(tree_dot, in_axes=(0, None), out_axes=0)
 
 
-def roll_low_triangular_matrix(array, new_vals, index_start):
-    """Update a lower-triangular cross-product matrix with new values.
-
-    This function updates a lower-triangular matrix `array` representing the
-    temporally ordered inner products between vectors in the `y_diff_history`
-    and `grad_diff_history` buffers (e.g., `Y_k^T S_k` in L-BFGS methods). It
-    preserves the temporal ordering of the columns and maintains the
-    lower-triangular structure of the matrix.
-
-    If `index_start < array.shape[0]`, the values are written in-place at
-    the given index. Otherwise, the matrix is rolled to discard the oldest
-    column, and `new_vals` is inserted at the end.
-
-    See Equation (3.6) of:
-
-        Byrd, R. H., Nocedal, J., & Schnabel, R. B. (1994).
-        "Representations of quasi-Newton matrices and their use in limited
-        memory methods." *Mathematical Programming*, 63(1), 129–156.
-
-    **Arguments**:
-
-    - `array`: A square JAX array of shape `(n, n)` representing a
-        lower-triangular history matrix (e.g., `Y_k^T S_k`), where `n`
-        is the maximum history length.
-
-    - `new_vals`: A JAX array of shape `(n,)` representing the inner products
-        between a new `y_diff` vector and all `s_diff` vectors in memory.
-
-    - `index_start`: An integer indicating where to insert `new_vals`. If it
-        is greater than or equal to the matrix size, the matrix is rolled and
-        `new_vals` is inserted at the final column.
-
-    **Returns**:
-
-    A JAX array of shape `(n, n)` with `new_vals` inserted into the appropriate
-    column, preserving lower-triangular structure and temporal ordering.
-    """
-
-    def _roll_and_set(x, new_vals):
-        # roll the matrix
-        x_shifted = jnp.empty_like(x)
-        x_shifted = x_shifted.at[:-1, :-1].set(x[1:, 1:])
-
-        # sort history buffer
-        last_index = index_start % array.shape[0]
-        sort_idx = (jnp.arange(array.shape[0]) + last_index + 1) % array.shape[0]
-        new_vals = new_vals[sort_idx]
-        # set new history values
-        x_shifted = x_shifted.at[-1, :-1].set(new_vals[:-1])
-        return x_shifted
-
-    def _set_at_index(x, new_vals):
-        return x.at[index_start, :-1].set(new_vals[:-1])
-
-    return jax.lax.cond(
-        index_start < array.shape[0], _set_at_index, _roll_and_set, array, new_vals
-    )
-
-
-def roll_symmetric_matrix(array, new_vals, index_start):
-    """Update a symmetric matrix buffer with a new outer product.
-
-    This function updates a symmetric matrix `array`, which stores inner products such
-    as `S_k^T S_k` in L-BFGS-type algorithms. Depending on `index_start`, it either
-    overwrites an existing entry or rolls the buffer and inserts `new_vals` at the end.
-
-    See Equation (3.2) of:
-
-        Byrd, R. H., Nocedal, J., & Schnabel, R. B. (1994).
-        "Representations of quasi-Newton matrices and their use in limited memory
-        methods." *Mathematical Programming*, 63(1), 129–156.
-
-    **Arguments**:
-
-    - `array`: A square `(n, n)` JAX array representing the symmetric
-        inner product history matrix (e.g., `S_k^T S_k`).
-
-    - `new_vals`: A JAX array of shape `(n,)` containing new inner
-        product values to insert into the matrix.
-
-    - `index_start`: An integer index indicating where to insert
-        `new_vals`. If `index_start >= array.shape[0]`, the matrix is
-        rolled to discard the oldest entry.
-
-    **Returns**:
-
-    An updated `(n, n)` JAX array with `new_vals` inserted, either
-    in-place or after rolling.
-    """
-
-    def _roll_and_set(x, new_vals):
-        # roll matrix
-        x = jnp.empty_like(x).at[:-1, :-1].set(x[1:, 1:])
-
-        # sort history buffer
-        last_index = index_start % array.shape[0]
-        sort_idx = (jnp.arange(array.shape[0]) + last_index + 1) % array.shape[0]
-        new_vals = new_vals[sort_idx]
-
-        # set last row and col
-        x = x.at[-1, :-1].set(new_vals[:-1])
-        return x.at[:, -1].set(new_vals)
-
-    def _set_at_index(x, new_vals):
-        x = x.at[index_start, :-1].set(new_vals[:-1])
-        return x.at[:, index_start].set(new_vals)
-
-    return jax.lax.cond(
-        index_start < array.shape[0], _set_at_index, _roll_and_set, array, new_vals
-    )
-
-
 def _lbfgs_inverse_hessian_operator_fn(
     pytree: Y,  # TODO name this better?
     state: _LBFGSInverseHessianUpdateState,
@@ -399,22 +287,6 @@ def _lbfgs_hessian_operator_fn(
         ]
     )
 
-    # sort history to match lower triangular structure.
-    roll_by = -(state.index_start % history_len)
-    conditional_sort = lambda array, roll: jax.lax.cond(
-        state.index_start <= history_len,
-        lambda x, r: x,
-        lambda x, r: jnp.roll(x, r),
-        array,
-        roll,
-    )
-    descent = descent.at[:history_len].set(
-        conditional_sort(descent[:history_len], roll_by)
-    )
-    descent = descent.at[history_len:].set(
-        conditional_sort(descent[history_len:], roll_by)
-    )
-
     # step 6 of algorithm 3.2: forward backward solve eqn
     sqrt_diag = jnp.sqrt(safe_y_diff_grad_diff_inner)  # TODO safe or regular?
     low_tri = jnp.block(
@@ -429,13 +301,6 @@ def _lbfgs_hessian_operator_fn(
     descent = jax.scipy.linalg.solve_triangular(upper_tri, descent, lower=False)
 
     # step 7 of algorithm (3.2)
-    # rotate back descent
-    descent = descent.at[:history_len].set(
-        conditional_sort(descent[:history_len], -roll_by)
-    )
-    descent = descent.at[history_len:].set(
-        conditional_sort(descent[history_len:], -roll_by)
-    )
     descent = (
         gamma_k * step**ω
         - jtu.tree_map(
@@ -548,25 +413,14 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
 
         else:
             # if not self.use_inverse:
-            # roll the lower-triangular matrix, sort the inner product
-            # according to history, set the last row as the new inner product.
-            y_diff_grad_diff_cross_inner = roll_low_triangular_matrix(
-                state.y_diff_grad_diff_cross_inner,
-                v_tree_dot(state.grad_diff_history, y_diff),
-                state.index_start,
+            y_diff_grad_diff_cross_inner = state.y_diff_grad_diff_cross_inner.at[
+                state.index_start % self.history_length].set(
+                v_tree_dot(state.grad_diff_history, y_diff)
             )
+            y_diff_grad_diff_cross_inner = y_diff_grad_diff_cross_inner.at[:,
+                                               state.index_start % self.history_length].set(0)
 
-            y_diff_grad_diff_inner = jnp.roll(
-                state.y_diff_grad_diff_inner,
-                -1 * (state.index_start > self.history_length - 1).astype(int),
-            )
-            # this history buffer (as well as y_diff_cross_inner and
-            # y_diff_grad_diff_cross_inner) must be ordered for the update to work
-            # correctly. Set the most recent history as the last element.
-            # If the index_start < history_length, then set the index_start element.
-            y_diff_grad_diff_inner = y_diff_grad_diff_inner.at[
-                jnp.min(jnp.array([state.index_start, self.history_length - 1]))
-            ].set(
+            y_diff_grad_diff_inner = state.y_diff_grad_diff_inner.at[state.index_start % self.history_length].set(
                 tree_dot(
                     jtu.tree_map(
                         lambda x: x[state.index_start % self.history_length],
@@ -584,11 +438,9 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                     updated_y_diff_history,
                 ),
             )
-            # roll the matrix (keep ordering), sort cross_inner and set
-            # last column and row to sorted cross_inner.
-            y_diff_cross_inner = roll_symmetric_matrix(
-                state.y_diff_cross_inner, cross_inner, state.index_start
-            )
+
+            y_diff_cross_inner = state.y_diff_cross_inner.at[state.index_start % self.history_length].set(cross_inner)
+            y_diff_cross_inner = y_diff_cross_inner.at[:, state.index_start % self.history_length].set(cross_inner)
 
             updated_state = _LBFGSHessianUpdateState(
                 index_start=state.index_start + 1,

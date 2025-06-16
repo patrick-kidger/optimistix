@@ -6,10 +6,12 @@ import pytest
 from optimistix._solver.quasi_newton import (
     _LBFGSHessianUpdateState,
     _LBFGSInverseHessianUpdateState,
-    _make_lbfgs_operator,
+    _lbfgs_hessian_operator_fn,
+    _lbfgs_inverse_hessian_operator_fn,
     LBFGSUpdate,
     v_tree_dot,
 )
+import lineax as lx
 
 from .helpers import tree_allclose
 
@@ -117,7 +119,11 @@ def test_against_naive_bfgs_hessian_inverse_update(generate_data):
         inner_history=inner_history,
         index_start=start_index,
     )
-    op = _make_lbfgs_operator(state)
+    op = lx.FunctionLinearOperator(
+                lambda y: _lbfgs_inverse_hessian_operator_fn(y, state),
+                jax.eval_shape(lambda: curr_descent),
+                tags=lx.positive_semidefinite_tag,
+            )
     assert tree_allclose(op.as_matrix(), hess_inv_hist)
 
 
@@ -176,7 +182,11 @@ def test_against_naive_bfgs_hessian_update(generate_data):
         y_diff_grad_diff_inner=y_diff_grad_diff_inner,
         y_diff_cross_inner=y_diff_cross_inner,
     )
-    op = _make_lbfgs_operator(state)
+    op = lx.FunctionLinearOperator(
+                lambda y: _lbfgs_hessian_operator_fn(y, state),
+                jax.eval_shape(lambda: curr_descent),
+                tags=lx.positive_semidefinite_tag,
+            )
     assert tree_allclose(op.as_matrix(), hess_hist)
 
 
@@ -211,8 +221,16 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
         y_diff_cross_inner=y_diff_cross_inner,
     )
 
-    op = _make_lbfgs_operator(state_hess)
-    op_inv = _make_lbfgs_operator(state_hess_inv)
+    op = lx.FunctionLinearOperator(
+                lambda y: _lbfgs_hessian_operator_fn(y, state_hess),
+                jax.eval_shape(lambda: curr_descent),
+                tags=lx.positive_semidefinite_tag,
+            )
+    op_inv = lx.FunctionLinearOperator(
+                lambda y: _lbfgs_inverse_hessian_operator_fn(y, state_hess_inv),
+                jax.eval_shape(lambda: curr_descent),
+                tags=lx.positive_semidefinite_tag,
+            )
     identity = (op @ op_inv).as_matrix()
     assert tree_allclose(identity, jnp.eye(identity.shape[0]))
 
@@ -286,6 +304,14 @@ def test_warmup_phase_compact(generate_data, extra_history):
     assert state_long_hist.y_diff_grad_diff_inner.shape[0] == history_len + extra_history
     assert state_long_hist.y_diff_cross_inner.shape[0] == history_len + extra_history
 
-    op_full = _make_lbfgs_operator(state_short_hist)
-    op_warmup = _make_lbfgs_operator(state_long_hist)
+    op_full = lx.FunctionLinearOperator(
+                lambda y: _lbfgs_hessian_operator_fn(y, state_short_hist),
+                jax.eval_shape(lambda: curr_descent),
+                tags=lx.positive_semidefinite_tag,
+            )
+    op_warmup = lx.FunctionLinearOperator(
+                lambda y: _lbfgs_hessian_operator_fn(y, state_long_hist),
+                jax.eval_shape(lambda: curr_descent),
+                tags=lx.positive_semidefinite_tag,
+            )
     assert jnp.allclose(op_full.as_matrix(), op_warmup.as_matrix())
