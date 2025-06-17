@@ -25,6 +25,7 @@ from .levenberg_marquardt import (
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
     LevenbergMarquardt as LevenbergMarquardt,
 )
+from .limited_memory_bfgs import LBFGS as LBFGS
 from .nelder_mead import NelderMead as NelderMead
 from .newton_chord import Chord as Chord, Newton as Newton
 from .nonlinear_cg import (
@@ -43,8 +44,9 @@ from .quasi_newton import (
     BFGSUpdate as BFGSUpdate,
     DFP as DFP,
     DFPUpdate as DFPUpdate,
-    LBFGS as LBFGS,
 )
+
+# LBFGS as LBFGS,
 from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,
     LinearTrustRegion as LinearTrustRegion,

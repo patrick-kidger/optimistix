@@ -1,10 +1,11 @@
 import itertools
 
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
 import pytest
-from optimistix._solver.quasi_newton import (
+from optimistix._solver.limited_memory_bfgs import (
     _lbfgs_hessian_operator_fn,
     _lbfgs_inverse_hessian_operator_fn,
     _LBFGSHessianUpdateState,
