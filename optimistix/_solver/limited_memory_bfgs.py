@@ -70,9 +70,8 @@ class _LBFGSHessianUpdateState(eqx.Module, Generic[Y]):
     **Arguments:**
 
     # TODO what is index_start?
-    - `index_start`: An integer scalar array (ndim == 0)
-        Specifying the index of the circular buffer corresponding to
-        the farther away history.
+    - `index_start`: An integer scalar array (ndim == 0) Specifying the index of the
+        circular buffer corresponding to the farther away history.
     - `y_diff_history`: Circular buffer containing the history of differences in the
         optimisation variable `y` between consecutive accepted steps. In most textbooks
         and in the paper above, the difference in the optimisation variable at iteration
@@ -163,7 +162,8 @@ def _lbfgs_inverse_hessian_operator_fn(
     )
     y_grad_diff_inner = tree_dot(latest_y_diff, latest_grad_diff)
     grad_diff_norm_sq = tree_dot(latest_grad_diff, latest_grad_diff)
-    # TODO(jhaffner): needs addressing https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341342
+    # TODO: needs double where trick
+    # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341342
     gamma_k = jnp.where(
         grad_diff_norm_sq > 0, y_grad_diff_inner / grad_diff_norm_sq, 1.0
     )
@@ -200,7 +200,8 @@ def _lbfgs_hessian_operator_fn(
     )
 
     curvature = tree_dot(latest_y_diff, latest_grad_diff)
-    # TODO(jhaffner): Needs addressing https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341458
+    # TODO: double where trick
+    # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341458
     # and https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341342
     gamma_k = jnp.where(
         curvature > 0, tree_dot(latest_grad_diff, latest_grad_diff) / curvature, 1.0
@@ -221,7 +222,8 @@ def _lbfgs_hessian_operator_fn(
     J = jnp.linalg.cholesky(J_square)
 
     # step 5 of algorithm 3.2 of Byrd at al. 1994
-    # TODO: needs addressing: https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341592
+    # TODO: needs addressing:
+    # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341592
     # This is surprisingly tricky here - I need to understand how this would interact
     # with pytree shapes. jnp.stack creates a new dimension, and we seem to rely on some
     # implicit broadcasting here.
@@ -293,7 +295,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                 tags=lx.positive_semidefinite_tag,
             )
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, operator)  # pyright: ignore
-            return f_info, state  # pyright: ignore  # TODO
+            return f_info, state  # pyright: ignore  # TODO(jhaffner)
         else:
             state = _LBFGSHessianUpdateState(
                 index_start=jnp.array(0, dtype=int),
@@ -311,7 +313,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                 tags=lx.positive_semidefinite_tag,
             )
             f_info = FunctionInfo.EvalGradHessian(f, grad, operator)  # pyright: ignore
-            return f_info, state  # pyright: ignore  # TODO
+            return f_info, state  # pyright: ignore  # TODO(jhaffner)
 
     def _no_update(self, inner, grad_diff, y_diff, f_info, hessian_update_state):
         if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
@@ -462,7 +464,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             new_f_info = FunctionInfo.EvalGradHessian(
                 f_eval_info.f, f_eval_info.grad, hessian
             )
-        return new_f_info, new_state  # pyright: ignore - TODO pyright still not happy
+        return new_f_info, new_state  # pyright: ignore - TODO(jhaffner) still not happy
 
 
 class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
