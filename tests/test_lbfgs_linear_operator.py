@@ -1,6 +1,5 @@
 import itertools
 
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
