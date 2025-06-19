@@ -162,11 +162,13 @@ def _lbfgs_inverse_hessian_operator_fn(
     )
     y_grad_diff_inner = tree_dot(latest_y_diff, latest_grad_diff)
     grad_diff_norm_sq = tree_dot(latest_grad_diff, latest_grad_diff)
-    # TODO: needs double where trick
-    # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341342
+
+    pred = grad_diff_norm_sq > 0
+    safe_grad_diff_norm_sq = jnp.where(pred, grad_diff_norm_sq, 1.0)
     gamma_k = jnp.where(
-        grad_diff_norm_sq > 0, y_grad_diff_inner / grad_diff_norm_sq, 1.0
+        pred, y_grad_diff_inner / safe_grad_diff_norm_sq, 1.0
     )
+
     descent_direction = (gamma_k * descent_direction**ω).ω
     (descent_direction, _), _ = jax.lax.scan(
         forward_iter, (descent_direction, alpha), jnp.arange(history_len), reverse=False
@@ -200,11 +202,10 @@ def _lbfgs_hessian_operator_fn(
     )
 
     curvature = tree_dot(latest_y_diff, latest_grad_diff)
-    # TODO: double where trick
-    # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341458
-    # and https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341342
+    pred = curvature > 0
+    safe_curvature = jnp.where(pred, curvature, 1.0)
     gamma_k = jnp.where(
-        curvature > 0, tree_dot(latest_grad_diff, latest_grad_diff) / curvature, 1.0
+        pred, tree_dot(latest_grad_diff, latest_grad_diff) / safe_curvature, 1.0
     )
 
     # computation of eqn (3.22) in Byrd at al. 1994
@@ -455,7 +456,8 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             state,
         )
         hessian = eqx.combine(static_operator, new_dynamic_operator)
-
+        print(hessian.as_matrix())
+        print("\n")
         if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
             new_f_info = FunctionInfo.EvalGradHessianInv(
                 f_eval_info.f, f_eval_info.grad, hessian
