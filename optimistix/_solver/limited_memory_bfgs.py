@@ -223,16 +223,15 @@ def _lbfgs_hessian_operator_fn(
     J = jnp.linalg.cholesky(J_square)
 
     # step 5 of algorithm 3.2 of Byrd at al. 1994
-    # TODO: needs addressing:
+    # TODO: check edoardo's fix:
     # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341592
-    # This is surprisingly tricky here - I need to understand how this would interact
-    # with pytree shapes. jnp.stack creates a new dimension, and we seem to rely on some
-    # implicit broadcasting here.
-    descent = jnp.hstack(
+    # I used concatenate instead of stack, which is more legible
+    descent = jnp.concatenate(
         (
             v_tree_dot(state.grad_diff_history, step),
             gamma_k * v_tree_dot(state.y_diff_history, step),
         ),
+        axis=0
     )
 
     # step 6 of algorithm 3.2: forward backward solve eqn
