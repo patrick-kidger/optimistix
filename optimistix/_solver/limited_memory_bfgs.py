@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Scalar
+from jaxtyping import Array, Float, PyTree, Scalar
 
 from .._custom_types import Aux, Y
 from .._misc import (
@@ -52,7 +52,7 @@ class _LBFGSInverseHessianUpdateState(eqx.Module, Generic[Y]):
     index_start: Scalar
     y_diff_history: PyTree[Y]
     grad_diff_history: PyTree[Y]
-    inner_history: PyTree[Array]
+    inner_history: Array
 
 
 class _LBFGSHessianUpdateState(eqx.Module, Generic[Y]):
@@ -96,12 +96,12 @@ class _LBFGSHessianUpdateState(eqx.Module, Generic[Y]):
         shape `(history_length, history_length)`.
     """
 
-    index_start: Scalar  # Make this type more descriptive
+    index_start: Scalar
     y_diff_history: PyTree[Y]
     grad_diff_history: PyTree[Y]
-    y_diff_grad_diff_cross_inner: Array
-    y_diff_grad_diff_inner: Array
-    y_diff_cross_inner: Array
+    y_diff_grad_diff_cross_inner: Float[Array, " history_length history_length"]
+    y_diff_grad_diff_inner: Float[Array, " history_length"]
+    y_diff_cross_inner: Float[Array, " history_length history_length"]
 
 
 _LBFGSUpdateState = TypeVar(
@@ -237,9 +237,6 @@ def _lbfgs_hessian_operator_fn(
     J = jnp.linalg.cholesky(J_square)
 
     # step 5 of algorithm 3.2 of Byrd at al. 1994
-    # TODO: check edoardo's fix:
-    # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341592
-    # I used concatenate instead of stack, which is more legible
     descent = jnp.concatenate(
         (
             v_tree_dot(state.grad_diff_history, proposed_step),
@@ -351,11 +348,6 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             grad_diff,
         )
 
-        # Explicitly hit different code paths for the updates to the approximate inverse
-        # or regular Hessian. This is to make pyright happy, as it can then verify that
-        # the type of the state matches the expected type of the returned FunctionInfo
-        # in __call__ below.
-        # update conditionally
         if self.use_inverse:
             updated_inner_history = state.inner_history.at[
                 state.index_start % self.history_length
