@@ -1,4 +1,6 @@
-EQX_ON_ERROR = "nan"  # Make sure this is set before importing equinox
+import os  # noqa: I001
+
+os.environ["EQX_ON_ERROR"] = "nan"  # Make sure this is set before importing equinox
 import equinox.internal as eqxi  # noqa: E402
 import jax  # noqa: E402
 import pytest  # noqa: E402
