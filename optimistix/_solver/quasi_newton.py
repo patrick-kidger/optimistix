@@ -94,6 +94,9 @@ def _outer(tree1, tree2):
     return jtu.tree_map(leaf_fn, tree1)
 
 
+# We're using pyright: ignore here because the type of `FunctionInfo` depends on the
+# `use_inverse` attribute.
+# See https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
 class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, None]):
     """Private intermediate class for BFGS/DFP updates."""
 
@@ -110,7 +113,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, None]):
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, identity_operator)
         else:
             f_info = FunctionInfo.EvalGradHessian(f, grad, identity_operator)
-        return f_info, None  # pyright: ignore TODO
+        return f_info, None  # pyright: ignore
 
     def no_update(self, inner, grad_diff, y_diff, f_info):
         if self.use_inverse:
@@ -158,9 +161,9 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, None]):
             f_info,
         )
         if self.use_inverse:
-            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore TODO
+            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore
         else:
-            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore TODO
+            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore
 
 
 class DFPUpdate(_AbstractBFGSDFPUpdate[Y, _Hessian]):
