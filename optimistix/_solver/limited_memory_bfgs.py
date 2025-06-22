@@ -165,9 +165,7 @@ def _lbfgs_inverse_hessian_operator_fn(
 
     pred = grad_diff_norm_sq > 0
     safe_grad_diff_norm_sq = jnp.where(pred, grad_diff_norm_sq, 1.0)
-    gamma_k = jnp.where(
-        pred, y_grad_diff_inner / safe_grad_diff_norm_sq, 1.0
-    )
+    gamma_k = jnp.where(pred, y_grad_diff_inner / safe_grad_diff_norm_sq, 1.0)
 
     descent_direction = (gamma_k * descent_direction**ω).ω
     (descent_direction, _), _ = jax.lax.scan(
@@ -231,7 +229,7 @@ def _lbfgs_hessian_operator_fn(
             v_tree_dot(state.grad_diff_history, step),
             gamma_k * v_tree_dot(state.y_diff_history, step),
         ),
-        axis=0
+        axis=0,
     )
 
     # step 6 of algorithm 3.2: forward backward solve eqn
@@ -268,6 +266,9 @@ def _batched_tree_zeros_like(y, batch_dimension):
     return jtu.tree_map(lambda y: jnp.zeros((batch_dimension, *y.shape)), y)
 
 
+# We're using pyright: ignore here because the type of `FunctionInfo` depends on the
+# `use_inverse` attribute.
+# See https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
 class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
     r"""L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) update.
 
@@ -295,7 +296,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                 tags=lx.positive_semidefinite_tag,
             )
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, operator)  # pyright: ignore
-            return f_info, state  # pyright: ignore  # TODO(jhaffner)
+            return f_info, state  # pyright: ignore
         else:
             state = _LBFGSHessianUpdateState(
                 index_start=jnp.array(0, dtype=int),
@@ -313,7 +314,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                 tags=lx.positive_semidefinite_tag,
             )
             f_info = FunctionInfo.EvalGradHessian(f, grad, operator)  # pyright: ignore
-            return f_info, state  # pyright: ignore  # TODO(jhaffner)
+            return f_info, state  # pyright: ignore
 
     def _no_update(self, inner, grad_diff, y_diff, f_info, hessian_update_state):
         if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
@@ -455,8 +456,6 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             state,
         )
         hessian = eqx.combine(static_operator, new_dynamic_operator)
-        print(hessian.as_matrix())
-        print("\n")
         if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
             new_f_info = FunctionInfo.EvalGradHessianInv(
                 f_eval_info.f, f_eval_info.grad, hessian
@@ -465,7 +464,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             new_f_info = FunctionInfo.EvalGradHessian(
                 f_eval_info.f, f_eval_info.grad, hessian
             )
-        return new_f_info, new_state  # pyright: ignore - TODO(jhaffner) still not happy
+        return new_f_info, new_state  # pyright: ignore
 
 
 class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
