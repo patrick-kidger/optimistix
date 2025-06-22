@@ -50,7 +50,7 @@ dev = [
   "pytest>=8.3.5",
   "pytest-benchmark>=5.1.0",
   "ruff>=0.11.6",
-  "sif2jax>=0.0.3"
+  "sif2jax>=0.0.4"
 ]
 docs = [
   "hippogriffe==0.2.2",
