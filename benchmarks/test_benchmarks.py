@@ -42,8 +42,7 @@ def get_test_cases(problems):
     "problem", get_test_cases(sif2jax.unconstrained_minimisation_problems)
 )
 @pytest.mark.parametrize("minimiser", unconstrained_minimisers)
-def test_runtime_unconstrained_minimisers(benchmark, monkeypatch, minimiser, problem):
-    monkeypatch.setenv("EQX_ON_ERROR", "nan")
+def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
     solve = jax.jit(
         ft.partial(
             optx.minimise,
