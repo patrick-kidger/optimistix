@@ -5,6 +5,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import lineax as lx
 import optimistix as optx
 import pytest
 from equinox.internal import ω
@@ -20,7 +21,13 @@ from .helpers import (
 
 
 atol = rtol = 1e-6
-_fp_solvers = (optx.FixedPointIteration(rtol, atol),)
+_fp_solvers = (
+    optx.FixedPointIteration(rtol, atol),
+    optx.AndersonAcceleration(
+        rtol, atol, mixing=0.5, linear_solver=lx.GMRES(1e-4, 1e-4)
+    ),
+    optx.AndersonAcceleration(rtol, atol, mixing=0.3),
+)
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 
