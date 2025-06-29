@@ -1,3 +1,6 @@
+from .anderson_accelerated_fixedpoint import (
+    AndersonAcceleration as AndersonAcceleration,
+)
 from .backtracking import BacktrackingArmijo as BacktrackingArmijo
 from .best_so_far import (
     BestSoFarFixedPoint as BestSoFarFixedPoint,

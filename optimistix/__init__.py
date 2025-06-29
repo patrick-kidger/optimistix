@@ -41,6 +41,7 @@ from ._solver import (
     AbstractGradientDescent as AbstractGradientDescent,
     AbstractQuasiNewton as AbstractQuasiNewton,
     AbstractQuasiNewtonUpdate as AbstractQuasiNewtonUpdate,
+    AndersonAcceleration as AndersonAcceleration,
     BacktrackingArmijo as BacktrackingArmijo,
     BestSoFarFixedPoint as BestSoFarFixedPoint,
     BestSoFarLeastSquares as BestSoFarLeastSquares,
