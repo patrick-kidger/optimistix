@@ -205,9 +205,10 @@ def _lbfgs_hessian_operator_fn(
         parameter and gradient differences, as well as the inner products needed to
         compute the Hessian approximation.
     """
-
     history_len, *_ = jtu.tree_leaves(state.y_diff_history)[0].shape
 
+    # state.index_start has already been incremented by 1 after creating the state - so
+    # this does the right thing in the first iteration.
     latest_grad_diff, latest_y_diff = jtu.tree_map(
         lambda x: x[(state.index_start - 1) % history_len],
         (state.grad_diff_history, state.y_diff_history),
@@ -243,6 +244,7 @@ def _lbfgs_hessian_operator_fn(
         ),
         axis=0,
     )
+    assert descent.shape == (2 * history_len,)
 
     # step 6 of algorithm 3.2: forward backward solve eqn
     sqrt_diag = jnp.sqrt(safe_y_diff_grad_diff_inner)
@@ -254,22 +256,18 @@ def _lbfgs_hessian_operator_fn(
     )
     descent = jax.scipy.linalg.solve_triangular(low_tri, descent, lower=True)
     upper_tri = low_tri.T
-    upper_tri = upper_tri.at[:history_len].set(-upper_tri[:history_len])
+    upper_tri = upper_tri.at[:history_len].multiply(-1)
     descent = jax.scipy.linalg.solve_triangular(upper_tri, descent, lower=False)
 
     # step 7 of algorithm (3.2)
     descent_step = (
         gamma_k * proposed_step**ω
-        - jtu.tree_map(
-            lambda x: jnp.einsum("h,h...->...", descent[:history_len], x),
-            state.grad_diff_history,
+        - ω(state.grad_diff_history).call(
+            lambda x: jnp.einsum("h,h...->...", descent[:history_len], x)
         )
-        ** ω
-        - jtu.tree_map(
+        - ω(state.y_diff_history).call(
             lambda x: gamma_k * jnp.einsum("h,h...->...", descent[history_len:], x),
-            state.y_diff_history,
         )
-        ** ω
     ).ω
     return descent_step
 
