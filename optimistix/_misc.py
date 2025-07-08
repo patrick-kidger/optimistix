@@ -9,7 +9,6 @@ import jax.extend as jex
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 from lineax.internal import (
@@ -90,47 +89,6 @@ def tree_where(
     """Return the `true` or `false` pytree depending on `pred`."""
     keep = lambda a, b: jnp.where(pred, a, b)
     return jtu.tree_map(keep, true, false)
-
-
-# TODO(jhaffner) tagging
-def identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
-    """Create an identity pytree `I` such that
-    `pytree = lx.PyTreeLinearOperator(I).mv(pytree)`. This is useful in various solvers
-    to set up the Hessian operator, which is a symmetric operator whose input and output
-    shapes are the same as `pytree`.
-    Although the identity pytree is a positive-definite linear operator, we do not tag
-    it as such here because this function may be used in contexts where positive-
-    definiteness is not assured. If this tag is desired, then it should be explicitly
-    added after calling this function.
-
-    **Arguments**:
-
-    - `pytree`: A pytree such that the output of `_identity_pytree` is the identity
-        with respect to pytrees of the same shape as `pytree`.
-
-    **Returns**:
-
-    A `lx.PyTreeLinearOperator` with input and output shape the shape of `pytree`.
-    """
-    leaves, structure = jtu.tree_flatten(pytree)
-    eye_structure = structure.compose(structure)
-    eye_leaves = []
-    for i1, l1 in enumerate(leaves):
-        for i2, l2 in enumerate(leaves):
-            if i1 == i2:
-                eye_leaves.append(
-                    jnp.eye(jnp.size(l1)).reshape(jnp.shape(l1) + jnp.shape(l2))
-                )
-            else:
-                eye_leaves.append(jnp.zeros(jnp.shape(l1) + jnp.shape(l2)))
-
-    # This has a Lineax positive_semidefinite tag. This is okay because the BFGS update
-    # preserves positive-definiteness.
-    return lx.PyTreeLinearOperator(
-        jtu.tree_unflatten(eye_structure, eye_leaves),
-        jax.eval_shape(lambda: pytree),
-        lx.positive_semidefinite_tag,
-    )
 
 
 def resolve_rcond(rcond, n, m, dtype):

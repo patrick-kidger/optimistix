@@ -45,8 +45,6 @@ from .quasi_newton import (
     DFP as DFP,
     DFPUpdate as DFPUpdate,
 )
-
-# LBFGS as LBFGS,
 from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,
     LinearTrustRegion as LinearTrustRegion,

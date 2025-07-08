@@ -24,9 +24,7 @@ from .quasi_newton import AbstractQuasiNewton, AbstractQuasiNewtonUpdate
 
 
 _Hessian = TypeVar(
-    "_Hessian",
-    FunctionInfo.EvalGradHessian,
-    FunctionInfo.EvalGradHessianInv,
+    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv
 )
 
 
@@ -235,6 +233,7 @@ def _lbfgs_hessian_operator_fn(
         )
     )
     J = jnp.linalg.cholesky(J_square)
+    assert J.shape == (history_len, history_len)
 
     # step 5 of algorithm 3.2 of Byrd at al. 1994
     descent = jnp.concatenate(
@@ -293,7 +292,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
     """
 
     use_inverse: bool
-    history_length: int = 10
+    history_length: int
 
     def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, _LBFGSUpdateState]:
         if self.use_inverse:
@@ -368,7 +367,6 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             return eqx.filter(operator, eqx.is_array), updated_state
 
         else:
-            # if not self.use_inverse:
             y_diff_grad_diff_cross_inner = state.y_diff_grad_diff_cross_inner.at[
                 state.index_start % self.history_length
             ].set(v_tree_dot(state.grad_diff_history, y_diff))
@@ -437,9 +435,9 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             raise ValueError(
                 "Only FunctionInfo.EvalGradHessian and FunctionInfo.EvalGradHessianInv "
                 f"are supported for `f_info`, but got {f_info.__class__.__name__}. "
-                "L-BFGS updates require an approximation the the Hessian or its "
-                "inverse at the last accepted point `y`, but this solver does not "
-                "provide one."
+                "L-BFGS updates require an approximation to the the Hessian or the "
+                "inverse Hessian at the last accepted point `y`, but this solver does "
+                "not provide one."
             )
 
         # Compute the inner product of the differences in the iterate and the gradient,
