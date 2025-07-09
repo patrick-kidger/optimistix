@@ -196,6 +196,7 @@ FunctionInfo.EvalGradHessianInv = EvalGradHessianInv
 FunctionInfo.Residual = Residual
 FunctionInfo.ResidualJac = ResidualJac
 
+
 Eval.__init__.__doc__ = """**Arguments:**
 
 - `f`: the scalar output of a function evaluation `fn(y)`.

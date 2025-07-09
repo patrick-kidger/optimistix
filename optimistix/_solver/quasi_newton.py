@@ -16,7 +16,6 @@ from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
     filter_cond,
-    identity_pytree,
     lin_to_grad,
     max_norm,
     tree_dot,
@@ -34,9 +33,7 @@ from .gauss_newton import NewtonDescent
 
 
 _Hessian = TypeVar(
-    "_Hessian",
-    FunctionInfo.EvalGradHessian,
-    FunctionInfo.EvalGradHessianInv,
+    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv
 )
 
 
@@ -87,6 +84,40 @@ class AbstractQuasiNewtonUpdate(eqx.Module, Generic[Y, _Hessian, HessianUpdateSt
         """
 
 
+def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
+    """Create an identity pytree `I` such that
+    `pytree = lx.PyTreeLinearOperator(I).mv(pytree)`
+
+    **Arguments**:
+
+    - `pytree`: A pytree such that the output of `_identity_pytree` is the identity
+        with respect to pytrees of the same shape as `pytree`.
+
+    **Returns**:
+
+    A `lx.PyTreeLinearOperator` with input and output shape the shape of `pytree`.
+    """
+    leaves, structure = jtu.tree_flatten(pytree)
+    eye_structure = structure.compose(structure)
+    eye_leaves = []
+    for i1, l1 in enumerate(leaves):
+        for i2, l2 in enumerate(leaves):
+            if i1 == i2:
+                eye_leaves.append(
+                    jnp.eye(jnp.size(l1)).reshape(jnp.shape(l1) + jnp.shape(l2))
+                )
+            else:
+                eye_leaves.append(jnp.zeros(jnp.shape(l1) + jnp.shape(l2)))
+
+    # This has a Lineax positive_semidefinite tag. This is okay because the BFGS update
+    # preserves positive-definiteness.
+    return lx.PyTreeLinearOperator(
+        jtu.tree_unflatten(eye_structure, eye_leaves),
+        jax.eval_shape(lambda: pytree),
+        lx.positive_semidefinite_tag,
+    )
+
+
 def _outer(tree1, tree2):
     def leaf_fn(x):
         return jtu.tree_map(lambda leaf: jnp.tensordot(x, leaf, axes=0), tree2)
@@ -99,18 +130,13 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, None]):
 
     use_inverse: AbstractVar[bool]
 
-    def init(
-        self, y: Y, f: Scalar, grad: Y
-    ) -> tuple[
-        _Hessian,
-        None,
-    ]:
-        identity_operator = identity_pytree(y)
+    def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, None]:
+        identity_operator = _identity_pytree(y)
         if self.use_inverse:
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, identity_operator)
         else:
             f_info = FunctionInfo.EvalGradHessian(f, grad, identity_operator)
-        return f_info, None  # pyright: ignore TODO
+        return f_info, None  # pyright: ignore
 
     def no_update(self, inner, grad_diff, y_diff, f_info):
         if self.use_inverse:
@@ -157,10 +183,13 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, None]):
             y_diff,
             f_info,
         )
+        # We're using pyright: ignore here because the type of `FunctionInfo` depends on
+        # the `use_inverse` attribute.
+        # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
         if self.use_inverse:
-            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore TODO
+            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore
         else:
-            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore TODO
+            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore
 
 
 class DFPUpdate(_AbstractBFGSDFPUpdate[Y, _Hessian]):

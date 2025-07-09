@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Scalar
+from jaxtyping import Array, Float, PyTree, Scalar
 
 from .._custom_types import Aux, Y
 from .._misc import (
@@ -24,9 +24,7 @@ from .quasi_newton import AbstractQuasiNewton, AbstractQuasiNewtonUpdate
 
 
 _Hessian = TypeVar(
-    "_Hessian",
-    FunctionInfo.EvalGradHessian,
-    FunctionInfo.EvalGradHessianInv,
+    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv
 )
 
 
@@ -41,19 +39,18 @@ class _LBFGSInverseHessianUpdateState(eqx.Module, Generic[Y]):
     **Arguments**:
 
         - `index_start`: Index of the most recent update in the circular buffer.
-        - `y_diff_history`: History of parameter updates `s_k = x_{k+1} - x_k`,
-          in the notation od the paper.
-        - `grad_diff_history`: History of gradient updates `y_k = g_{k+1} - g_k`,
-          in the notation od the paper.
-        - `inner_history`: Reciprocal dot products
-          `inner_history = 1 / ⟨s_k, y_k⟩`,
-          in the notation of the paper.
+        - `y_diff_history`: History of parameter updates `s_k = x_{k+1} - x_k`, in the
+            notation od the paper.
+        - `grad_diff_history`: History of gradient updates `y_k = g_{k+1} - g_k`, in the
+            notation od the paper.
+        - `inner_history`: Reciprocal dot products `inner_history = 1 / ⟨s_k, y_k⟩`,
+            in the notation of the paper.
     """
 
-    index_start: Array
+    index_start: Scalar
     y_diff_history: PyTree[Y]
     grad_diff_history: PyTree[Y]
-    inner_history: PyTree[Array]
+    inner_history: Array
 
 
 class _LBFGSHessianUpdateState(eqx.Module, Generic[Y]):
@@ -65,13 +62,12 @@ class _LBFGSHessianUpdateState(eqx.Module, Generic[Y]):
         methods." *Mathematical Programming*, 63(1), 129–156.
 
     This holds a ring buffer of the history of differences in the optimisation variable
-    `y` and the gradients `grad`, at the last n accepted steps. # TODO n vs history
+    `y` and the gradients `grad`, at the last `n` accepted steps, where `n` is the
+    history length.
 
     **Arguments:**
 
-    # TODO what is index_start?
-    - `index_start`: An integer scalar array (ndim == 0) Specifying the index of the
-        circular buffer corresponding to the farther away history.
+    - `index_start`: Index of the most recent update in the circular buffer.
     - `y_diff_history`: Circular buffer containing the history of differences in the
         optimisation variable `y` between consecutive accepted steps. In most textbooks
         and in the paper above, the difference in the optimisation variable at iteration
@@ -98,15 +94,12 @@ class _LBFGSHessianUpdateState(eqx.Module, Generic[Y]):
         shape `(history_length, history_length)`.
     """
 
-    index_start: Array  # Make this type more descriptive
+    index_start: Scalar
     y_diff_history: PyTree[Y]
     grad_diff_history: PyTree[Y]
-    y_diff_grad_diff_cross_inner: Array
-    y_diff_grad_diff_inner: Array
-
-    # y_diff_grad_diff_inner: Array,  # TODO: is this the same as inner_history?
-    # Names should be consistent across the Hessian and inverse Hessian updates.
-    y_diff_cross_inner: Array
+    y_diff_grad_diff_cross_inner: Float[Array, " history_length history_length"]
+    y_diff_grad_diff_inner: Float[Array, " history_length"]
+    y_diff_cross_inner: Float[Array, " history_length history_length"]
 
 
 _LBFGSUpdateState = TypeVar(
@@ -118,12 +111,23 @@ v_tree_dot = jax.vmap(tree_dot, in_axes=(0, None), out_axes=0)
 
 
 def _lbfgs_inverse_hessian_operator_fn(
-    pytree: Y,  # TODO name this better?
+    grad: Y,
     state: _LBFGSInverseHessianUpdateState,
 ) -> Y:
     """
-    LBFGS descent linear operator.
+    LBFGS descent linear operator. Implements the L-BFGS update as in Algorithm 4.1 of:
 
+        Byrd, R. H., Nocedal, J., & Schnabel, R. B. (1994).
+        "Representations of quasi-Newton matrices and their use in limited memory
+        methods." *Mathematical Programming*, 63(1), 129–156.
+
+    **Arguments:**
+
+    - `grad`: The gradient at the current iterate, which is used to compute the descent
+        direction.
+    - `state`: The current state of the L-BFGS inverse Hessian update, which contains
+        the history of parameter and gradient differences, as well as the inner products
+        needed to compute the Hessian approximation.
     """
     history_len, *_ = state.inner_history.shape
     circ_index = (jnp.arange(history_len) + state.index_start) % history_len
@@ -154,7 +158,7 @@ def _lbfgs_inverse_hessian_operator_fn(
         return (descent_direction, alpha), None
 
     descent_direction, alpha = jax.lax.scan(
-        backward_iter, pytree, circ_index, reverse=True
+        backward_iter, grad, circ_index, reverse=True
     )
     latest_y_diff, latest_grad_diff = jtu.tree_map(
         lambda x: x[(state.index_start - 1) % history_len],
@@ -175,9 +179,7 @@ def _lbfgs_inverse_hessian_operator_fn(
 
 
 def _lbfgs_hessian_operator_fn(
-    step: Y,  # TODO name this better?
-    # y_diff_history: PyTree[Y],
-    # grad_diff_history: PyTree[Y],
+    proposed_step: Y,
     state: _LBFGSHessianUpdateState,
 ) -> Y:
     """Compact representation of the L-BFGS Hessian update.
@@ -190,10 +192,23 @@ def _lbfgs_hessian_operator_fn(
 
     This representation is used in limited-memory BFGS algorithms to efficiently store
     and apply approximate Hessians without forming full matrices.
-    """
 
+    **Arguments:**
+
+    - `proposed_step`: The proposed step to be applied to the current iterate. In the
+        context of an iterative linear solve, this corresponds to
+
+            operator.mv(proposed_step) = vector, which
+
+        is the linear problem we are solving.
+    - `state`: The current state of the L-BFGS update, which contains the history of
+        parameter and gradient differences, as well as the inner products needed to
+        compute the Hessian approximation.
+    """
     history_len, *_ = jtu.tree_leaves(state.y_diff_history)[0].shape
 
+    # state.index_start has already been incremented by 1 after creating the state - so
+    # this does the right thing in the first iteration.
     latest_grad_diff, latest_y_diff = jtu.tree_map(
         lambda x: x[(state.index_start - 1) % history_len],
         (state.grad_diff_history, state.y_diff_history),
@@ -219,21 +234,20 @@ def _lbfgs_hessian_operator_fn(
         )
     )
     J = jnp.linalg.cholesky(J_square)
+    assert J.shape == (history_len, history_len)
 
     # step 5 of algorithm 3.2 of Byrd at al. 1994
-    # TODO: check edoardo's fix:
-    # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2147341592
-    # I used concatenate instead of stack, which is more legible
     descent = jnp.concatenate(
         (
-            v_tree_dot(state.grad_diff_history, step),
-            gamma_k * v_tree_dot(state.y_diff_history, step),
+            v_tree_dot(state.grad_diff_history, proposed_step),
+            gamma_k * v_tree_dot(state.y_diff_history, proposed_step),
         ),
         axis=0,
     )
+    assert descent.shape == (2 * history_len,)
 
     # step 6 of algorithm 3.2: forward backward solve eqn
-    sqrt_diag = jnp.sqrt(safe_y_diff_grad_diff_inner)  # TODO safe or regular?
+    sqrt_diag = jnp.sqrt(safe_y_diff_grad_diff_inner)
     low_tri = jnp.block(
         [
             [jnp.diag(sqrt_diag), jnp.zeros((history_len, history_len))],
@@ -242,30 +256,29 @@ def _lbfgs_hessian_operator_fn(
     )
     descent = jax.scipy.linalg.solve_triangular(low_tri, descent, lower=True)
     upper_tri = low_tri.T
-    upper_tri = upper_tri.at[:history_len].set(-upper_tri[:history_len])
+    upper_tri = upper_tri.at[:history_len].multiply(-1)
     descent = jax.scipy.linalg.solve_triangular(upper_tri, descent, lower=False)
 
     # step 7 of algorithm (3.2)
-    descent = (
-        gamma_k * step**ω
-        - jtu.tree_map(
-            lambda x: jnp.einsum("h,h...->...", descent[:history_len], x),
-            state.grad_diff_history,
+    descent_step = (
+        gamma_k * proposed_step**ω
+        - ω(state.grad_diff_history).call(
+            lambda x: jnp.einsum("h,h...->...", descent[:history_len], x)
         )
-        ** ω
-        - jtu.tree_map(
+        - ω(state.y_diff_history).call(
             lambda x: gamma_k * jnp.einsum("h,h...->...", descent[history_len:], x),
-            state.y_diff_history,
         )
-        ** ω
     ).ω
-    return descent
+    return descent_step
 
 
 def _batched_tree_zeros_like(y, batch_dimension):
     return jtu.tree_map(lambda y: jnp.zeros((batch_dimension, *y.shape)), y)
 
 
+# We're using pyright: ignore here because the type of `FunctionInfo` depends on the
+# `use_inverse` attribute.
+# See https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
 class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
     r"""L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) update.
 
@@ -277,7 +290,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
     """
 
     use_inverse: bool
-    history_length: int = 10
+    history_length: int
 
     def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, _LBFGSUpdateState]:
         if self.use_inverse:
@@ -293,7 +306,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                 tags=lx.positive_semidefinite_tag,
             )
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, operator)  # pyright: ignore
-            return f_info, state  # pyright: ignore  # TODO(jhaffner)
+            return f_info, state  # pyright: ignore
         else:
             state = _LBFGSHessianUpdateState(
                 index_start=jnp.array(0, dtype=int),
@@ -311,7 +324,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                 tags=lx.positive_semidefinite_tag,
             )
             f_info = FunctionInfo.EvalGradHessian(f, grad, operator)  # pyright: ignore
-            return f_info, state  # pyright: ignore  # TODO(jhaffner)
+            return f_info, state  # pyright: ignore
 
     def _no_update(self, inner, grad_diff, y_diff, f_info, hessian_update_state):
         if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
@@ -332,12 +345,12 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             grad_diff,
         )
 
-        # Explicitly hit different code paths for the updates to the approximate inverse
-        # or regular Hessian. This is to make pyright happy, as it can then verify that
-        # the type of the state matches the expected type of the returned FunctionInfo
-        # in __call__ below.
-        # update conditionally
         if self.use_inverse:
+            # Safety check for when the filter_cond that calls `_update` is converted
+            # into an elementwise select (e.g., under vmap without JIT). In that case,
+            # the non-taken branch may still be evaluated, so we ensure `inner` is never
+            # <= eps to prevent `1.0 / inner` from producing NaNs or Infs.
+            inner = jnp.where(inner > jnp.finfo(inner.dtype).eps, inner, 1.)
             updated_inner_history = state.inner_history.at[
                 state.index_start % self.history_length
             ].set(1.0 / inner)
@@ -357,7 +370,6 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             return eqx.filter(operator, eqx.is_array), updated_state
 
         else:
-            # if not self.use_inverse:
             y_diff_grad_diff_cross_inner = state.y_diff_grad_diff_cross_inner.at[
                 state.index_start % self.history_length
             ].set(v_tree_dot(state.grad_diff_history, y_diff))
@@ -426,9 +438,9 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             raise ValueError(
                 "Only FunctionInfo.EvalGradHessian and FunctionInfo.EvalGradHessianInv "
                 f"are supported for `f_info`, but got {f_info.__class__.__name__}. "
-                "L-BFGS updates require an approximation the the Hessian or its "
-                "inverse at the last accepted point `y`, but this solver does not "
-                "provide one."
+                "L-BFGS updates require an approximation to the the Hessian or the "
+                "inverse Hessian at the last accepted point `y`, but this solver does "
+                "not provide one."
             )
 
         # Compute the inner product of the differences in the iterate and the gradient,
@@ -453,8 +465,6 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             state,
         )
         hessian = eqx.combine(static_operator, new_dynamic_operator)
-        print(hessian.as_matrix())
-        print("\n")
         if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
             new_f_info = FunctionInfo.EvalGradHessianInv(
                 f_eval_info.f, f_eval_info.grad, hessian
@@ -463,7 +473,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             new_f_info = FunctionInfo.EvalGradHessian(
                 f_eval_info.f, f_eval_info.grad, hessian
             )
-        return new_f_info, new_state  # pyright: ignore - TODO(jhaffner) still not happy
+        return new_f_info, new_state  # pyright: ignore
 
 
 class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
