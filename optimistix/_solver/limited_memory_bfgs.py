@@ -353,7 +353,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             inner = jnp.where(inner > jnp.finfo(inner.dtype).eps, inner, 1.)
             updated_inner_history = state.inner_history.at[
                 state.index_start % self.history_length
-            ].set(1.0 / inner)
+            ].set(1.0 / jnp.asarray(inner))
             updated_state = _LBFGSInverseHessianUpdateState(
                 index_start=state.index_start + 1,
                 y_diff_history=updated_y_diff_history,
