@@ -346,6 +346,11 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
         )
 
         if self.use_inverse:
+            # Safety check for when the filter_cond that calls `_update` is converted
+            # into an elementwise select (e.g., under vmap without JIT). In that case,
+            # the non-taken branch may still be evaluated, so we ensure `inner` is never
+            # <= eps to prevent `1.0 / inner` from producing NaNs or Infs.
+            inner = jnp.where(inner > jnp.finfo(inner.dtype).eps, inner, 1.)
             updated_inner_history = state.inner_history.at[
                 state.index_start % self.history_length
             ].set(1.0 / inner)
