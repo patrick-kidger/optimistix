@@ -165,9 +165,7 @@ def _lbfgs_inverse_hessian_operator_fn(
 
     pred = grad_diff_norm_sq > 0
     safe_grad_diff_norm_sq = jnp.where(pred, grad_diff_norm_sq, 1.0)
-    gamma_k = jnp.where(
-        pred, y_grad_diff_inner / safe_grad_diff_norm_sq, 1.0
-    )
+    gamma_k = jnp.where(pred, y_grad_diff_inner / safe_grad_diff_norm_sq, 1.0)
 
     descent_direction = (gamma_k * descent_direction**ω).ω
     (descent_direction, _), _ = jax.lax.scan(
@@ -231,7 +229,7 @@ def _lbfgs_hessian_operator_fn(
             v_tree_dot(state.grad_diff_history, step),
             gamma_k * v_tree_dot(state.y_diff_history, step),
         ),
-        axis=0
+        axis=0,
     )
 
     # step 6 of algorithm 3.2: forward backward solve eqn
