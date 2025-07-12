@@ -115,6 +115,7 @@ def test_against_naive_bfgs_hessian_inverse_update(generate_data):
     # recreate the hessian using the two-loops based operator
     state = _LBFGSInverseHessianUpdateState(
         y_diff_history=y_diff_history,
+        history_length=history_len,
         grad_diff_history=grad_diff_history,
         inner_history=inner_history,
         index_start=start_index,
@@ -178,6 +179,7 @@ def test_against_naive_bfgs_hessian_update(generate_data):
         y_diff_history=y_diff_history,
         grad_diff_history=grad_diff_history,
         index_start=start_index,
+        history_length=history_len,
         y_diff_grad_diff_cross_inner=y_diff_grad_diff_cross_inner,
         y_diff_grad_diff_inner=y_diff_grad_diff_inner,
         y_diff_cross_inner=y_diff_cross_inner,
@@ -208,6 +210,7 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
 
     state_hess_inv = _LBFGSInverseHessianUpdateState(
         y_diff_history=y_diff_history,
+        history_length=len(inner_history),
         grad_diff_history=grad_diff_history,
         inner_history=inner_history,
         index_start=start_index,
@@ -216,6 +219,7 @@ def test_inverse_vs_direct_hessian_operator(generate_data):
         y_diff_history=y_diff_history,
         grad_diff_history=grad_diff_history,
         index_start=start_index,
+        history_length=len(inner_history),
         y_diff_grad_diff_cross_inner=l_history,
         y_diff_grad_diff_inner=d_history,
         y_diff_cross_inner=y_diff_cross_inner,
@@ -267,6 +271,7 @@ def test_warmup_phase_compact(generate_data, extra_history):
     ) = generate_data
     state_short_hist = _LBFGSHessianUpdateState(
         index_start=jnp.array(0, dtype=int),
+        history_length=len(inner_history),
         y_diff_history=y_diff_history,
         grad_diff_history=grad_diff_history,
         y_diff_grad_diff_cross_inner=y_diff_grad_diff_cross_inner,
@@ -285,6 +290,7 @@ def test_warmup_phase_compact(generate_data, extra_history):
         y_diff_history=state_init.y_diff_history.at[:history_len].set(
             state_short_hist.y_diff_history
         ),
+        history_length=history_len + extra_history,
         grad_diff_history=state_init.grad_diff_history.at[:history_len].set(
             state_short_hist.grad_diff_history
         ),
