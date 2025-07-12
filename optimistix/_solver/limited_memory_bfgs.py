@@ -48,6 +48,7 @@ class _LBFGSInverseHessianUpdateState(eqx.Module, Generic[Y]):
     """
 
     index_start: Scalar
+    history_length: int
     y_diff_history: PyTree[Y]
     grad_diff_history: PyTree[Y]
     inner_history: Array
@@ -95,6 +96,7 @@ class _LBFGSHessianUpdateState(eqx.Module, Generic[Y]):
     """
 
     index_start: Scalar
+    history_length: int
     y_diff_history: PyTree[Y]
     grad_diff_history: PyTree[Y]
     y_diff_grad_diff_cross_inner: Float[Array, " history_length history_length"]
@@ -129,8 +131,9 @@ def _lbfgs_inverse_hessian_operator_fn(
         the history of parameter and gradient differences, as well as the inner products
         needed to compute the Hessian approximation.
     """
-    history_len, *_ = state.inner_history.shape
-    circ_index = (jnp.arange(history_len) + state.index_start) % history_len
+    circ_index = (
+        jnp.arange(state.history_length) + state.index_start
+    ) % state.history_length
 
     # First loop: iterate backwards and compute alpha coefficients
     def backward_iter(descent_direction, indx):
@@ -161,7 +164,7 @@ def _lbfgs_inverse_hessian_operator_fn(
         backward_iter, grad, circ_index, reverse=True
     )
     latest_y_diff, latest_grad_diff = jtu.tree_map(
-        lambda x: x[(state.index_start - 1) % history_len],
+        lambda x: x[(state.index_start - 1) % state.history_length],
         (state.y_diff_history, state.grad_diff_history),
     )
     y_grad_diff_inner = tree_dot(latest_y_diff, latest_grad_diff)
@@ -173,7 +176,10 @@ def _lbfgs_inverse_hessian_operator_fn(
 
     descent_direction = (gamma_k * descent_direction**ω).ω
     (descent_direction, _), _ = jax.lax.scan(
-        forward_iter, (descent_direction, alpha), jnp.arange(history_len), reverse=False
+        forward_iter,
+        (descent_direction, alpha),
+        jnp.arange(state.history_length),
+        reverse=False,
     )
     return descent_direction
 
@@ -205,12 +211,10 @@ def _lbfgs_hessian_operator_fn(
         parameter and gradient differences, as well as the inner products needed to
         compute the Hessian approximation.
     """
-    history_len, *_ = jtu.tree_leaves(state.y_diff_history)[0].shape
-
     # state.index_start has already been incremented by 1 after creating the state - so
     # this does the right thing in the first iteration.
     latest_grad_diff, latest_y_diff = jtu.tree_map(
-        lambda x: x[(state.index_start - 1) % history_len],
+        lambda x: x[(state.index_start - 1) % state.history_length],
         (state.grad_diff_history, state.y_diff_history),
     )
 
@@ -234,7 +238,7 @@ def _lbfgs_hessian_operator_fn(
         )
     )
     J = jnp.linalg.cholesky(J_square)
-    assert J.shape == (history_len, history_len)
+    assert J.shape == (state.history_length, state.history_length)
 
     # step 5 of algorithm 3.2 of Byrd at al. 1994
     descent = jnp.concatenate(
@@ -244,29 +248,33 @@ def _lbfgs_hessian_operator_fn(
         ),
         axis=0,
     )
-    assert descent.shape == (2 * history_len,)
+    assert descent.shape == (2 * state.history_length,)
 
     # step 6 of algorithm 3.2: forward backward solve eqn
     sqrt_diag = jnp.sqrt(safe_y_diff_grad_diff_inner)
     low_tri = jnp.block(
         [
-            [jnp.diag(sqrt_diag), jnp.zeros((history_len, history_len))],
+            [
+                jnp.diag(sqrt_diag),
+                jnp.zeros((state.history_length, state.history_length)),
+            ],
             [-state.y_diff_grad_diff_cross_inner / sqrt_diag[jnp.newaxis], J],
         ]
     )
     descent = jax.scipy.linalg.solve_triangular(low_tri, descent, lower=True)
     upper_tri = low_tri.T
-    upper_tri = upper_tri.at[:history_len].multiply(-1)
+    upper_tri = upper_tri.at[: state.history_length].multiply(-1)
     descent = jax.scipy.linalg.solve_triangular(upper_tri, descent, lower=False)
 
     # step 7 of algorithm (3.2)
     descent_step = (
         gamma_k * proposed_step**ω
         - ω(state.grad_diff_history).call(
-            lambda x: jnp.einsum("h,h...->...", descent[:history_len], x)
+            lambda x: jnp.einsum("h,h...->...", descent[: state.history_length], x)
         )
         - ω(state.y_diff_history).call(
-            lambda x: gamma_k * jnp.einsum("h,h...->...", descent[history_len:], x),
+            lambda x: gamma_k
+            * jnp.einsum("h,h...->...", descent[state.history_length :], x),
         )
     ).ω
     return descent_step
@@ -296,6 +304,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
         if self.use_inverse:
             state = _LBFGSInverseHessianUpdateState(
                 index_start=jnp.array(0, dtype=int),
+                history_length=self.history_length,
                 y_diff_history=_batched_tree_zeros_like(y, self.history_length),
                 grad_diff_history=_batched_tree_zeros_like(y, self.history_length),
                 inner_history=jnp.zeros(self.history_length),
@@ -310,6 +319,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
         else:
             state = _LBFGSHessianUpdateState(
                 index_start=jnp.array(0, dtype=int),
+                history_length=self.history_length,
                 y_diff_history=_batched_tree_zeros_like(y, self.history_length),
                 grad_diff_history=_batched_tree_zeros_like(y, self.history_length),
                 y_diff_grad_diff_cross_inner=jnp.zeros(
@@ -356,6 +366,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             ].set(1.0 / jnp.asarray(inner))
             updated_state = _LBFGSInverseHessianUpdateState(
                 index_start=state.index_start + 1,
+                history_length=self.history_length,
                 y_diff_history=updated_y_diff_history,
                 grad_diff_history=updated_grad_diff_history,
                 inner_history=updated_inner_history,
@@ -407,6 +418,7 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
 
             updated_state = _LBFGSHessianUpdateState(
                 index_start=state.index_start + 1,
+                history_length=self.history_length,
                 y_diff_history=updated_y_diff_history,
                 grad_diff_history=updated_grad_diff_history,
                 y_diff_grad_diff_cross_inner=y_diff_grad_diff_cross_inner,
