@@ -77,6 +77,9 @@ class AbstractQuasiNewtonUpdate(eqx.Module, Generic[Y, _Hessian, HessianUpdateSt
         previous accepted iterate `y`
         - `f_eval_info`: The function value and its gradient at the current (just
             accepted) iterate `y_eval`
+        - `hessian_update_state`: The state of the Hessian update, which may be used to
+            store a history of values of `grad` and `y`, as well as their differences
+            and products for limited-memory Hessian approximations.
 
         **Returns:**
 
