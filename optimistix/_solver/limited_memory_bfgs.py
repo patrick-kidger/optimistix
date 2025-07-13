@@ -390,13 +390,27 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             return eqx.filter(operator, eqx.is_array), updated_state
 
         else:
+            # Here we gradually fill in the lower-triangular matrix of inner products
+            # between the history of gradient differences and the current difference in
+            # the optimisation variable `y`. This matrix has a zero diagonal, it
+            # corresponds to `L_k` in the paper, where it is defined by (2.18).
+            # At the start of the optimisation, parts of the lower triangle will still
+            # be zero. We catch this before computing the Cholesky factorisation by
+            # setting the diagonal to 1.0 in the affected rows, and mapping the solution
+            # for these elements to a zero vector.
+            # (This happens in the operator function.)
             y_diff_grad_diff_cross_inner = state.y_diff_grad_diff_cross_inner.at[
                 state.index_start % self.history_length
             ].set(v_tree_dot(state.grad_diff_history, y_diff))
             y_diff_grad_diff_cross_inner = y_diff_grad_diff_cross_inner.at[
                 :, state.index_start % self.history_length
             ].set(0)
+            assert y_diff_grad_diff_cross_inner.shape == (
+                self.history_length,
+                self.history_length,
+            )
 
+            # Here we update the history of inner products in the circular buffer.
             y_diff_grad_diff_inner = state.y_diff_grad_diff_inner.at[
                 state.index_start % self.history_length
             ].set(
@@ -408,8 +422,14 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                     y_diff,
                 )
             )
+            assert y_diff_grad_diff_inner.shape == (self.history_length,)
 
-            # compute S_{k} \cdot s_{k-1}
+            # Update the matrix of inner products of `y_diff` by updating one row and
+            # one column per iteration. This matrix has nonzero elements for rows up to
+            # k and columns up to k, where k is the current iteration index and may be
+            # smaller than the history length. Cholesky factorisation works because this
+            # matrix is initialised as an identity, and elements > k are mapped to zero
+            # by setting the right-hand-side appropriately in the operator function.
             cross_inner = v_tree_dot(
                 updated_y_diff_history,
                 jtu.tree_map(
@@ -417,13 +437,17 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
                     updated_y_diff_history,
                 ),
             )
-
+            assert cross_inner.shape == (self.history_length,)
             y_diff_cross_inner = state.y_diff_cross_inner.at[
                 state.index_start % self.history_length
             ].set(cross_inner)
             y_diff_cross_inner = y_diff_cross_inner.at[
                 :, state.index_start % self.history_length
             ].set(cross_inner)
+            assert y_diff_cross_inner.shape == (
+                self.history_length,
+                self.history_length,
+            )
 
             updated_state = _LBFGSHessianUpdateState(
                 index_start=state.index_start + 1,
