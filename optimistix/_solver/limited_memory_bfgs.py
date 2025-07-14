@@ -153,7 +153,10 @@ def _lbfgs_inverse_hessian_operator_fn(
     # Here we choose to initialise the inverse Hessian as a diagonal matrix whose
     # entries are defined by the ratio of the inner products `y_diff * grad_diff` and
     # `grad_diff * grad_diff`. This is a common choice, suggested e.g. in
-    # https://en.wikipedia.org/wiki/Limited-memory_BFGS#Algorithm
+    # https://en.wikipedia.org/wiki/Limited-memory_BFGS#Algorithm, but here we follow
+    # Byrd et al. and the optax implementation in using the latest inner product (which
+    # corresponds to the index k-1, rather than k-m as on the Wikipedia page). See
+    # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2205004344
     # We know that gamma > 0 because we only update the Hessian approximation if the
     # inner product is positive, to maintain positive definiteness of the Hessian
     # approximation, and thus this operator is only ever called in that case.
