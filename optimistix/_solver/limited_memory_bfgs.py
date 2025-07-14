@@ -304,10 +304,12 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, _LBFGSUpdateState]):
     which stores a dense matrix, L-BFGS maintains a memory-efficient
     representation suitable for large-scale problems.
 
-    For a brief outline, see [https://en.wikipedia.org/wiki/Limited-memory_BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS.
-    The Optimistix implementation follows Byrd et al. 1994.
+    For a brief outline, see [https://en.wikipedia.org/wiki/Limited-memory_BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS).
+    Our implementation follows Byrd et al. 1994.
 
     ??? cite "References"
+
+        ```bibtex
         @article{byrd_representations_1994,
             author = {Byrd, Richard H. and Nocedal, Jorge and Schnabel, Robert B.},
             title = {Representations of quasi-{Newton} matrices and their use in
@@ -318,7 +320,8 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, _LBFGSUpdateState]):
             pages = {129--156},
             year = {1994},
             doi = {10.1007/BF01582063},
-    }
+        }
+        ```
 
     Supports the following `options`:
 

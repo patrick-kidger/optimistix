@@ -34,13 +34,6 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 
 ??? abstract "`optimistix.AbstractQuasiNewton`"
 
-    Base class for quasi-Newton solvers, which create approximations to the Hessian or
-    by accumulating gradient information over multiple iterations.
-    Optimistix currently includes the following three variants: 
-    [`optimistix.BFGS`][], [`optimistix.DFP`][] and [`optimistix.LBFGS][], each of which
-    may be used to either approximate the Hessian or its inverse. They default to 
-    approximating the inverse Hessian.
-
     ::: optimistix.AbstractQuasiNewton
         options:
             members:

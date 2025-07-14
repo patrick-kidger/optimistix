@@ -155,13 +155,18 @@ class AbstractQuasiNewton(
 ):
     """Abstract quasi-Newton minimisation algorithm.
 
-    This is a quasi-Newton optimisation algorithm, whose defining feature is the way
-    it progressively builds up a Hessian approximation using multiple steps of gradient
-    information. These updates to the Hessian are handled by the `hessian_update`
-    attribute, which should be a subclass of `AbstractQuasiNewtonUpdate`, such as
-    `BFGSUpdate` or `DFPUpdate`.
+    Base class for quasi-Newton solvers, which create approximations to the Hessian or
+    the inverse Hessian by accumulating gradient information over multiple iterations.
+    Optimistix currently includes the following three variants:
+    [`optimistix.BFGS`][], [`optimistix.DFP`][] and [`optimistix.LBFGS`][], each of
+    which may be used to either approximate the Hessian or its inverse.
+    The concrete classes may be subclassed to choose alternative descents and searches.
 
-    This abstract version may be subclassed to choose alternative descent and searches.
+    Alternative flavors of quasi-Newton approximations may be implemented by subclassing
+    `AbstractQuasiNewton` and providing implementations for the abstract methods
+    `update_init` and `update_call`. The former is called to initialize the Hessian
+    structure and the Hessian update state, while the latter is called to compute an
+    update to the approximation of the Hessian or the inverse Hessian.
 
     Supports the following `options`:
 
