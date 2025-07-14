@@ -11,7 +11,7 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
-from .._custom_types import Aux, DescentState, Fn, SearchState, Y
+from .._custom_types import Aux, DescentState, Fn, HessianUpdateState, SearchState, Y
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
@@ -30,6 +30,61 @@ from .._search import (
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .gauss_newton import NewtonDescent
+
+
+_Hessian = TypeVar(
+    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv
+)
+
+
+class AbstractQuasiNewtonUpdate(eqx.Module, Generic[Y, _Hessian, HessianUpdateState]):
+    """Abstract base class for quasi-Newton updates to the Hessian approximation. An
+    update consumes information about the current and preceding step, the gradient
+    values at the respective points, and the previous Hessian approximation and returns
+    an updated instance of [`optimistix.FunctionInfo.EvalGradHessian`][] or
+    [`optimistix.FunctionInfo.EvalGradHessianInv`][], depending on whether we're
+    approximating the Hessian or its inverse.
+    """
+
+    @abc.abstractmethod
+    def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, HessianUpdateState]:
+        """
+        Initialize the Hessian structure and Hessian update state.
+
+        Set up a template structure of the Hessian to be used (with dummy values), as
+        well as the state of the update method, which stores a history of gradients for
+        limited-memory Hessian approximations.
+        """
+
+    @abc.abstractmethod
+    def __call__(
+        self,
+        y: Y,
+        y_eval: Y,
+        f_info: _Hessian,
+        f_eval_info: FunctionInfo.EvalGrad,
+        hessian_update_state: HessianUpdateState,
+    ) -> tuple[_Hessian, HessianUpdateState]:
+        """Called whenever we want to update the Hessian approximation. This is usually
+        in the `accepted` branch of the `step` method of an
+        [`optimistix.AbstractQuasiNewton`][] minimiser.
+
+        **Arguments:**
+
+        - `y`: the previous accepted iterate
+        - `y_eval`: the current (just accepted) iterate
+        - `f_info`: The function value, gradient and Hessian approximation at the
+        previous accepted iterate `y`
+        - `f_eval_info`: The function value and its gradient at the current (just
+            accepted) iterate `y_eval`
+        - `hessian_update_state`: The state of the Hessian update, which may be used to
+            store a history of values of `grad` and `y`, as well as their differences
+            and products for limited-memory Hessian approximations.
+
+        **Returns:**
+
+        The updated Hessian (or Hessian-inverse) approximation.
+        """
 
 
 def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
@@ -73,53 +128,18 @@ def _outer(tree1, tree2):
     return jtu.tree_map(leaf_fn, tree1)
 
 
-_Hessian = TypeVar(
-    "_Hessian", FunctionInfo.EvalGradHessian, FunctionInfo.EvalGradHessianInv
-)
-
-
-class AbstractQuasiNewtonUpdate(eqx.Module):
-    """Abstract base class for quasi-Newton updates to the Hessian approximation. An
-    update consumes information about the current and preceding step, the gradient
-    values at the respective points, and the previous Hessian approximation and returns
-    an updated instance of [`optimistix.FunctionInfo.EvalGradHessian`][] or
-    [`optimistix.FunctionInfo.EvalGradHessianInv`][], depending on whether we're
-    approximating the Hessian or its inverse.
-    """
-
-    use_inverse: AbstractVar[bool]
-
-    @abc.abstractmethod
-    def __call__(
-        self,
-        y: Y,
-        y_eval: Y,
-        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
-        f_eval_info: FunctionInfo.EvalGrad,
-    ) -> FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv:
-        """Called whenever we want to update the Hessian approximation. This is usually
-        in the `accepted` branch of the `step` method of an
-        [`optimistix.AbstractQuasiNewton`][] minimiser.
-
-        **Arguments:**
-
-        - `y`: the previous accepted iterate
-        - `y_eval`: the current (just accepted) iterate
-        - `f_info`: The function value, gradient and Hessian approximation at the
-        previous accepted iterate `y`
-        - `f_eval_info`: The function value and its gradient at the current (just
-            accepted) iterate `y_eval`
-
-        **Returns:**
-
-        The updated Hessian (or Hessian-inverse) approximation.
-        """
-
-
-class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
+class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, None]):
     """Private intermediate class for BFGS/DFP updates."""
 
     use_inverse: AbstractVar[bool]
+
+    def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, None]:
+        identity_operator = _identity_pytree(y)
+        if self.use_inverse:
+            f_info = FunctionInfo.EvalGradHessianInv(f, grad, identity_operator)
+        else:
+            f_info = FunctionInfo.EvalGradHessian(f, grad, identity_operator)
+        return f_info, None  # pyright: ignore
 
     def no_update(self, inner, grad_diff, y_diff, f_info):
         if self.use_inverse:
@@ -133,7 +153,7 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
         inner: PyTree,
         grad_diff: PyTree,
         y_diff: PyTree,
-        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
+        f_info: _Hessian,
     ) -> lx.PyTreeLinearOperator:
         ...
 
@@ -141,9 +161,10 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
         self,
         y: Y,
         y_eval: Y,
-        f_info: FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv,
+        f_info: _Hessian,
         f_eval_info: FunctionInfo.EvalGrad,
-    ) -> FunctionInfo.EvalGradHessian | FunctionInfo.EvalGradHessianInv:
+        hessian_update_state: None,
+    ) -> tuple[_Hessian, None]:
         f_eval = f_eval_info.f
         grad = f_eval_info.grad
         y_diff = (y_eval**ω - y**ω).ω
@@ -165,14 +186,16 @@ class _AbstractBFGSDFPUpdate(AbstractQuasiNewtonUpdate):
             y_diff,
             f_info,
         )
+        # We're using pyright: ignore here because the type of `FunctionInfo` depends on
+        # the `use_inverse` attribute.
+        # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
         if self.use_inverse:
-            # in this case `hessian` is the new inverse hessian
-            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian)
+            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore
         else:
-            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian)
+            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore
 
 
-class DFPUpdate(_AbstractBFGSDFPUpdate):
+class DFPUpdate(_AbstractBFGSDFPUpdate[Y, _Hessian]):
     """DFP (Davidon–Fletcher–Powell) approximate Hessian updates.
 
     This is a variant of the BFGS update.
@@ -224,7 +247,7 @@ DFPUpdate.__init__.__doc__ = """**Arguments:**
 """
 
 
-class BFGSUpdate(_AbstractBFGSDFPUpdate):
+class BFGSUpdate(_AbstractBFGSDFPUpdate[Y, _Hessian]):
     """BFGS (Broyden–Fletcher–Goldfarb–Shanno) approximate Hessian updates.
 
     See [https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm](https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm).
@@ -277,7 +300,8 @@ BFGSUpdate.__init__.__doc__ = """**Arguments:**
 
 
 class _QuasiNewtonState(
-    eqx.Module, Generic[Y, Aux, SearchState, DescentState, _Hessian]
+    eqx.Module,
+    Generic[Y, Aux, SearchState, DescentState, _Hessian, HessianUpdateState],
 ):
     # Updated every search step
     first_step: Bool[Array, ""]
@@ -292,6 +316,8 @@ class _QuasiNewtonState(
     result: RESULTS
     # Used in compat.py
     num_accepted_steps: Int[Array, ""]
+    # update state
+    hessian_update_state: HessianUpdateState
 
 
 class AbstractQuasiNewton(
@@ -335,13 +361,9 @@ class AbstractQuasiNewton(
     ) -> _QuasiNewtonState:
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
-        if self.hessian_update.use_inverse:
-            hessian_inv = _identity_pytree(y)
-            f_info = FunctionInfo.EvalGradHessianInv(f, grad, hessian_inv)
-        else:
-            hessian = _identity_pytree(y)
-            f_info = FunctionInfo.EvalGradHessian(f, grad, hessian)
+        f_info, hessian_update_state = self.hessian_update.init(y, f, grad)
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
+
         return _QuasiNewtonState(
             first_step=jnp.array(True),
             y_eval=y,
@@ -352,6 +374,7 @@ class AbstractQuasiNewton(
             terminate=jnp.array(False),
             result=RESULTS.successful,
             num_accepted_steps=jnp.array(0),
+            hessian_update_state=hessian_update_state,
         )
 
     def step(
@@ -379,11 +402,12 @@ class AbstractQuasiNewton(
         def accepted(descent_state):
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
-            f_eval_info = self.hessian_update(
+            f_eval_info, hessian_update_state = self.hessian_update(
                 y,
                 state.y_eval,
                 state.f_info,
                 FunctionInfo.EvalGrad(f_eval, grad),
+                state.hessian_update_state,
             )
 
             descent_state = self.descent.query(
@@ -399,12 +423,26 @@ class AbstractQuasiNewton(
             terminate = jnp.where(
                 state.first_step, jnp.array(False), terminate
             )  # Skip termination on first step
-            return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
+            return (
+                state.y_eval,
+                f_eval_info,
+                aux_eval,
+                descent_state,
+                terminate,
+                hessian_update_state,
+            )
 
         def rejected(descent_state):
-            return y, state.f_info, state.aux, descent_state, jnp.array(False)
+            return (
+                y,
+                state.f_info,
+                state.aux,
+                descent_state,
+                jnp.array(False),
+                state.hessian_update_state,
+            )
 
-        y, f_info, aux, descent_state, terminate = filter_cond(
+        y, f_info, aux, descent_state, terminate, hessian_update_state = filter_cond(
             accept, accepted, rejected, state.descent_state
         )
 
@@ -438,6 +476,7 @@ class AbstractQuasiNewton(
             terminate=terminate,
             result=result,
             num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
+            hessian_update_state=hessian_update_state,
         )
         return y, state, aux
 
@@ -487,7 +526,6 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
     descent: NewtonDescent
     search: BacktrackingArmijo
     hessian_update: AbstractQuasiNewtonUpdate
-    use_inverse: bool
     verbose: frozenset[str]
 
     def __init__(
@@ -501,7 +539,6 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
@@ -558,7 +595,6 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian]):
     descent: NewtonDescent
     search: BacktrackingArmijo
     hessian_update: AbstractQuasiNewtonUpdate
-    use_inverse: bool
     verbose: frozenset[str]
 
     def __init__(
@@ -572,7 +608,6 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()

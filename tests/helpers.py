@@ -60,6 +60,7 @@ def finite_difference_jvp(fn, primals, tangents, eps=None, **kwargs):
 # SOLVERS:
 # - Gauss-Newton (LM)
 # - BFGS
+# - LBFGS
 # - GradientDescent
 # - Optax
 # - NonlinearCG
@@ -247,6 +248,8 @@ _general_minimisers = (
     optx.NelderMead(rtol, atol),
     optx.BFGS(rtol, atol, use_inverse=False),
     optx.BFGS(rtol, atol, use_inverse=True),
+    optx.LBFGS(rtol, atol, use_inverse=False),
+    optx.LBFGS(rtol, atol, use_inverse=True),
     BFGSDampedNewton(rtol, atol),
     BFGSIndirectDampedNewton(rtol, atol),
     # Tighter tolerance needed to have BFGSDogleg pass the JVP test.
