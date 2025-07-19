@@ -20,7 +20,9 @@ from .._search import (
     FunctionInfo,
 )
 from .backtracking import BacktrackingArmijo
+from .cauchy_point import CauchyNewtonDescent
 from .gauss_newton import NewtonDescent
+from .learning_rate import LearningRate
 from .quasi_newton import AbstractQuasiNewton
 
 
@@ -611,3 +613,33 @@ LBFGS.__init__.__doc__ = """**Arguments:**
     Valid entries are `step_size`, `loss`, `y`. For example
     `verbose=frozenset({"step_size", "loss"})`.
 """
+
+
+class BoundedLBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
+    """TODO: documentation."""
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    use_inverse: bool
+    descent: CauchyNewtonDescent
+    search: LearningRate
+    history_length: int
+    verbose: frozenset[str]
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        history_length: int = 10,
+        verbose: frozenset[str] = frozenset(),
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.use_inverse = False
+        self.descent = CauchyNewtonDescent()
+        self.search = LearningRate(1.0)
+        self.history_length = history_length
+        self.verbose = verbose

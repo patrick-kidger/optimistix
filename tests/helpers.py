@@ -292,7 +292,7 @@ _minim_only = (
     ),
 )
 
-_bounded_minimisers = (optx.BoundedBFGS(rtol, atol),)
+_bounded_minimisers = (optx.BoundedBFGS(rtol, atol), optx.BoundedLBFGS(rtol, atol))
 
 minimisers = _general_minimisers + _minim_only
 bounded_minimisers = _bounded_minimisers

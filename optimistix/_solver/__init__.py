@@ -26,7 +26,11 @@ from .levenberg_marquardt import (
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
     LevenbergMarquardt as LevenbergMarquardt,
 )
-from .limited_memory_bfgs import AbstractLBFGS as AbstractLBFGS, LBFGS as LBFGS
+from .limited_memory_bfgs import (
+    AbstractLBFGS as AbstractLBFGS,
+    BoundedLBFGS as BoundedLBFGS,
+    LBFGS as LBFGS,
+)
 from .nelder_mead import NelderMead as NelderMead
 from .newton_chord import Chord as Chord, Newton as Newton
 from .nonlinear_cg import (

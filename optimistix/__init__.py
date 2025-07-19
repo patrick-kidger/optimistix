@@ -51,6 +51,7 @@ from ._solver import (
     BFGS as BFGS,
     Bisection as Bisection,
     BoundedBFGS as BoundedBFGS,
+    BoundedLBFGS as BoundedLBFGS,
     CauchyNewtonDescent as CauchyNewtonDescent,
     Chord as Chord,
     ClassicalTrustRegion as ClassicalTrustRegion,
