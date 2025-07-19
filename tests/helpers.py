@@ -1256,3 +1256,55 @@ paraboloid__y0__args__bounds__expected_result = (
         jnp.array([1.0, 1.0]),
     ),
 )
+
+
+def scalar_rosenbrock(y: PyTree[Array], args: Any) -> Scalar:
+    # Wiki
+    # Rosenbrock, but for minimisation. Assumes y is an array with two elements.
+    # Used to test the constrained minimisers.
+    del args
+    x1, x2 = y
+    return 100 * (x2 - x1**2) ** 2 + (1 - x1) ** 2
+
+
+fn_local_minimum__y0__args__bounds__expected_result = (
+    # fn, y0, args, bounds, expected result
+    (
+        _himmelblau,
+        [4.0, 1.0],  # Initialise between two minima
+        (jnp.array(11.0), jnp.array(7.0)),
+        ([0.0, 0.0], [5.0, 5.0]),  # Quadrant: I
+        [3.0, 2.0],
+    ),
+    (
+        _himmelblau,
+        jnp.array([4.0, -1.0]),
+        (jnp.array(11.0), jnp.array(7.0)),
+        (jnp.array([0.0, -5.0]), jnp.array([5.0, 0.0])),  # II
+        jnp.array([3.584428, -1.848126]),
+    ),
+    (
+        _himmelblau,
+        [jnp.array(-3.0), jnp.array(2.0)],
+        (jnp.array(11.0), jnp.array(7.0)),
+        ([jnp.array(-8.0), jnp.array(0.0)], [jnp.array(0.0), jnp.array(8.0)]),  # IV
+        [jnp.array(-2.805118), jnp.array(3.131312)],
+    ),
+    # This problem is sensitive to initialisation if a full Hessian (rather than a
+    # quasi-Newton approximation) is used without regularisation. It may then converge
+    # to a stationary point at (-3, -1).
+    (
+        _himmelblau,
+        (-3.0, -2.0),
+        (jnp.array(11.0), jnp.array(7.0)),
+        ((-5.0, -5.0), (0.0, 0.0)),  # Quadrant: III
+        (-3.779310, -3.283186),
+    ),
+    (
+        scalar_rosenbrock,
+        (0.4, 0.0),
+        None,
+        ((-5.0, -6.0), (4.0, 5.0)),
+        (1.0, 1.0),
+    ),
+)

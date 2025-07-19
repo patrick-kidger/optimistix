@@ -17,6 +17,7 @@ from .helpers import (
     bounded_minimisers,
     bowl,
     finite_difference_jvp,
+    fn_local_minimum__y0__args__bounds__expected_result,
     forward_only_fn_init_options_expected,
     matyas,
     minimisation_fn_minima_init_args,
@@ -219,7 +220,8 @@ def test_forward_minimisation(fn, y0, options, expected, solver):
 @pytest.mark.parametrize("solver", bounded_minimisers)
 @pytest.mark.parametrize(
     "fn, y0, args, bounds, expected_result",
-    paraboloid__y0__args__bounds__expected_result,
+    paraboloid__y0__args__bounds__expected_result
+    + fn_local_minimum__y0__args__bounds__expected_result,
 )
 def test_bounded_minimisers(fn, y0, args, bounds, expected_result, solver):
     sol = optx.minimise(fn, solver, y0, args, options={"bounds": bounds})

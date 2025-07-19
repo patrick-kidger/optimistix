@@ -32,7 +32,6 @@ from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
 from .cauchy_point import CauchyNewtonDescent
 from .gauss_newton import NewtonDescent
-from .learning_rate import LearningRate
 
 
 _Hessian = TypeVar(
@@ -504,7 +503,7 @@ class BoundedBFGS(AbstractBFGS[Y, Aux, _Hessian]):
     norm: Callable[[PyTree], Scalar]
     use_inverse: bool
     descent: CauchyNewtonDescent
-    search: LearningRate
+    search: BacktrackingArmijo
     verbose: frozenset[str]
 
     def __init__(
@@ -520,7 +519,7 @@ class BoundedBFGS(AbstractBFGS[Y, Aux, _Hessian]):
         self.norm = norm
         self.use_inverse = False  # BFGS-B does not support using the inverse Hessian.
         self.descent = CauchyNewtonDescent()
-        self.search = LearningRate(1.0)
+        self.search = BacktrackingArmijo()
         self.verbose = verbose
 
 

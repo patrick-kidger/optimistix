@@ -22,7 +22,6 @@ from .._search import (
 from .backtracking import BacktrackingArmijo
 from .cauchy_point import CauchyNewtonDescent
 from .gauss_newton import NewtonDescent
-from .learning_rate import LearningRate
 from .quasi_newton import AbstractQuasiNewton
 
 
@@ -623,7 +622,7 @@ class BoundedLBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
     norm: Callable[[PyTree], Scalar]
     use_inverse: bool
     descent: CauchyNewtonDescent
-    search: LearningRate
+    search: BacktrackingArmijo
     history_length: int
     verbose: frozenset[str]
 
@@ -640,6 +639,6 @@ class BoundedLBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         self.norm = norm
         self.use_inverse = False
         self.descent = CauchyNewtonDescent()
-        self.search = LearningRate(1.0)
+        self.search = BacktrackingArmijo()
         self.history_length = history_length
         self.verbose = verbose
