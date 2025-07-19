@@ -185,7 +185,7 @@ class AbstractQuasiNewton(
     verbose: AbstractVar[frozenset[str]]
 
     @abc.abstractmethod
-    def update_init(
+    def init_hessian(
         self, y: Y, f: Scalar, grad: Y
     ) -> tuple[_Hessian, HessianUpdateState]:
         """Initialize the Hessian structure and Hessian update state.
@@ -196,7 +196,7 @@ class AbstractQuasiNewton(
         """
 
     @abc.abstractmethod
-    def update_call(
+    def update_hessian(
         self,
         y: Y,
         y_eval: Y,
@@ -227,7 +227,7 @@ class AbstractQuasiNewton(
     ) -> _QuasiNewtonState:
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
-        f_info, hessian_update_state = self.update_init(y, f, grad)
+        f_info, hessian_update_state = self.init_hessian(y, f, grad)
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
 
         return _QuasiNewtonState(
@@ -268,7 +268,7 @@ class AbstractQuasiNewton(
         def accepted(descent_state):
             grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
 
-            f_eval_info, hessian_update_state = self.update_call(
+            f_eval_info, hessian_update_state = self.update_hessian(
                 y,
                 state.y_eval,
                 state.f_info,
@@ -371,49 +371,13 @@ class AbstractQuasiNewton(
         return y, aux, {}
 
 
-class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
-    """BFGS (Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.
-
-    This is a quasi-Newton optimisation algorithm, whose defining feature is the way
-    it progressively builds up a Hessian approximation using multiple steps of gradient
-    information. Uses the Broyden-Fletcher-Goldfarb-Shanno formula to compute the
-    updates to the Hessian and or to the Hessian inverse.
-    See [https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm](https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm).
-
-    Supports the following `options`:
-
-    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
-        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
-        which is usually more efficient. Changing this can be useful when the target
-        function does not support reverse-mode automatic differentiation.
+class AbstractBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
+    """Abstract version of the BFGS (Broyden–Fletcher–Goldfarb–Shanno) minimisation
+    algorithm. This class may be subclassed to implement custom solvers with alternative
+    searches and descent methods that use the BFGS update to the Hessian approximation.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
-    use_inverse: bool
-    descent: NewtonDescent
-    search: BacktrackingArmijo
-    verbose: frozenset[str]
-
-    def __init__(
-        self,
-        rtol: float,
-        atol: float,
-        norm: Callable[[PyTree], Scalar] = max_norm,
-        use_inverse: bool = True,
-        verbose: frozenset[str] = frozenset(),
-    ):
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
-        self.use_inverse = use_inverse
-        self.descent = NewtonDescent(linear_solver=lx.Cholesky())
-        # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
-        self.search = BacktrackingArmijo()
-        self.verbose = verbose
-
-    def update_init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, None]:
+    def init_hessian(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, None]:
         identity_operator = _identity_pytree(y)
         if self.use_inverse:
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, identity_operator)
@@ -421,7 +385,7 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
             f_info = FunctionInfo.EvalGradHessian(f, grad, identity_operator)
         return f_info, None  # pyright: ignore
 
-    def update_call(
+    def update_hessian(
         self,
         y: Y,
         y_eval: Y,
@@ -497,42 +461,14 @@ class BFGS(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
             return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore
 
 
-BFGS.__init__.__doc__ = """**Arguments:**
-
-- `rtol`: Relative tolerance for terminating the solve.
-- `atol`: Absolute tolerance for terminating the solve.
-- `norm`: The norm used to determine the difference between two iterates in the
-    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
-    includes three built-in norms: [`optimistix.max_norm`][],
-    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
-- `use_inverse`: The BFGS algorithm involves computing matrix-vector products of the
-    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
-    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
-    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
-    and do a matrix-vector product on every step. Option (a) is generally cheaper for
-    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
-    dense Hessians (as matrix-vector products are cheaper than linear solves). The
-    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
-    searches like [`optimistix.ClassicalTrustRegion`][], which use the Hessian 
-    approximation `B` as part of their computations.
-- `verbose`: Whether to print out extra information about how the solve is
-    proceeding. Should be a frozenset of strings, specifying what information to print.
-    Valid entries are `step_size`, `loss`, `y`. For example
-    `verbose=frozenset({"step_size", "loss"})`.
-"""
-
-
-class DFP(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
-    """DFP (Davidon–Fletcher–Powell) minimisation algorithm.
+class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
+    """BFGS (Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm, whose defining feature is the way
     it progressively builds up a Hessian approximation using multiple steps of gradient
-    information. Uses the Davidon-Fletcher-Powell formula to compute the updates to
-    the Hessian and or to the Hessian inverse.
-    See [https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula](https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula).
-
-    [`optimistix.BFGS`][] is generally preferred, since it is more numerically stable on
-    most problems.
+    information. Uses the Broyden-Fletcher-Goldfarb-Shanno formula to compute the
+    updates to the Hessian and or to the Hessian inverse.
+    See [https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm](https://en.wikipedia.org/wiki/Broyden–Fletcher–Goldfarb–Shanno_algorithm).
 
     Supports the following `options`:
 
@@ -567,7 +503,39 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
         self.search = BacktrackingArmijo()
         self.verbose = verbose
 
-    def update_init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, None]:
+
+BFGS.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `use_inverse`: The BFGS algorithm involves computing matrix-vector products of the
+    form `B^{-1} g`, where `B` is an approximation to the Hessian of the function to be
+    minimised. This means we can either (a) store the approximate Hessian `B`, and do a
+    linear solve on every step, or (b) store the approximate Hessian inverse `B^{-1}`,
+    and do a matrix-vector product on every step. Option (a) is generally cheaper for
+    sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
+    dense Hessians (as matrix-vector products are cheaper than linear solves). The
+    default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
+    searches like [`optimistix.ClassicalTrustRegion`][], which use the Hessian 
+    approximation `B` as part of their computations.
+- `verbose`: Whether to print out extra information about how the solve is
+    proceeding. Should be a frozenset of strings, specifying what information to print.
+    Valid entries are `step_size`, `loss`, `y`. For example
+    `verbose=frozenset({"step_size", "loss"})`.
+"""
+
+
+class AbstractDFP(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
+    """Abstract version of the DFP (Davidon–Fletcher–Powell) minimisation algorithm.
+    This class may be subclassed to implement custom solvers with alternative searches
+    and descent methods that use the DFP update to the Hessian approximation.
+    """
+
+    def init_hessian(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, None]:
         identity_operator = _identity_pytree(y)
         if self.use_inverse:
             f_info = FunctionInfo.EvalGradHessianInv(f, grad, identity_operator)
@@ -575,7 +543,7 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
             f_info = FunctionInfo.EvalGradHessian(f, grad, identity_operator)
         return f_info, None  # pyright: ignore
 
-    def update_call(
+    def update_hessian(
         self,
         y: Y,
         y_eval: Y,
@@ -647,6 +615,52 @@ class DFP(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
             return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore
         else:
             return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore
+
+
+class DFP(AbstractDFP[Y, Aux, _Hessian]):
+    """DFP (Davidon–Fletcher–Powell) minimisation algorithm.
+
+    This is a quasi-Newton optimisation algorithm, whose defining feature is the way
+    it progressively builds up a Hessian approximation using multiple steps of gradient
+    information. Uses the Davidon-Fletcher-Powell formula to compute the updates to
+    the Hessian and or to the Hessian inverse.
+    See [https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula](https://en.wikipedia.org/wiki/Davidon–Fletcher–Powell_formula).
+
+    [`optimistix.BFGS`][] is generally preferred, since it is more numerically stable on
+    most problems.
+
+    Supports the following `options`:
+
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    use_inverse: bool
+    descent: NewtonDescent
+    search: BacktrackingArmijo
+    verbose: frozenset[str]
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        use_inverse: bool = True,
+        verbose: frozenset[str] = frozenset(),
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.use_inverse = use_inverse
+        self.descent = NewtonDescent(linear_solver=lx.Cholesky())
+        # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
+        self.search = BacktrackingArmijo()
+        self.verbose = verbose
 
 
 DFP.__init__.__doc__ = """**Arguments:**

@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
+from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar
 
@@ -296,69 +297,16 @@ def _batched_tree_zeros_like(y, batch_dimension):
     return jtu.tree_map(lambda y: jnp.zeros((batch_dimension, *y.shape)), y)
 
 
-class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, _LBFGSUpdateState]):
-    """L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.
-
-    This is a quasi-Newton optimisation algorithm that approximates the inverse Hessian
-    using a limited history of gradient and parameter updates. Unlike full BFGS,
-    which stores a dense matrix, L-BFGS maintains a memory-efficient
-    representation suitable for large-scale problems.
-
-    For a brief outline, see [https://en.wikipedia.org/wiki/Limited-memory_BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS).
-    Our implementation follows Byrd et al. 1994.
-
-    ??? cite "References"
-
-        ```bibtex
-        @article{byrd_representations_1994,
-            author = {Byrd, Richard H. and Nocedal, Jorge and Schnabel, Robert B.},
-            title = {Representations of quasi-{Newton} matrices and their use in
-                     limited memory methods},
-            journal = {Mathematical Programming},
-            volume = {63},
-            number = {1},
-            pages = {129--156},
-            year = {1994},
-            doi = {10.1007/BF01582063},
-        }
-        ```
-
-    Supports the following `options`:
-
-    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
-        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
-        which is usually more efficient. Changing this can be useful when the target
-        function does not support reverse-mode automatic differentiation.
+class AbstractLBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, _LBFGSUpdateState]):
+    """Abstract version of the L-BFGS (limited memory Broyden–Fletcher–Goldfarb–Shanno)
+    solver. This class may be subclassed to implement custom solvers with alternative
+    searches or descent methods that use the L-BFGS update to approximate the Hessian
+    or the inverse Hessian.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
-    use_inverse: bool
-    descent: NewtonDescent
-    search: BacktrackingArmijo
-    history_length: int
-    verbose: frozenset[str]
+    history_length: AbstractVar[int]
 
-    def __init__(
-        self,
-        rtol: float,
-        atol: float,
-        norm: Callable[[PyTree], Scalar] = max_norm,
-        use_inverse: bool = True,
-        history_length: int = 10,
-        verbose: frozenset[str] = frozenset(),
-    ):
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
-        self.use_inverse = use_inverse
-        self.descent = NewtonDescent()
-        self.search = BacktrackingArmijo()
-        self.history_length = history_length
-        self.verbose = verbose
-
-    def update_init(
+    def init_hessian(
         self, y: Y, f: Scalar, grad: Y
     ) -> tuple[_Hessian, _LBFGSUpdateState]:
         # We're using pyright: ignore on the returned f_info and state because their
@@ -399,7 +347,7 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, _LBFGSUpdateState]):
             f_info = FunctionInfo.EvalGradHessian(f, grad, operator)  # pyright: ignore
             return f_info, state  # pyright: ignore
 
-    def update_call(
+    def update_hessian(
         self,
         y: Y,
         y_eval: Y,
@@ -576,6 +524,69 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, _LBFGSUpdateState]):
                 f_eval_info.f, f_eval_info.grad, hessian
             )
         return new_f_info, new_state  # pyright: ignore
+
+
+class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
+    """L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.
+
+    This is a quasi-Newton optimisation algorithm that approximates the inverse Hessian
+    using a limited history of gradient and parameter updates. Unlike full BFGS,
+    which stores a dense matrix, L-BFGS maintains a memory-efficient
+    representation suitable for large-scale problems.
+
+    For a brief outline, see [https://en.wikipedia.org/wiki/Limited-memory_BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS).
+    Our implementation follows Byrd et al. 1994.
+
+    ??? cite "References"
+
+        ```bibtex
+        @article{byrd_representations_1994,
+            author = {Byrd, Richard H. and Nocedal, Jorge and Schnabel, Robert B.},
+            title = {Representations of quasi-{Newton} matrices and their use in
+                     limited memory methods},
+            journal = {Mathematical Programming},
+            volume = {63},
+            number = {1},
+            pages = {129--156},
+            year = {1994},
+            doi = {10.1007/BF01582063},
+        }
+        ```
+
+    Supports the following `options`:
+
+    - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
+        compute the gradient. Can be either `"fwd"` or `"bwd"`. Defaults to `"bwd"`,
+        which is usually more efficient. Changing this can be useful when the target
+        function does not support reverse-mode automatic differentiation.
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    use_inverse: bool
+    descent: NewtonDescent
+    search: BacktrackingArmijo
+    history_length: int
+    verbose: frozenset[str]
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        use_inverse: bool = True,
+        history_length: int = 10,
+        verbose: frozenset[str] = frozenset(),
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.use_inverse = use_inverse
+        self.descent = NewtonDescent()
+        self.search = BacktrackingArmijo()
+        self.history_length = history_length
+        self.verbose = verbose
 
 
 LBFGS.__init__.__doc__ = """**Arguments:**

@@ -37,7 +37,14 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
     ::: optimistix.AbstractQuasiNewton
         options:
             members:
-                false
+                - init_hessian
+                - update_hessian
+
+??? abstract "`optimistix.AbstractBFGS`"
+
+??? abstract "`optimistix.AbstractDFP`"
+
+??? abstract "`optimistix.AbstractLBFGS`"
 
 ::: optimistix.BFGS
     options:

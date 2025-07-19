@@ -113,7 +113,7 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
         self.verbose = frozenset()
 
 
-class BFGSDampedNewton(optx.BFGS):
+class BFGSDampedNewton(optx.AbstractBFGS):
     """BFGS Hessian + direct Levenberg Marquardt update."""
 
     rtol: float
@@ -125,7 +125,7 @@ class BFGSDampedNewton(optx.BFGS):
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSIndirectDampedNewton(optx.BFGS):
+class BFGSIndirectDampedNewton(optx.AbstractBFGS):
     """BFGS Hessian + indirect Levenberg Marquardt update."""
 
     rtol: float
@@ -137,7 +137,7 @@ class BFGSIndirectDampedNewton(optx.BFGS):
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSDogleg(optx.BFGS):
+class BFGSDogleg(optx.AbstractBFGS):
     """BFGS Hessian + dogleg update."""
 
     rtol: float
@@ -149,7 +149,7 @@ class BFGSDogleg(optx.BFGS):
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSLinearTrustRegion(optx.BFGS):
+class BFGSLinearTrustRegion(optx.AbstractBFGS):
     """Standard BFGS + linear trust region update."""
 
     rtol: float
@@ -161,7 +161,7 @@ class BFGSLinearTrustRegion(optx.BFGS):
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSLinearTrustRegionHessian(optx.BFGS):
+class BFGSLinearTrustRegionHessian(optx.AbstractBFGS):
     """Standard BFGS (uses hessian, not inverse!) + linear trust region update."""
 
     rtol: float
@@ -173,7 +173,7 @@ class BFGSLinearTrustRegionHessian(optx.BFGS):
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSClassicalTrustRegionHessian(optx.BFGS):
+class BFGSClassicalTrustRegionHessian(optx.AbstractBFGS):
     """Standard BFGS (uses hessian, not inverse!) + classical trust region update."""
 
     rtol: float
@@ -185,7 +185,7 @@ class BFGSClassicalTrustRegionHessian(optx.BFGS):
     verbose: frozenset[str] = frozenset()
 
 
-class DFPDampedNewton(optx.DFP):
+class DFPDampedNewton(optx.AbstractDFP):
     """DFP Hessian + direct Levenberg Marquardt update."""
 
     rtol: float
@@ -197,7 +197,7 @@ class DFPDampedNewton(optx.DFP):
     verbose: frozenset[str] = frozenset()
 
 
-class DFPIndirectDampedNewton(optx.DFP):
+class DFPIndirectDampedNewton(optx.AbstractDFP):
     """DFP Hessian + indirect Levenberg Marquardt update."""
 
     rtol: float
@@ -209,7 +209,7 @@ class DFPIndirectDampedNewton(optx.DFP):
     verbose: frozenset[str] = frozenset()
 
 
-class DFPDogleg(optx.DFP):
+class DFPDogleg(optx.AbstractDFP):
     """DFP Hessian + dogleg update."""
 
     rtol: float
@@ -221,7 +221,7 @@ class DFPDogleg(optx.DFP):
     verbose: frozenset[str] = frozenset()
 
 
-class DFPClassicalTrustRegionHessian(optx.DFP):
+class DFPClassicalTrustRegionHessian(optx.AbstractDFP):
     """Standard DFP (uses hessian, not inverse!) + classical trust region update."""
 
     rtol: float

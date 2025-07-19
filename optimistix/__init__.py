@@ -37,8 +37,11 @@ from ._search import (
 )
 from ._solution import RESULTS as RESULTS, Solution as Solution
 from ._solver import (
+    AbstractBFGS as AbstractBFGS,
+    AbstractDFP as AbstractDFP,
     AbstractGaussNewton as AbstractGaussNewton,
     AbstractGradientDescent as AbstractGradientDescent,
+    AbstractLBFGS as AbstractLBFGS,
     AbstractQuasiNewton as AbstractQuasiNewton,
     AbstractQuasiNewtonUpdate as AbstractQuasiNewtonUpdate,
     BacktrackingArmijo as BacktrackingArmijo,
