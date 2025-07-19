@@ -966,3 +966,63 @@ trees_to_clip = (
         {"a": jnp.array(5.0), "c": {"1": 0.2 * jnp.ones((8,)), "2": jnp.array(2.0)}},
     ),
 )
+
+
+correct_trees_to_combine = (
+    # pred, true, false, expected
+    (
+        jnp.array(True),  # pred is scalar
+        {"a": jnp.array([0.0, 1.0])},
+        {"a": -jnp.array([2.0, 3.0])},
+        {"a": jnp.array([0.0, 1.0])},
+    ),
+    (
+        jnp.array(False),  # pred is scalar
+        {"a": jnp.array([0.0, 1.0])},
+        {"a": -jnp.array([2.0, 3.0])},
+        {"a": -jnp.array([2.0, 3.0])},
+    ),
+    (
+        {"a": jnp.array([True, False])},  # pred is vector
+        {"a": jnp.array([0.0, 1.0])},
+        {"a": -jnp.array([2.0, 3.0])},
+        {"a": jnp.array([0.0, -3.0])},
+    ),
+    (
+        {"a": jnp.array([False, True])},  # pred is vector
+        {"a": jnp.array([0.0, 1.0])},
+        jnp.asarray(jnp.inf),  # false is a scalar
+        {"a": jnp.array([jnp.inf, 1.0])},
+    ),
+    (
+        jnp.array(True),  # pred is scalar
+        (jnp.array(8.0), jnp.array([9.0, 5.0])),
+        jnp.asarray(jnp.inf),  # false is a scalar
+        (jnp.array(8.0), jnp.array([9.0, 5.0])),
+    ),
+    (
+        jnp.array(False),  # pred is scalar
+        (jnp.array(8.0), jnp.array([9.0, 5.0])),
+        jnp.asarray(jnp.inf),  # false is a scalar
+        (jnp.array(jnp.inf), jnp.array([jnp.inf, jnp.inf])),
+    ),
+    (
+        jnp.array(True),
+        jnp.array(5.0),
+        jnp.array(3.0),
+        jnp.array(5.0),
+    ),  # all are scalars
+)
+
+wrong_trees_to_combine = (
+    (
+        jnp.array([True, False]),  # pred is vector with wrong shape
+        {"a": jnp.array([0.0, 1.0])},
+        {"a": -jnp.array([2.0, 3.0])},
+    ),
+    (
+        jnp.array(True),  # pred is scalar
+        (jnp.array(8.0), jnp.array([9.0, 5.0])),
+        jnp.array([2.0, 3.0]),  # false is vector with wrong shape
+    ),
+)
