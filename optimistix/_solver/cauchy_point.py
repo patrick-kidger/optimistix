@@ -173,7 +173,6 @@ def cauchy_point(y: Y, f_info: FunctionInfo.EvalGradHessian) -> Y:
             )
 
 
-# TODO: do we treat nonfinite bounds appropriately?
 def cauchy_newton_step(y, f_info, linear_solver):
     cauchy = cauchy_point(y, f_info)
     lower, upper = f_info.bounds  # pyright: ignore (handled by cauchy_point)
