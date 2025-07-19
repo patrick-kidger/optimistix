@@ -10,15 +10,18 @@ import jax.tree_util as jtu
 import optax
 import optimistix as optx
 import pytest
+from optimistix._misc import inexact_asarray
 
 from .helpers import (
     beale,
+    bounded_minimisers,
     bowl,
     finite_difference_jvp,
     forward_only_fn_init_options_expected,
     matyas,
     minimisation_fn_minima_init_args,
     minimisers,
+    paraboloid__y0__args__bounds__expected_result,
     tree_allclose,
 )
 
@@ -211,3 +214,15 @@ def test_forward_minimisation(fn, y0, options, expected, solver):
         sol = optx.minimise(fn, solver, y0, options=options, max_steps=2**10)
         assert sol.result == optx.RESULTS.successful
         assert tree_allclose(sol.value, expected, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.parametrize("solver", bounded_minimisers)
+@pytest.mark.parametrize(
+    "fn, y0, args, bounds, expected_result",
+    paraboloid__y0__args__bounds__expected_result,
+)
+def test_bounded_minimisers(fn, y0, args, bounds, expected_result, solver):
+    sol = optx.minimise(fn, solver, y0, args, options={"bounds": bounds})
+    assert sol.result == optx.RESULTS.successful
+    expected_result = jtu.tree_map(inexact_asarray, expected_result)
+    assert tree_allclose(sol.value, expected_result, atol=1e-4, rtol=1e-4)

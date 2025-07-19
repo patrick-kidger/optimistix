@@ -50,6 +50,8 @@ from ._solver import (
     BestSoFarRootFinder as BestSoFarRootFinder,
     BFGS as BFGS,
     Bisection as Bisection,
+    BoundedBFGS as BoundedBFGS,
+    CauchyNewtonDescent as CauchyNewtonDescent,
     Chord as Chord,
     ClassicalTrustRegion as ClassicalTrustRegion,
     dai_yuan as dai_yuan,

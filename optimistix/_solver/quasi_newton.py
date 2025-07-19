@@ -16,6 +16,7 @@ from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
     filter_cond,
+    inexact_asarray,
     lin_to_grad,
     max_norm,
     tree_dot,
@@ -29,7 +30,9 @@ from .._search import (
 )
 from .._solution import RESULTS
 from .backtracking import BacktrackingArmijo
+from .cauchy_point import CauchyNewtonDescent
 from .gauss_newton import NewtonDescent
+from .learning_rate import LearningRate
 
 
 _Hessian = TypeVar(
@@ -99,6 +102,7 @@ class _QuasiNewtonState(
     hessian_update_state: HessianUpdateState
 
 
+# TODO(jhaffner): monkeypatch: accept bounds as options
 class AbstractQuasiNewton(
     AbstractMinimiser[Y, Aux, _QuasiNewtonState],
     Generic[Y, Aux, _Hessian, HessianUpdateState],
@@ -178,6 +182,13 @@ class AbstractQuasiNewton(
         f = tree_full_like(f_struct, 0)
         grad = tree_full_like(y, 0)
         f_info, hessian_update_state = self.init_hessian(y, f, grad)
+
+        # TODO(jhaffner): monkeypatch: add bounds to f_info BFGS-B
+        if not self.use_inverse:
+            bounds = options.get("bounds", None)
+            if bounds is not None:
+                bounds = jtu.tree_map(inexact_asarray, bounds)
+            f_info = eqx.tree_at(lambda x: x.bounds, f_info, bounds)
         f_info_struct = eqx.filter_eval_shape(lambda: f_info)
 
         return _QuasiNewtonState(
@@ -225,6 +236,12 @@ class AbstractQuasiNewton(
                 FunctionInfo.EvalGrad(f_eval, grad),
                 state.hessian_update_state,
             )
+            # TODO (jhaffner): monkeypatch: add bounds to f_info for BFGS-B
+            if not self.use_inverse:
+                bounds = options.get("bounds", None)
+                if bounds is not None:
+                    bounds = jtu.tree_map(inexact_asarray, bounds)
+                f_eval_info = eqx.tree_at(lambda x: x.bounds, f_eval_info, bounds)
 
             descent_state = self.descent.query(
                 state.y_eval,
@@ -472,6 +489,49 @@ BFGS.__init__.__doc__ = """**Arguments:**
     default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
     searches like [`optimistix.ClassicalTrustRegion`][], which use the Hessian 
     approximation `B` as part of their computations.
+- `verbose`: Whether to print out extra information about how the solve is
+    proceeding. Should be a frozenset of strings, specifying what information to print.
+    Valid entries are `step_size`, `loss`, `y`. For example
+    `verbose=frozenset({"step_size", "loss"})`.
+"""
+
+
+class BoundedBFGS(AbstractBFGS[Y, Aux, _Hessian]):
+    """BFGS-B. TODO: documentation."""
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    use_inverse: bool
+    descent: CauchyNewtonDescent
+    search: LearningRate
+    verbose: frozenset[str]
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        # TODO: perhaps add linear solver?
+        verbose: frozenset[str] = frozenset(),
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.use_inverse = False  # BFGS-B does not support using the inverse Hessian.
+        self.descent = CauchyNewtonDescent()
+        self.search = LearningRate(1.0)
+        self.verbose = verbose
+
+
+BoundedBFGS.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `verbose`: Whether to print out extra information about how the solve is
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example

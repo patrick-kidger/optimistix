@@ -105,6 +105,7 @@ class EvalGradHessian(FunctionInfo, Generic[Y]):
     f: Scalar
     grad: Y
     hessian: lx.AbstractLinearOperator
+    bounds: tuple[Y, Y] | None = None  # TODO (jhaffner): monkeypatch with defaults
 
     def as_min(self):
         return self.f

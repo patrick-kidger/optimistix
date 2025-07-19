@@ -6,6 +6,7 @@ from .best_so_far import (
     BestSoFarRootFinder as BestSoFarRootFinder,
 )
 from .bisection import Bisection as Bisection
+from .cauchy_point import CauchyNewtonDescent as CauchyNewtonDescent
 from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
 from .fixed_point import FixedPointIteration as FixedPointIteration
 from .gauss_newton import (
@@ -42,6 +43,7 @@ from .quasi_newton import (
     AbstractDFP as AbstractDFP,
     AbstractQuasiNewton as AbstractQuasiNewton,
     BFGS as BFGS,
+    BoundedBFGS as BoundedBFGS,
     DFP as DFP,
 )
 from .trust_region import (
