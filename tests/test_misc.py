@@ -6,6 +6,7 @@ import pytest
 from .helpers import (
     tree_allclose,
     trees_to_clip,
+    y__bounds__step__offset__expected_result,
 )
 
 
@@ -27,3 +28,16 @@ def test_inexact_asarray_jvp():
 def test_tree_clip(tree, lower, upper, result):
     clipped_tree = optx_misc.tree_clip(tree, lower, upper)
     assert tree_allclose(clipped_tree, result)
+
+@pytest.mark.parametrize(
+    "y, bounds, step, offset, expected_result",
+    y__bounds__step__offset__expected_result,
+)
+def test_feasible_step_length(y, bounds, step, offset, expected_result):
+    if offset is None:
+        result = optx_misc.feasible_step_length(y, step, *bounds)
+        jax.debug.print("result, expected: {}", (result, expected_result))
+    else:
+        result = optx_misc.feasible_step_length(y, step, *bounds, offset=offset)
+        jax.debug.print("result, expected: {}", (result, expected_result))
+    assert tree_allclose(result, expected_result)
