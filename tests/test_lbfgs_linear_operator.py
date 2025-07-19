@@ -287,7 +287,7 @@ def test_warmup_phase_compact(generate_data, extra_history):
         use_inverse=False,
         history_length=history_len + extra_history,
     )
-    _, state_init = solver.update_init(curr_descent, jnp.array(0.0), curr_descent)
+    _, state_init = solver.init_hessian(curr_descent, jnp.array(0.0), curr_descent)
     del solver
 
     assert isinstance(state_init, _LBFGSHessianUpdateState)
