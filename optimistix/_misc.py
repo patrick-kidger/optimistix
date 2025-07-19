@@ -85,21 +85,7 @@ def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = F
 
 @overload
 def tree_where(
-    pred: Bool[ArrayLike, ""], true: ArrayLike, false: Bool[ArrayLike, ""]
-) -> Array:
-    ...
-
-
-@overload
-def tree_where(
     pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
-) -> PyTree[Array]:
-    ...
-
-
-@overload
-def tree_where(
-    pred: PyTree[ArrayLike], true: PyTree[ArrayLike], false: Bool[ArrayLike, ""]
 ) -> PyTree[Array]:
     ...
 
@@ -114,29 +100,17 @@ def tree_where(
 def tree_where(pred, true, false):
     """Return a pytree with values from `true` where `pred` is true, and `false` where
     `pred` is false. If `pred` is a single boolean, then the same `pred` is used for all
-    elements of the tree. If `false` is a scalar, then it is used for all elements of
-    the tree. `true` may have any PyTree shape. In the special case where `true` is a
-    scalar, `pred` and `false` must also be scalars.
+    elements of the tree. If `pred` is a PyTree, then it must have the same structure as
+    `true` and `false`, and the values of `pred` are used to select between the
+    corresponding values in `true` and `false`.
     """
     if jtu.tree_structure(pred) == jtu.tree_structure(true):
-        if jtu.tree_structure(true) == jtu.tree_structure(false):
-            return jtu.tree_map(lambda p, t, f: jnp.where(p, t, f), pred, true, false)
-        else:
-            assert (
-                false.shape == ()
-            ), "`false` must be a scalar or have the same PyTree structure as `true`."
-            return jtu.tree_map(lambda p, t: jnp.where(p, t, false), pred, true)
+        return jtu.tree_map(lambda p, t, f: jnp.where(p, t, f), pred, true, false)
     else:
         assert (
             pred.shape == ()
-        ), "`pred` must be a scalar or have the same PyTree structure as `true`."
-        if jtu.tree_structure(true) == jtu.tree_structure(false):
-            return jtu.tree_map(lambda t, f: jnp.where(pred, t, f), true, false)
-        else:
-            assert (
-                false.shape == ()
-            ), "`false` must be a scalar or have the same PyTree structure as `true`."
-            return jtu.tree_map(lambda t: jnp.where(pred, t, false), true)
+        ), "`pred` must be a scalar array or have the same PyTree structure as `true`."
+        return jtu.tree_map(lambda t, f: jnp.where(pred, t, f), true, false)
 
 
 def tree_clip(
