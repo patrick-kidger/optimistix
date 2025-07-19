@@ -91,6 +91,17 @@ def tree_where(
     return jtu.tree_map(keep, true, false)
 
 
+def tree_clip(
+    tree: PyTree[ArrayLike], lower: PyTree[ArrayLike], upper: PyTree[ArrayLike]
+) -> PyTree[Array]:
+    """Clip tree to values lower, upper. Note that we do not check that the lower bound
+    is actually less than the upper bound. If the upper bound is less than the lower
+    bound, then the values will be clipped to the upper bound, since this is what
+    `jnp.clip` does.
+    """
+    return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
+
+
 def resolve_rcond(rcond, n, m, dtype):
     if rcond is None:
         return jnp.finfo(dtype).eps * max(n, m)
