@@ -511,7 +511,7 @@ class BoundedBFGS(AbstractBFGS[Y, Aux, _Hessian]):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
-        # TODO: perhaps add linear solver?
+        # TODO (jhaffner): add a linear solver?
         verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol

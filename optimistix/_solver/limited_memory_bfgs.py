@@ -632,6 +632,7 @@ class BoundedLBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         history_length: int = 10,
+        # TODO (jhaffner): add a linear solver?
         verbose: frozenset[str] = frozenset(),
     ):
         self.rtol = rtol
