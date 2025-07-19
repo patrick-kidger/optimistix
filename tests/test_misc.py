@@ -29,6 +29,7 @@ def test_tree_clip(tree, lower, upper, result):
     clipped_tree = optx_misc.tree_clip(tree, lower, upper)
     assert tree_allclose(clipped_tree, result)
 
+
 @pytest.mark.parametrize(
     "y, bounds, step, offset, expected_result",
     y__bounds__step__offset__expected_result,
