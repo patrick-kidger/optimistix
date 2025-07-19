@@ -41,7 +41,6 @@ from .quasi_newton import (
     AbstractBFGS as AbstractBFGS,
     AbstractDFP as AbstractDFP,
     AbstractQuasiNewton as AbstractQuasiNewton,
-    AbstractQuasiNewtonUpdate as AbstractQuasiNewtonUpdate,
     BFGS as BFGS,
     DFP as DFP,
 )

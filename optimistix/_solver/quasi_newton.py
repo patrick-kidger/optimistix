@@ -37,56 +37,6 @@ _Hessian = TypeVar(
 )
 
 
-class AbstractQuasiNewtonUpdate(eqx.Module, Generic[Y, _Hessian, HessianUpdateState]):
-    """Abstract base class for quasi-Newton updates to the Hessian approximation. An
-    update consumes information about the current and preceding step, the gradient
-    values at the respective points, and the previous Hessian approximation and returns
-    an updated instance of [`optimistix.FunctionInfo.EvalGradHessian`][] or
-    [`optimistix.FunctionInfo.EvalGradHessianInv`][], depending on whether we're
-    approximating the Hessian or its inverse.
-    """
-
-    @abc.abstractmethod
-    def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, HessianUpdateState]:
-        """
-        Initialize the Hessian structure and Hessian update state.
-
-        Set up a template structure of the Hessian to be used (with dummy values), as
-        well as the state of the update method, which stores a history of gradients for
-        limited-memory Hessian approximations.
-        """
-
-    @abc.abstractmethod
-    def __call__(
-        self,
-        y: Y,
-        y_eval: Y,
-        f_info: _Hessian,
-        f_eval_info: FunctionInfo.EvalGrad,
-        hessian_update_state: HessianUpdateState,
-    ) -> tuple[_Hessian, HessianUpdateState]:
-        """Called whenever we want to update the Hessian approximation. This is usually
-        in the `accepted` branch of the `step` method of an
-        [`optimistix.AbstractQuasiNewton`][] minimiser.
-
-        **Arguments:**
-
-        - `y`: the previous accepted iterate
-        - `y_eval`: the current (just accepted) iterate
-        - `f_info`: The function value, gradient and Hessian approximation at the
-        previous accepted iterate `y`
-        - `f_eval_info`: The function value and its gradient at the current (just
-            accepted) iterate `y_eval`
-        - `hessian_update_state`: The state of the Hessian update, which may be used to
-            store a history of values of `grad` and `y`, as well as their differences
-            and products for limited-memory Hessian approximations.
-
-        **Returns:**
-
-        The updated Hessian (or Hessian-inverse) approximation.
-        """
-
-
 def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
     """Create an identity pytree `I` such that
     `pytree = lx.PyTreeLinearOperator(I).mv(pytree)`
