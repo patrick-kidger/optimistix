@@ -217,6 +217,7 @@ def test_forward_minimisation(fn, y0, options, expected, solver):
         assert tree_allclose(sol.value, expected, atol=1e-4, rtol=1e-4)
 
 
+# TODO(jhaffner): tolerances?
 @pytest.mark.parametrize("solver", bounded_minimisers)
 @pytest.mark.parametrize(
     "fn, y0, args, bounds, expected_result",
@@ -228,3 +229,12 @@ def test_bounded_minimisers(fn, y0, args, bounds, expected_result, solver):
     assert sol.result == optx.RESULTS.successful
     expected_result = jtu.tree_map(inexact_asarray, expected_result)
     assert tree_allclose(sol.value, expected_result, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.parametrize("solver", bounded_minimisers)
+@pytest.mark.parametrize("fn, minimum, init, args", minimisation_fn_minima_init_args)
+def test_bounded_minimisers_on_unconstrained_problems(fn, minimum, init, args, solver):
+    sol = optx.minimise(fn, solver, init, args)
+    assert sol.result == optx.RESULTS.successful
+    optx_min = fn(sol.value, args)
+    assert tree_allclose(optx_min, minimum, atol=1e-4, rtol=1e-4)

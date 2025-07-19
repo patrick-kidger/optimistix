@@ -21,6 +21,7 @@ from .._misc import (
 )
 from .._search import AbstractDescent, FunctionInfo
 from .._solution import RESULTS
+from .gauss_newton import newton_step
 
 
 def _boundary_intercepts(y: Y, f_info: FunctionInfo.EvalGradHessian):  # pyright: ignore
@@ -240,24 +241,27 @@ class CauchyNewtonDescent(
 
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False)
 
-    def init(  # pyright: ignore  TODO
+    def init(
         self, y: Y, f_info_struct: FunctionInfo.EvalGradHessian
     ) -> _CauchyNewtonDescentState:
         del f_info_struct
         return _CauchyNewtonDescentState(cauchy_newton=y, result=RESULTS.successful)
 
-    def query(  # pyright: ignore  TODO
+    def query(
         self,
         y: Y,
         f_info: FunctionInfo.EvalGradHessian,
         state: _CauchyNewtonDescentState,
     ) -> _CauchyNewtonDescentState:
         del state
-        cauchy_newton, result = cauchy_newton_step(y, f_info, self.linear_solver)
-        return _CauchyNewtonDescentState(cauchy_newton=cauchy_newton, result=result)
+        if f_info.bounds is None:
+            step, result = newton_step(f_info, self.linear_solver)
+            step = (-(step**ω)).ω  # Newton step has flipped sign
+        else:
+            step, result = cauchy_newton_step(y, f_info, self.linear_solver)
+        return _CauchyNewtonDescentState(cauchy_newton=step, result=result)
 
-    def step(  # pyright: ignore TODO
+    def step(
         self, step_size: Scalar, state: _CauchyNewtonDescentState
     ) -> tuple[Y, RESULTS]:
-        # TODO(jhaffner): double check signs!
         return (step_size * state.cauchy_newton**ω).ω, state.result
