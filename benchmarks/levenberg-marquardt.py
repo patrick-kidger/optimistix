@@ -134,6 +134,9 @@ class NormalCholesky(lx.AbstractLinearSolver):
     def transpose(self, state, options):
         assert False
 
+    def conj(self, state, options):
+        assert False
+
     def allow_dependent_columns(self, operator):
         assert False
 
