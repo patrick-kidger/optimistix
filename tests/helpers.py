@@ -254,6 +254,12 @@ _general_minimisers = (
     BFGSIndirectDampedNewton(rtol, atol),
     # Tighter tolerance needed to have BFGSDogleg pass the JVP test.
     BFGSDogleg(1e-10, 1e-10),
+    optx.OptaxMinimiser(optax.adam(learning_rate=3e-3), rtol=rtol, atol=atol),
+    # optax.lbfgs includes their linesearch by default
+    optx.OptaxMinimiser(optax.lbfgs(), rtol=rtol, atol=atol),
+)
+
+_minim_only = (
     BFGSClassicalTrustRegionHessian(rtol, atol),
     BFGSLinearTrustRegionHessian(rtol, atol),
     BFGSLinearTrustRegion(rtol, atol),
@@ -276,15 +282,14 @@ _general_minimisers = (
         rtol=rtol,
         atol=atol,
     ),
-    # This needs a fix in optax
-    # optx.OptaxMinimiser(
-    #    optax.chain(
-    #        optax.sgd(learning_rate=1.0),
-    #        optax.scale_by_backtracking_linesearch(15),
-    #    ),
-    #    rtol=rtol,
-    #    atol=atol,
-    # ),
+    optx.OptaxMinimiser(
+        optax.chain(
+            optax.sgd(learning_rate=1.0),
+            optax.scale_by_backtracking_linesearch(15),
+        ),
+        rtol=rtol,
+        atol=atol,
+    ),
 )
 
 minimisers = _general_minimisers + _minim_only
