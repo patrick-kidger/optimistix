@@ -91,6 +91,15 @@ def tree_where(
     return jtu.tree_map(keep, true, false)
 
 
+def tree_dtype(tree: PyTree[ArrayLike | jax.ShapeDtypeStruct]):
+    leaves = []
+    jtu.tree_map(leaves.append, tree)
+    if len(leaves) == 0:
+        return default_floating_dtype()
+    else:
+        return jnp.result_type(*leaves)
+
+
 def resolve_rcond(rcond, n, m, dtype):
     if rcond is None:
         return jnp.finfo(dtype).eps * max(n, m)
