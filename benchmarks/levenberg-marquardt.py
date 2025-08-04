@@ -131,6 +131,9 @@ class NormalCholesky(lx.AbstractLinearSolver):
             {},
         )
 
+    def conj(self, state, options):
+        assert False
+
     def transpose(self, state, options):
         assert False
 
