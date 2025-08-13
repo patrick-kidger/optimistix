@@ -17,7 +17,7 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Out, Y
-from .._misc import cauchy_termination, max_norm, tree_full_like
+from .._misc import cauchy_termination, max_norm, tree_dtype, tree_full_like
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
 
@@ -89,12 +89,13 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             f_val = tree_full_like(f_struct, jnp.inf)
         else:
             f_val = None
+        dtype = tree_dtype(f_struct)
         return _NewtonChordState(
             f=f_val,
             linear_state=linear_state,
             diff=tree_full_like(y, jnp.inf),
-            diffsize=jnp.array(jnp.inf),
-            diffsize_prev=jnp.array(1.0),
+            diffsize=jnp.array(jnp.inf, dtype=dtype),
+            diffsize_prev=jnp.array(1.0, dtype=dtype),
             result=RESULTS.successful,
             step=jnp.array(0),
         )
@@ -143,7 +144,7 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             f=f_val,
             linear_state=state.linear_state,
             diff=diff,
-            diffsize=diffsize,
+            diffsize=jnp.asarray(diffsize, dtype=state.diffsize.dtype),
             diffsize_prev=state.diffsize,
             result=RESULTS.promote(sol.result),
             step=state.step + 1,

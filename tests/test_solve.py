@@ -62,3 +62,14 @@ def test_forward_mode():
         jnp.arange(3.0),
         options=dict(jac="fwd"),
     )
+
+
+# See https://github.com/patrick-kidger/optimistix/issues/155
+def test_mixed_dtype():
+    def fn(y, _):
+        M = jax.numpy.eye(y.shape[-1], dtype=jnp.float32)
+        return M @ y
+
+    y0 = jax.numpy.ones(10, dtype=jax.numpy.float32)
+    solver = optx.Newton(rtol=1e-3, atol=1e-3)
+    optx.root_find(fn, solver, y0, max_steps=1, throw=False)
