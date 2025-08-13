@@ -144,7 +144,7 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             f=f_val,
             linear_state=state.linear_state,
             diff=diff,
-            diffsize=diffsize,
+            diffsize=jnp.asarray(diffsize, dtype=state.diffsize.dtype),
             diffsize_prev=state.diffsize,
             result=RESULTS.promote(sol.result),
             step=state.step + 1,
