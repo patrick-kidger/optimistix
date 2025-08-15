@@ -42,9 +42,24 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 
 ??? abstract "`optimistix.AbstractBFGS`"
 
+    ::: optimistix.AbstractBFGS
+        options:
+            members:
+                false
+
 ??? abstract "`optimistix.AbstractDFP`"
 
+    ::: optimistix.AbstractDFP
+        options:
+            members:
+                false
+
 ??? abstract "`optimistix.AbstractLBFGS`"
+
+    ::: optimistix.AbstractLBFGS
+        options:
+            members:
+                false
 
 ::: optimistix.BFGS
     options:
