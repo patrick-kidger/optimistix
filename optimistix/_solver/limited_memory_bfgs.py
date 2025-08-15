@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
+from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar
 
@@ -20,7 +21,7 @@ from .._search import (
 )
 from .backtracking import BacktrackingArmijo
 from .gauss_newton import NewtonDescent
-from .quasi_newton import AbstractQuasiNewton, AbstractQuasiNewtonUpdate
+from .quasi_newton import AbstractQuasiNewton
 
 
 _Hessian = TypeVar(
@@ -296,20 +297,18 @@ def _batched_tree_zeros_like(y, batch_dimension):
     return jtu.tree_map(lambda y: jnp.zeros((batch_dimension, *y.shape)), y)
 
 
-class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
-    r"""L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) update.
-
-    L-BFGS is a memory-efficient variant of the BFGS algorithm that maintains a
-    limited history of past updates to approximate the inverse Hessian implicitly,
-    without storing the full matrix.
-
-    See [https://en.wikipedia.org/wiki/Limited-memory_BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS).
+class AbstractLBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, _LBFGSUpdateState]):
+    """Abstract version of the L-BFGS (limited memory Broyden–Fletcher–Goldfarb–Shanno)
+    solver. This class may be subclassed to implement custom solvers with alternative
+    searches or descent methods that use the L-BFGS update to approximate the Hessian
+    or the inverse Hessian.
     """
 
-    use_inverse: bool
-    history_length: int
+    history_length: AbstractVar[int]
 
-    def init(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, _LBFGSUpdateState]:
+    def init_hessian(
+        self, y: Y, f: Scalar, grad: Y
+    ) -> tuple[_Hessian, _LBFGSUpdateState]:
         # We're using pyright: ignore on the returned f_info and state because their
         # types depend on the value of `use_inverse`. See
         # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
@@ -348,135 +347,13 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
             f_info = FunctionInfo.EvalGradHessian(f, grad, operator)  # pyright: ignore
             return f_info, state  # pyright: ignore
 
-    def _no_update(self, inner, grad_diff, y_diff, f_info, hessian_update_state):
-        if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
-            operator = f_info.hessian_inv
-        else:
-            operator = f_info.hessian
-        return eqx.filter(operator, eqx.is_array), hessian_update_state
-
-    def _update(self, inner, grad_diff, y_diff, f_info, state):
-        updated_y_diff_history = jtu.tree_map(
-            lambda x, z: x.at[state.index_start % self.history_length].set(z),
-            state.y_diff_history,
-            y_diff,
-        )
-        updated_grad_diff_history = jtu.tree_map(
-            lambda x, z: x.at[state.index_start % self.history_length].set(z),
-            state.grad_diff_history,
-            grad_diff,
-        )
-
-        if self.use_inverse:
-            # Safety check for when the filter_cond that calls `_update` is converted
-            # into an elementwise select (e.g., under vmap without JIT). In that case,
-            # the non-taken branch may still be evaluated, so we ensure `inner` is never
-            # <= eps to prevent `1.0 / inner` from producing NaNs or Infs.
-            inner = jnp.where(inner > jnp.finfo(inner.dtype).eps, inner, 1.0)
-            updated_inner_history = state.inner_history.at[
-                state.index_start % self.history_length
-            ].set(1.0 / jnp.asarray(inner))
-            updated_state = _LBFGSInverseHessianUpdateState(
-                index_start=state.index_start + 1,
-                history_length=self.history_length,
-                y_diff_history=updated_y_diff_history,
-                grad_diff_history=updated_grad_diff_history,
-                inner_history=updated_inner_history,
-            )
-            operator = lx.FunctionLinearOperator(
-                lambda y: _lbfgs_inverse_hessian_operator_fn(y, updated_state),
-                jax.eval_shape(lambda: y_diff),
-                tags=lx.positive_semidefinite_tag,
-            )
-
-            # Only return the dynamic part of the operator, keep jaxpr across iterations
-            return eqx.filter(operator, eqx.is_array), updated_state
-
-        else:
-            # Here we gradually fill in the lower-triangular matrix of inner products
-            # between the history of gradient differences and the current difference in
-            # the optimisation variable `y`. This matrix has a zero diagonal, it
-            # corresponds to `L_k` in the paper, where it is defined by (2.18).
-            # At the start of the optimisation, parts of the lower triangle will still
-            # be zero. We catch this before computing the Cholesky factorisation by
-            # setting the diagonal to 1.0 in the affected rows, and mapping the solution
-            # for these elements to a zero vector.
-            # (This happens in the operator function.)
-            y_diff_grad_diff_cross_inner = state.y_diff_grad_diff_cross_inner.at[
-                state.index_start % self.history_length
-            ].set(v_tree_dot(state.grad_diff_history, y_diff))
-            y_diff_grad_diff_cross_inner = y_diff_grad_diff_cross_inner.at[
-                :, state.index_start % self.history_length
-            ].set(0)
-            assert y_diff_grad_diff_cross_inner.shape == (
-                self.history_length,
-                self.history_length,
-            )
-
-            # Here we update the history of inner products in the circular buffer.
-            y_diff_grad_diff_inner = state.y_diff_grad_diff_inner.at[
-                state.index_start % self.history_length
-            ].set(
-                tree_dot(
-                    jtu.tree_map(
-                        lambda x: x[state.index_start % self.history_length],
-                        updated_grad_diff_history,
-                    ),
-                    y_diff,
-                )
-            )
-            assert y_diff_grad_diff_inner.shape == (self.history_length,)
-
-            # Update the matrix of inner products of `y_diff` by updating one row and
-            # one column per iteration. This matrix has nonzero elements for rows up to
-            # k and columns up to k, where k is the current iteration index and may be
-            # smaller than the history length. Cholesky factorisation works because this
-            # matrix is initialised as an identity, and elements > k are mapped to zero
-            # by setting the right-hand-side appropriately in the operator function.
-            cross_inner = v_tree_dot(
-                updated_y_diff_history,
-                jtu.tree_map(
-                    lambda x: x[state.index_start % self.history_length],
-                    updated_y_diff_history,
-                ),
-            )
-            assert cross_inner.shape == (self.history_length,)
-            y_diff_cross_inner = state.y_diff_cross_inner.at[
-                state.index_start % self.history_length
-            ].set(cross_inner)
-            y_diff_cross_inner = y_diff_cross_inner.at[
-                :, state.index_start % self.history_length
-            ].set(cross_inner)
-            assert y_diff_cross_inner.shape == (
-                self.history_length,
-                self.history_length,
-            )
-
-            updated_state = _LBFGSHessianUpdateState(
-                index_start=state.index_start + 1,
-                history_length=self.history_length,
-                y_diff_history=updated_y_diff_history,
-                grad_diff_history=updated_grad_diff_history,
-                y_diff_grad_diff_cross_inner=y_diff_grad_diff_cross_inner,
-                y_diff_grad_diff_inner=y_diff_grad_diff_inner,
-                y_diff_cross_inner=y_diff_cross_inner,
-            )
-
-            operator = lx.FunctionLinearOperator(
-                lambda y: _lbfgs_hessian_operator_fn(y, updated_state),
-                jax.eval_shape(lambda: y_diff),
-                tags=lx.positive_semidefinite_tag,
-            )
-            # Only return the dynamic part of the operator, keep jaxpr across iterations
-            return eqx.filter(operator, eqx.is_array), updated_state
-
-    def __call__(
+    def update_hessian(
         self,
         y: Y,
         y_eval: Y,
         f_info: _Hessian,
         f_eval_info: FunctionInfo.EvalGrad,
-        state: _LBFGSUpdateState,
+        hessian_update_state: _LBFGSUpdateState,
     ) -> tuple[_Hessian, _LBFGSUpdateState]:
         if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
             operator = f_info.hessian_inv
@@ -499,18 +376,143 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
         inner = tree_dot(y_diff, grad_diff)
         inner_nonzero = inner > jnp.finfo(inner.dtype).eps
 
+        def no_update(args):
+            *_, f_info, _ = args
+            if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
+                operator = f_info.hessian_inv
+            else:
+                operator = f_info.hessian
+            return eqx.filter(operator, eqx.is_array), hessian_update_state
+
+        def update(args):
+            inner, grad_diff, y_diff, f_info, state = args
+            updated_y_diff_history = jtu.tree_map(
+                lambda x, z: x.at[state.index_start % self.history_length].set(z),
+                state.y_diff_history,
+                y_diff,
+            )
+            updated_grad_diff_history = jtu.tree_map(
+                lambda x, z: x.at[state.index_start % self.history_length].set(z),
+                state.grad_diff_history,
+                grad_diff,
+            )
+
+            if self.use_inverse:
+                # Safety check for when the filter_cond that calls `_update` is
+                # converted into an elementwise select (e.g., under vmap without JIT).
+                # In that case, the non-taken branch may still be evaluated, so we
+                # ensure `inner` is never <= eps to prevent `1.0 / inner` from producing
+                # NaNs or Infs.
+                inner = jnp.where(inner > jnp.finfo(inner.dtype).eps, inner, 1.0)
+                updated_inner_history = state.inner_history.at[
+                    state.index_start % self.history_length
+                ].set(1.0 / jnp.asarray(inner))
+                updated_state = _LBFGSInverseHessianUpdateState(
+                    index_start=state.index_start + 1,
+                    history_length=self.history_length,
+                    y_diff_history=updated_y_diff_history,
+                    grad_diff_history=updated_grad_diff_history,
+                    inner_history=updated_inner_history,
+                )
+                operator = lx.FunctionLinearOperator(
+                    lambda y: _lbfgs_inverse_hessian_operator_fn(y, updated_state),
+                    jax.eval_shape(lambda: y_diff),
+                    tags=lx.positive_semidefinite_tag,
+                )
+
+                # Only return the dynamic part of the operator, keep jaxpr across
+                # iterations
+                return eqx.filter(operator, eqx.is_array), updated_state
+
+            else:
+                # Here we gradually fill in the lower-triangular matrix of inner
+                # products between the history of gradient differences and the current
+                # difference in the optimisation variable `y`. This matrix has a zero
+                # diagonal, it corresponds to `L_k` in the paper, where it is defined by
+                # (2.18). At the start of the optimisation, parts of the lower triangle
+                # will still be zero. We catch this before computing the Cholesky
+                # factorisation by setting the diagonal to 1.0 in the affected rows, and
+                # mapping the solution for these elements to a zero vector. (This
+                # happens in the operator function.)
+                y_diff_grad_diff_cross_inner = state.y_diff_grad_diff_cross_inner.at[
+                    state.index_start % self.history_length
+                ].set(v_tree_dot(state.grad_diff_history, y_diff))
+                y_diff_grad_diff_cross_inner = y_diff_grad_diff_cross_inner.at[
+                    :, state.index_start % self.history_length
+                ].set(0)
+                assert y_diff_grad_diff_cross_inner.shape == (
+                    self.history_length,
+                    self.history_length,
+                )
+
+                # Here we update the history of inner products in the circular buffer.
+                y_diff_grad_diff_inner = state.y_diff_grad_diff_inner.at[
+                    state.index_start % self.history_length
+                ].set(
+                    tree_dot(
+                        jtu.tree_map(
+                            lambda x: x[state.index_start % self.history_length],
+                            updated_grad_diff_history,
+                        ),
+                        y_diff,
+                    )
+                )
+                assert y_diff_grad_diff_inner.shape == (self.history_length,)
+
+                # Update the matrix of inner products of `y_diff` by updating one row
+                # and one column per iteration. This matrix has nonzero elements for
+                # rows up to k and columns up to k, where k is the current iteration
+                # index and may be smaller than the history length. Cholesky
+                # factorisation works because this matrix is initialised as an identity,
+                # and elements > k are mapped to zero by setting the right-hand-side
+                # appropriately in the operator function.
+                cross_inner = v_tree_dot(
+                    updated_y_diff_history,
+                    jtu.tree_map(
+                        lambda x: x[state.index_start % self.history_length],
+                        updated_y_diff_history,
+                    ),
+                )
+                assert cross_inner.shape == (self.history_length,)
+                y_diff_cross_inner = state.y_diff_cross_inner.at[
+                    state.index_start % self.history_length
+                ].set(cross_inner)
+                y_diff_cross_inner = y_diff_cross_inner.at[
+                    :, state.index_start % self.history_length
+                ].set(cross_inner)
+                assert y_diff_cross_inner.shape == (
+                    self.history_length,
+                    self.history_length,
+                )
+
+                updated_state = _LBFGSHessianUpdateState(
+                    index_start=state.index_start + 1,
+                    history_length=self.history_length,
+                    y_diff_history=updated_y_diff_history,
+                    grad_diff_history=updated_grad_diff_history,
+                    y_diff_grad_diff_cross_inner=y_diff_grad_diff_cross_inner,
+                    y_diff_grad_diff_inner=y_diff_grad_diff_inner,
+                    y_diff_cross_inner=y_diff_cross_inner,
+                )
+
+                operator = lx.FunctionLinearOperator(
+                    lambda y: _lbfgs_hessian_operator_fn(y, updated_state),
+                    jax.eval_shape(lambda: y_diff),
+                    tags=lx.positive_semidefinite_tag,
+                )
+                # Only return the dynamic part of the operator, keep jaxpr across
+                # iterations
+                return eqx.filter(operator, eqx.is_array), updated_state
+
         # We have a jaxpr in the FunctionLinearOperator, which needs to be filtered to
         # enable downstream checks for equality.
         static_operator = eqx.filter(operator, eqx.is_array, inverse=True)
+        args = (inner, grad_diff, y_diff, f_info, hessian_update_state)
         new_dynamic_operator, new_state = filter_cond(
             inner_nonzero,
-            self._update,
-            self._no_update,
-            inner,
-            grad_diff,
-            y_diff,
-            f_info,
-            state,
+            update,
+            no_update,
+            args,
         )
         hessian = eqx.combine(static_operator, new_dynamic_operator)
         if isinstance(f_info, FunctionInfo.EvalGradHessianInv):
@@ -524,13 +526,32 @@ class LBFGSUpdate(AbstractQuasiNewtonUpdate[Y, _Hessian, _LBFGSUpdateState]):
         return new_f_info, new_state  # pyright: ignore
 
 
-class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
+class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
     """L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.
 
     This is a quasi-Newton optimisation algorithm that approximates the inverse Hessian
     using a limited history of gradient and parameter updates. Unlike full BFGS,
     which stores a dense matrix, L-BFGS maintains a memory-efficient
     representation suitable for large-scale problems.
+
+    For a brief outline, see [https://en.wikipedia.org/wiki/Limited-memory_BFGS](https://en.wikipedia.org/wiki/Limited-memory_BFGS).
+    Our implementation follows Byrd et al. 1994.
+
+    ??? cite "References"
+
+        ```bibtex
+        @article{byrd_representations_1994,
+            author = {Byrd, Richard H. and Nocedal, Jorge and Schnabel, Robert B.},
+            title = {Representations of quasi-{Newton} matrices and their use in
+                     limited memory methods},
+            journal = {Mathematical Programming},
+            volume = {63},
+            number = {1},
+            pages = {129--156},
+            year = {1994},
+            doi = {10.1007/BF01582063},
+        }
+        ```
 
     Supports the following `options`:
 
@@ -543,9 +564,10 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
+    use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
-    hessian_update: AbstractQuasiNewtonUpdate
+    history_length: int
     verbose: frozenset[str]
 
     def __init__(
@@ -560,11 +582,10 @@ class LBFGS(AbstractQuasiNewton[Y, Aux, _Hessian]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
+        self.use_inverse = use_inverse
         self.descent = NewtonDescent()
         self.search = BacktrackingArmijo()
-        self.hessian_update = LBFGSUpdate(
-            use_inverse=use_inverse, history_length=history_length
-        )
+        self.history_length = history_length
         self.verbose = verbose
 
 
@@ -576,6 +597,11 @@ LBFGS.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `use_inverse`: Whether to use the inverse Hessian approximation (default) or the
+    Hessian approximation. If `True`, the L-BFGS update will use the inverse Hessian
+    approximation, and the step is computed as a single matrix-vector product, without 
+    materialising the matrix. If `False`, then the limited-memory approximation to the 
+    Hessian is computed instead, and the step is computed by solving a linear system.
 - `history_length`: Number of parameter and gradient residuals to retain in the 
     L-BFGS history. Larger values can improve accuracy of the inverse Hessian 
     approximation, while smaller values reduce memory and computation. 

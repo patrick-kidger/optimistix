@@ -49,7 +49,7 @@ dev = [
   "ruff>=0.11.6"
 ]
 docs = [
-  "hippogriffe==0.2.1",
+  "hippogriffe==0.2.2",
   "mkdocs==1.6.1",
   "mkdocs-include-exclude-files==0.1.0",
   "mkdocs-ipynb==0.1.1",
