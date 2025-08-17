@@ -118,6 +118,10 @@ class AbstractQuasiNewton(
     structure and the Hessian update state, while the latter is called to compute an
     update to the approximation of the Hessian or the inverse Hessian.
 
+    Already supported schemes to form inverse Hessian and Hessian approximations are
+    implemented in `optimistix.AbstractBFGS`, `optimistix.AbstractDFP` and
+    `optimistix.AbstractLBFGS`.
+
     Supports the following `options`:
 
     - `autodiff_mode`: whether to use forward- or reverse-mode autodifferentiation to
