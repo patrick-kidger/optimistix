@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, ClassVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -16,6 +16,7 @@ def _typed_asarray(x: ScalarLike) -> Array:
 class LearningRate(AbstractSearch[Y, FunctionInfo, FunctionInfo, None]):
     """Move downhill by taking a step of the fixed size `learning_rate`."""
 
+    _needs_grad_at_y_eval: ClassVar[bool] = False
     learning_rate: ScalarLike = eqx.field(converter=_typed_asarray)
 
     def init(self, y: Y, f_info_struct: FunctionInfo) -> None:
