@@ -113,123 +113,123 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
         self.verbose = frozenset()
 
 
-class BFGSDampedNewton(optx.AbstractQuasiNewton):
+class BFGSDampedNewton(optx.AbstractBFGS):
     """BFGS Hessian + direct Levenberg Marquardt update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DampedNewtonDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSIndirectDampedNewton(optx.AbstractQuasiNewton):
+class BFGSIndirectDampedNewton(optx.AbstractBFGS):
     """BFGS Hessian + indirect Levenberg Marquardt update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.IndirectDampedNewtonDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSDogleg(optx.AbstractQuasiNewton):
+class BFGSDogleg(optx.AbstractBFGS):
     """BFGS Hessian + dogleg update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DoglegDescent(linear_solver=lx.SVD())
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSLinearTrustRegion(optx.AbstractQuasiNewton):
+class BFGSLinearTrustRegion(optx.AbstractBFGS):
     """Standard BFGS + linear trust region update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = True
     search: optx.AbstractSearch = optx.LinearTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=True)
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSLinearTrustRegionHessian(optx.AbstractQuasiNewton):
+class BFGSLinearTrustRegionHessian(optx.AbstractBFGS):
     """Standard BFGS (uses hessian, not inverse!) + linear trust region update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = False
     search: optx.AbstractSearch = optx.LinearTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class BFGSClassicalTrustRegionHessian(optx.AbstractQuasiNewton):
+class BFGSClassicalTrustRegionHessian(optx.AbstractBFGS):
     """Standard BFGS (uses hessian, not inverse!) + classical trust region update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class DFPDampedNewton(optx.AbstractQuasiNewton):
+class DFPDampedNewton(optx.AbstractDFP):
     """DFP Hessian + direct Levenberg Marquardt update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DampedNewtonDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.DFPUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class DFPIndirectDampedNewton(optx.AbstractQuasiNewton):
+class DFPIndirectDampedNewton(optx.AbstractDFP):
     """DFP Hessian + indirect Levenberg Marquardt update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.IndirectDampedNewtonDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.DFPUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class DFPDogleg(optx.AbstractQuasiNewton):
+class DFPDogleg(optx.AbstractDFP):
     """DFP Hessian + dogleg update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DoglegDescent(linear_solver=lx.SVD())
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.DFPUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 
-class DFPClassicalTrustRegionHessian(optx.AbstractQuasiNewton):
+class DFPClassicalTrustRegionHessian(optx.AbstractDFP):
     """Standard DFP (uses hessian, not inverse!) + classical trust region update."""
 
     rtol: float
     atol: float
     norm: Callable = optx.max_norm
+    use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.DFPUpdate(use_inverse=False)
     verbose: frozenset[str] = frozenset()
 
 

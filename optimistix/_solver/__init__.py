@@ -25,7 +25,7 @@ from .levenberg_marquardt import (
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
     LevenbergMarquardt as LevenbergMarquardt,
 )
-from .limited_memory_bfgs import LBFGS as LBFGS
+from .limited_memory_bfgs import AbstractLBFGS as AbstractLBFGS, LBFGS as LBFGS
 from .nelder_mead import NelderMead as NelderMead
 from .newton_chord import Chord as Chord, Newton as Newton
 from .nonlinear_cg import (
@@ -38,12 +38,11 @@ from .nonlinear_cg import (
 )
 from .optax import OptaxMinimiser as OptaxMinimiser
 from .quasi_newton import (
+    AbstractBFGS as AbstractBFGS,
+    AbstractDFP as AbstractDFP,
     AbstractQuasiNewton as AbstractQuasiNewton,
-    AbstractQuasiNewtonUpdate as AbstractQuasiNewtonUpdate,
     BFGS as BFGS,
-    BFGSUpdate as BFGSUpdate,
     DFP as DFP,
-    DFPUpdate as DFPUpdate,
 )
 from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,

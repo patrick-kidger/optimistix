@@ -77,6 +77,7 @@ plugins:
     - hippogriffe:
         extra_public_objects:
             - jax.Array
+            - jax.ShapeDtypeStruct
             - lineax.AutoLinearSolver
             - lineax.AbstractLinearSolver
             - lineax.AbstractLinearOperator

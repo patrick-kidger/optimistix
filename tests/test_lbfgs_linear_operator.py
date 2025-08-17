@@ -3,13 +3,13 @@ import itertools
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import optimistix as optx
 import pytest
 from optimistix._solver.limited_memory_bfgs import (
     _lbfgs_hessian_operator_fn,
     _lbfgs_inverse_hessian_operator_fn,
     _LBFGSHessianUpdateState,
     _LBFGSInverseHessianUpdateState,
-    LBFGSUpdate,
     v_tree_dot,
 )
 
@@ -196,7 +196,7 @@ def test_against_naive_bfgs_hessian_update(generate_data):
     "generate_data", [*itertools.product([2, 3], [0], [False])], indirect=True
 )
 def test_inverse_vs_direct_hessian_operator(generate_data):
-    """Test that combining the operetors results in the identity."""
+    """Test that combining the operators results in the identity."""
     (
         curr_descent,
         grad_diff_history,
@@ -280,9 +280,15 @@ def test_warmup_phase_compact(generate_data, extra_history):
     )
 
     history_len = len(inner_history)
-    update = LBFGSUpdate(history_length=history_len + extra_history, use_inverse=False)
-
-    _, state_init = update.init(curr_descent, jnp.array(0.0), curr_descent)
+    solver = optx.LBFGS(
+        rtol=1e-3,
+        atol=1e-6,
+        norm=optx.max_norm,
+        use_inverse=False,
+        history_length=history_len + extra_history,
+    )
+    _, state_init = solver.init_hessian(curr_descent, jnp.array(0.0), curr_descent)
+    del solver
 
     assert isinstance(state_init, _LBFGSHessianUpdateState)
 
