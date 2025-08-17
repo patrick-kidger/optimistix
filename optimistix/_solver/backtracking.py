@@ -1,4 +1,4 @@
-from typing import cast, TypeAlias
+from typing import cast, ClassVar, TypeAlias
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -29,6 +29,7 @@ class BacktrackingArmijo(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _BacktrackingSt
     decrease_factor: ScalarLike = 0.5
     slope: ScalarLike = 0.1
     step_init: ScalarLike = 1.0
+    _needs_grad_at_y_eval: ClassVar[bool] = False
 
     def __post_init__(self):
         self.decrease_factor = eqx.error_if(
