@@ -44,6 +44,7 @@ from .quasi_newton import (
     BFGS as BFGS,
     DFP as DFP,
 )
+from .squarem import SquarEM as SquarEM
 from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,
     LinearTrustRegion as LinearTrustRegion,

@@ -20,7 +20,12 @@ from .helpers import (
 
 
 atol = rtol = 1e-6
-_fp_solvers = (optx.FixedPointIteration(rtol, atol),)
+_fp_solvers = (
+    optx.FixedPointIteration(rtol, atol),
+    # to include tests for all 3 SQUAREM steplength schemes
+    # once scheme selection is implemented
+    optx.SquarEM(rtol, atol),
+)
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 

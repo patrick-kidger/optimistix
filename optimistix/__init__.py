@@ -75,6 +75,7 @@ from ._solver import (
     NonlinearCGDescent as NonlinearCGDescent,
     OptaxMinimiser as OptaxMinimiser,
     polak_ribiere as polak_ribiere,
+    SquarEM as SquarEM,
     SteepestDescent as SteepestDescent,
 )
 
