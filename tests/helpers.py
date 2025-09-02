@@ -498,7 +498,7 @@ least_squares_fn_minima_init_args = (
     (
         rosenbrock,
         jnp.array(0.0),
-        (1.5 * jnp.ones((2, 4)), {"a": 1.5 * jnp.ones((2, 3, 2))}, ()),
+        (1.45 * jnp.ones((2, 4)), {"a": 1.45 * jnp.ones((2, 3, 2))}, ()),
         jnp.array(1.0),
     ),
     (simple_nn, jnp.array(0.0), ffn_dynamic, ffn_args),
