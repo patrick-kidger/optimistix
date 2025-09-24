@@ -42,9 +42,7 @@ def quadratic_min(
     b: FloatScalar,
     value_b: FloatScalar,
 ) -> FloatScalar:
-    """
-    Find the minimum of the quadratic curve fitted to (a, value_a) and (b, value_b).
-    """
+    """Find the minimum of a quadratic curve fitted to (a, value_a) and (b, value_b)."""
     dist = b - a
     upper = -slope_a * dist**2
     lower = 2 * (value_b - value_a - slope_a * dist)
@@ -60,8 +58,7 @@ def optax_cubicmin(
     c: FloatScalar,
     value_c: FloatScalar,
 ) -> FloatScalar:
-    """
-    Cubic interpolation. Adapted from Optax. Optax docs follow:
+    """Cubic interpolation. Adapted from Optax. Optax docs follow:
 
     Finds a critical point of a cubic polynomial
     p(x) = A *(x-a)^3 + B*(x-a)^2 + C*(x-a) + D, that goes through the
@@ -110,9 +107,13 @@ def interpolate(
     cubic_ref: FloatScalar,
     value_cubic_ref: FloatScalar,
 ) -> FloatScalar:
-    """
-    Find a stepsize by minimizing the cubic or quadratic curve fitted to
-    `lo`, `hi`, and `cubic_ref`.
+    """Find a stepsize by minimizing the cubic or quadratic curve.
+
+    Cubic and quadratic curves are fitted to `lo`, `hi`, and `cubic_ref`.
+    If the cubic curve's minimum is valid (i.e. sufficiently far from the interval's
+    edges), that is used.
+    If the cubic minimum is invalid, the quadratic minimum is checked and used if valid.
+    If that is also invalid, the middle of the interval is returned.
     """
     # adapted from optax
     delta = jnp.abs(hi - lo)
@@ -141,9 +142,7 @@ def interpolate(
 
 
 class PointEval(eqx.Module, Generic[Y]):
-    """
-    Wraps FunctionInfo.Eval including the location.
-    """
+    """Wraps FunctionInfo.Eval including the location."""
 
     location: Y
     f_info: FunctionInfo.Eval
@@ -154,9 +153,7 @@ class PointEval(eqx.Module, Generic[Y]):
 
 
 class PointEvalGrad(eqx.Module, Generic[Y]):
-    """
-    Wraps FunctionInfo.EvalGrad including the location
-    """
+    """Wraps FunctionInfo.EvalGrad including the location"""
 
     location: Y
     f_info: FunctionInfo.EvalGrad
@@ -272,9 +269,9 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
             )
 
     def init_stepsize_from_previous(self, prev_stepsize: FloatScalar) -> FloatScalar:
-        """
-        Initialize the linesearch's stepsize based on the previous steps size
-        according to one of three strategies:
+        """Initialize the linesearch's stepsize based on the previous steps size.
+
+        Initialization is done aaccording to one of three strategies:
             - "one": initialize to 1.0. Recommended for quasi-Newton methods.
             - "keep": initialize to and start from the previous stepsize.
             - "increase": increase the previous stepsize by `increase_factor`.
@@ -310,9 +307,9 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         y_eval_stepsize: FloatScalar,
         y_eval: Y,
     ) -> ZoomState:
-        """
-        Init function actually used when starting a new linesearch,
-        aka when the number of linesearch steps is reset to 0.
+        """Init function actually used when starting a new linesearch.
+
+        Called when the number of linesearch steps is reset to 0.
 
         Instead of initializing the stepsize here, we use the stepsize that was proposed
         at the end of the last linesearch step and was used to create the `y_eval` here.
@@ -401,9 +398,9 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         )
 
     def _propose_by_interpolation(self, state: ZoomState) -> FloatScalar:
-        """
-        Propose a stepsize by interpolation, fitting a curve to lo, hi, cubic_ref,
-        matching function values at all locations and the slope at lo.
+        """Propose a stepsize by interpolation, fitting a curve to lo, hi, cubic_ref.
+
+        Function values are matched at all locations and the slope is matched at lo.
         """
         stepsize_middle = interpolate(
             state.stepsize_lo,
@@ -417,14 +414,12 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         return stepsize_middle
 
     def _propose_by_increase(self, state: ZoomState) -> FloatScalar:
-        """
-        Propose a new stepsize by increasing the current one by `increase_factor`.
-        """
+        """Propose a new stepsize by increasing the current one by `increase_factor`."""
         return state.stepsize * self.increase_factor
 
     def propose_stepsize(self, state: ZoomState) -> FloatScalar:
-        """Propose a stepsize in a way that depends on which stage of the zoom
-        linesearch we are at.
+        """Propose a stepsize in a way that depends on the zoom linesearch stage.
+
         If the interval is found and we are zooming into it: interpolate.
         If the interval is not found yet: increase.
 
@@ -450,14 +445,13 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         value_init: FloatScalar,
         slope_init: FloatScalar,
     ) -> BoolScalar:
-        """Evaluate the Armijo decrease condition, with an optional approximation
-        if `c3` is set.
+        """Evaluate the Armijo decrease condition, with an optional approximation.
 
-        If the change in function value is sufficiently small (with the relative
-        tolerance set by `c3`), that might indicate that the search is closed to
-        a local minimum. In this case, instead of just checking the decrease (Armijo)
-        condition, another condition based on the slope is sufficient for the condition
-        to be satisfied.
+        If `c3` is not None and the change in function value is sufficiently small
+        (with the relative tolerance set by `c3`), that might indicate that the search
+        is close to a local minimum. In this case, instead of just checking the decrease
+        (Armijo) condition, another condition based on the slope is sufficient for the
+        condition to be satisfied.
 
         Adapted from JAXopt and Optax.
         See [Hager and Zhang, 2006] or the Optax documentation for more information.
@@ -485,8 +479,9 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         return curv_error <= 0.0
 
     def _zoom_into_interval(self, y, y_eval, f_info, f_eval_info, state) -> ZoomState:
-        """Attempt to find an acceptable stepsize in the interval (state.lo, state.lo),
-        and shrink the interval if not found yet.
+        """Attempt to find an acceptable stepsize in the interval (state.lo, state.lo).
+
+        Shrink the interval if the middle point does not satisfy the conditions.
         """
         del y, f_info
 
@@ -754,9 +749,9 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         f_eval_info: FunctionInfo.EvalGrad,
         state: ZoomState,
     ):
-        """
+        """Just accepts the proposed random point.
+
         Only called once in the very beginning of the optimization.
-        Just accepts the proposed random point.
         """
         del y, y_eval, f_info, f_eval_info
         accept = jnp.array(True)
@@ -770,8 +765,7 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         f_eval_info: FunctionInfo.EvalGrad,
         state: ZoomState,
     ):
-        """
-        Called after the search fails and the safe stepsize is proposed,
+        """Called after the search fails and the safe stepsize is proposed,
         `y_eval` was created with that safe stepsize, so just accept it.
         """
         del y, y_eval, f_info, f_eval_info
@@ -786,8 +780,8 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         f_eval_info: FunctionInfo.EvalGrad,
         state: ZoomState,
     ):
-        """
-        This is a proper step of the zoom linesearch.
+        """This is a proper step of the zoom linesearch.
+
         Dispatches to either _search_interval or _zoom_into_interval.
         Accepts `y_eval` if those set `state.done` to True.
         """
@@ -837,6 +831,7 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         state: ZoomState,
     ):
         """This is repeatedly called after the first fake step is out of the way.
+
         Potentially reinitialize the state, then perform a regular step or accept the
         safe stepsize.
         """
