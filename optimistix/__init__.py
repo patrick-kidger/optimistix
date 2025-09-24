@@ -60,6 +60,7 @@ from ._solver import (
     FixedPointIteration as FixedPointIteration,
     fletcher_reeves as fletcher_reeves,
     GaussNewton as GaussNewton,
+    GoldenSearch as GoldenSearch,
     GradientDescent as GradientDescent,
     hestenes_stiefel as hestenes_stiefel,
     IndirectDampedNewtonDescent as IndirectDampedNewtonDescent,

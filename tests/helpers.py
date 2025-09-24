@@ -910,3 +910,13 @@ forward_only_fn_init_options_expected = (
         jnp.array(0.5),
     ),
 )
+
+
+golden_search_fn_y0_options_expected = (
+    (
+        lambda y, args: (y - 2)**2,
+        jnp.array(1),
+        dict(lower=0, upper=3),
+        jnp.array(2)
+    ),
+)

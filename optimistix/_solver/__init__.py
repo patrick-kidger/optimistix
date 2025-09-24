@@ -13,6 +13,7 @@ from .gauss_newton import (
     GaussNewton as GaussNewton,
     NewtonDescent as NewtonDescent,
 )
+from .golden import GoldenSearch as GoldenSearch
 from .gradient_methods import (
     AbstractGradientDescent as AbstractGradientDescent,
     GradientDescent as GradientDescent,
