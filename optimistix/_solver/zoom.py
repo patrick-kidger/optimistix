@@ -226,7 +226,7 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
     initial_guess_strategy: str = "keep"
     min_interval_length: float = 1e-6
     min_stepsize: float = 1e-6
-    maxls: int = 30
+    line_search_max_steps: int = 30
     verbose: frozenset[str] = frozenset()
     _needs_grad_at_y_eval: ClassVar[bool] = True
 
@@ -586,7 +586,7 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         )
 
         # diagnose failure the same way optax does
-        max_iter_reached = (state.ls_iter_num + 1) >= self.maxls
+        max_iter_reached = (state.ls_iter_num + 1) >= self.line_search_max_steps
         presumably_failed = max_iter_reached | (
             interval_too_short & (new_safe_stepsize > 0.0)
         )
@@ -709,7 +709,7 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         done = (decrease_satisfied & curvature_satisfied) | (
             reached_max_stepsize & ~interval_found
         )
-        failed = (state.ls_iter_num + 1 >= self.maxls) & (~done)
+        failed = (state.ls_iter_num + 1 >= self.line_search_max_steps) & (~done)
 
         return ZoomState(
             ls_iter_num=state.ls_iter_num + 1,
@@ -1010,5 +1010,5 @@ Zoom.__init__.__doc__ = """**Arguments:**
     - `min_interval_length`: Stop zooming the interval's length in falls below this.
     - `min_stepsize`: If the initial stepsize would be smaller than this smallest
         allowed stepsize, reset it to `max_stepsize`.
-    - `maxls`: Maximum number of linesearch iterations.
+    - `line_search_max_steps`: Maximum number of linesearch iterations.
 """
