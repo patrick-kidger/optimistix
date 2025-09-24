@@ -176,6 +176,6 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
 
 GoldenSearch.__init__.__doc__ = """**Arguments:**
 
-`rtol` - The relative tolerance for terminating the solve.
-`atol` - The absolute tolerance for terminating the solve.
+- `rtol`: The relative tolerance for terminating the solve.
+- `atol`: The absolute tolerance for terminating the solve.
 """
