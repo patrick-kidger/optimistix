@@ -8,7 +8,7 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn
 from .._minimise import AbstractMinimiser
-from .._misc import tree_where
+from .._misc import filter_cond, tree_where
 from .._solution import RESULTS
 
 
@@ -86,10 +86,6 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
         f_middle, _ = fn(middle, args)
         f_upper, _ = fn(upper, args)
 
-        jax.debug.print("lower: {}", (lower, f_lower))
-        jax.debug.print("middle: {}", (middle, f_middle))
-        jax.debug.print("upper: {}", (upper, f_upper))
-
         return _GoldenSearchState(
             lower=_Point(lower, f_lower),
             middle=_Point(middle, f_middle),
@@ -106,30 +102,40 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
         state: _GoldenSearchState,
         tags: frozenset[object],
     ) -> tuple[Scalar, _GoldenSearchState, Aux]:
-        jax.debug.print("")
         # Safeguard to ensure that the first step respects the golden ratio rule.
         y_ = jnp.where(state.first, state.lower.y + (state.upper.y - state.middle.y), y)
         f, aux = fn(y_, args)
 
-        jax.debug.print("y_: {}", y_)
-        jax.debug.print("f: {}", f)
-
-        # y is either a new candidate minimum point, or an outer point defining
-        # the interval in which we may find the minimum.
+        # y is either a new candidate minimum point (if the function value at `y_` is
+        # lower than elsewhere), or it becomes an outer point, either the lower or the
+        # upper bound to the interval in which we keep searching for the minimum. Which
+        # bound is replaced depends on whether the current `y_` is higher or lower than
+        # the current middle point.
         is_min = f < state.middle.f
-        jax.debug.print("is_min: {}", is_min)
-        new_upper = tree_where(is_min, state.upper, _Point(y_, f))
-        new_lower = tree_where(is_min, state.middle, state.lower)
-        new_middle = tree_where(is_min, _Point(y_, f), state.middle)
-        jax.debug.print("new_lower: {}", new_lower.y)
-        jax.debug.print("new_upper: {}", new_upper.y)
-        jax.debug.print("new_middle: {}", new_middle.y)
+        is_lower = y_ < state.middle.y
 
-        new_y = new_lower.y + (new_upper.y - new_middle.y)
-        jax.debug.print("new_y: {}", new_y)
-        new_state = _GoldenSearchState(
-            lower=new_lower, middle=new_middle, upper=new_upper, first=jnp.array(False)
-        )
+        def new_middle(point__state):
+            point, state = point__state
+            new_lower = tree_where(is_lower, state.lower, state.middle)
+            new_upper = tree_where(is_lower, state.middle, state.upper)
+            return _GoldenSearchState(
+                lower=new_lower, middle=point, upper=new_upper, first=jnp.array(False)
+            )
+
+        def new_outer(point__state):
+            point, state = point__state
+            new_lower = tree_where(is_lower, point, state.lower)
+            new_upper = tree_where(is_lower, state.upper, point)
+            return _GoldenSearchState(
+                lower=new_lower,
+                middle=state.middle,
+                upper=new_upper,
+                first=jnp.array(False),
+            )
+
+        point = _Point(y_, f)
+        new_state = filter_cond(is_min, new_middle, new_outer, (point, state))
+        new_y = new_state.lower.y + (new_state.upper.y - new_state.middle.y)
 
         return new_y, new_state, aux
 
@@ -143,7 +149,6 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         y_diff = y - state.middle.y  # This is always the smallest distance
-        jax.debug.print("y_diff: {}", y_diff)
         # Note: currently avoiding computation of f_diff, to avoid calling it here
         # + adding to compilation costs. These could easily be circumvented by writing
         # the value of fn into the solver state. Taking the function values into account
