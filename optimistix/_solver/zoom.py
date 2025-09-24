@@ -119,18 +119,20 @@ def interpolate(
     delta = jnp.abs(hi - lo)
     left = jnp.minimum(hi, lo)
     right = jnp.maximum(hi, lo)
-    cubic_chk = 0.2 * delta  # cubic guess has to be at least this far from the sides
-    quad_chk = 0.1 * delta  # quadratic guess has to be at least this far from the sides
+    # cubic guess has to be at least this far from the sides
+    cubic_threshold = 0.2 * delta
+    # quadratic guess has to be at least this far from the sides
+    quadratic_threshold = 0.1 * delta
 
     middle_cubic = optax_cubicmin(
         lo, value_lo, slope_lo, hi, value_hi, cubic_ref, value_cubic_ref
     )
-    middle_cubic_valid = (middle_cubic > left + cubic_chk) & (
-        middle_cubic < right - cubic_chk
+    middle_cubic_valid = (middle_cubic > left + cubic_threshold) & (
+        middle_cubic < right - cubic_threshold
     )
     middle_quad = quadratic_min(lo, value_lo, slope_lo, hi, value_hi)
-    middle_quad_valid = (middle_quad > left + quad_chk) & (
-        middle_quad < right - quad_chk
+    middle_quad_valid = (middle_quad > left + quadratic_threshold) & (
+        middle_quad < right - quadratic_threshold
     )
     middle_bisection = (lo + hi) / 2.0
 
