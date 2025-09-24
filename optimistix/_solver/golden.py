@@ -28,22 +28,24 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
     """Golden-section search for finding the minimum of a univariate function in a given
     interval.
 
+    This solver maintains a set of three reference points, defining the lower and upper
+    boundaries of the interval, as well as a midpoint chosen to divide the interval into
+    two sections by the golden ratio.
+    At each step, the reference points are updated by dropping one of the outer points
+    and updating the midpoint, such that the interval shrinks monotonously until the
+    solver has converged.
+
+    If the function is unimodal (has just one minimum inside the interval), then this
+    minimum is always found. If the function has several minima, then a local minimum is
+    identified, depending on the initial choice of interval.
+
     This solver requires the following `options`:
 
     - `lower`: The lower bound on the interval which contains the minimum.
     - `upper`: The upper bound on the interval which contains the minimum.
 
-    This algorithm considers the interval defined by `[lower, upper]` and two additional
-    points in between: a `middle` point, and a trial point. If the function value at the
-    trial point is lower than at the (previously evaluated) `middle` point, then the
-    trial point defines the new `middle` point, and the previous `middle` point defines
-    an outer point of the interval containing the minimum.
-    In this way, the interval containing the minimum is reduced by the golden ratio at
-    each step.
-
-    Note that the initial value `y0` is overwritten in the first step to guarantee that
-    the golden ratio is respected throughout. The minimum to be indentified is thus
-    defined only by the lower and upper bounds provided.
+    Note that the initial value `y0` is discarded in the first step to guarantee that
+    the golden ratio between interval segments is always maintained.
     """
 
     rtol: float
