@@ -37,7 +37,7 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
 
     If the function is unimodal (has just one minimum inside the interval), then this
     minimum is always found. If the function has several minima, then a local minimum is
-    identified, depending on the initial choice of interval.
+    identified, depending on the initial choice of interval bounds.
 
     This solver requires the following `options`:
 
