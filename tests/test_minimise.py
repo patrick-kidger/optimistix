@@ -214,12 +214,12 @@ def test_forward_minimisation(fn, y0, options, expected, solver):
         assert tree_allclose(sol.value, expected, atol=1e-4, rtol=1e-4)
 
 
-_golden = optx.GoldenSearch(rtol=1e-8, atol=1e-8)
+_golden = optx.GoldenSearch(rtol=1e-9, atol=1e-9)
 
 
 @pytest.mark.parametrize(
     "fn, y0, options, expected", golden_search_fn_y0_options_expected
 )
 def test_golden_search(fn, y0, options, expected):
-    sol = optx.minimise(fn, _golden, y0, options=options)
+    sol = optx.minimise(fn, _golden, y0, options=options, max_steps=2**9)
     assert tree_allclose(sol.value, expected)

@@ -919,4 +919,20 @@ golden_search_fn_y0_options_expected = (
         dict(lower=0, upper=3),
         jnp.array(2.0),
     ),
+    # Edge case: minimum corresponds to lower bound
+    (lambda y, args: y**2, jnp.array(1), dict(lower=0, upper=3), jnp.array(0.0)),
+    # Edge case: minimum correspnds to upper bound
+    (
+        lambda y, args: (y - 2) ** 2,
+        jnp.array(1),
+        dict(lower=0, upper=2),
+        jnp.array(2.0),
+    ),
+    # Function unbounded below, can be minimised within bounds
+    (
+        lambda y, args: -((y - 2) ** 2),
+        jnp.array(1),
+        dict(lower=0, upper=3),
+        jnp.array(0.0),
+    ),
 )
