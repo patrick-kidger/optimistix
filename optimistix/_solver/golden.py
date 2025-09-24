@@ -26,7 +26,8 @@ class _GoldenSearchState(eqx.Module):
 
 class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
     """Golden-section search for finding the minimum of a univariate function in a given
-    interval.
+    interval. This solver does not use gradients and is not particularly fast, but it is
+    very robust.
 
     This solver maintains a set of three reference points, defining the lower and upper
     boundaries of the interval, as well as a midpoint chosen to divide the interval into
@@ -171,3 +172,10 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
         result: RESULTS,
     ) -> tuple[Scalar, Aux, dict[str, Any]]:
         return y, aux, {}
+
+
+GoldenSearch.__init__.__doc__ = """**Arguments:**
+
+`rtol` - The relative tolerance for terminating the solve.
+`atol` - The absolute tolerance for terminating the solve.
+"""
