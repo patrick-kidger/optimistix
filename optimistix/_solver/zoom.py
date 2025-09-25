@@ -743,37 +743,6 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
             descent_direction=state.descent_direction,
         )
 
-    def fake_first_step(
-        self,
-        y: Y,
-        y_eval: Y,
-        f_info: _FnInfo,
-        f_eval_info: FunctionInfo.EvalGrad,
-        state: ZoomState,
-    ):
-        """Just accepts the proposed random point.
-
-        Only called once in the very beginning of the optimization.
-        """
-        del y, y_eval, f_info, f_eval_info
-        accept = jnp.array(True)
-        return accept, state
-
-    def _safe_step(
-        self,
-        y: Y,
-        y_eval: Y,
-        f_info: _FnInfo,
-        f_eval_info: FunctionInfo.EvalGrad,
-        state: ZoomState,
-    ):
-        """Called after the search fails and the safe stepsize is proposed,
-        `y_eval` was created with that safe stepsize, so just accept it.
-        """
-        del y, y_eval, f_info, f_eval_info
-        accept = jnp.array(True)
-        return accept, state
-
     def _regular_step(
         self,
         y: Y,
@@ -854,7 +823,9 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         # if we failed on the previous iteration, y_eval was made with the safe stepsize
         # so just accept it with _safe_step
         # otherwise take a regular step
-        _safe_step_fn = ft.partial(self._safe_step, y, y_eval, f_info, f_eval_info)
+        def _safe_step_fn(state):
+            return jnp.array(True), state
+
         _regular_step_fn = ft.partial(
             self._regular_step, y, y_eval, f_info, f_eval_info
         )
@@ -911,9 +882,10 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
                 "of type `FunctionInfo.EvalGrad`."
             )
 
-        _fake_first_step_fn = ft.partial(
-            self.fake_first_step, y, y_eval, f_info, f_eval_info
-        )
+        # just accepts the proposed random point
+        def _fake_first_step_fn(state):
+            return jnp.array(True), state
+
         _step_fn = ft.partial(self._step, y, y_eval, f_info, f_eval_info)
 
         accept, state = jax.lax.cond(
