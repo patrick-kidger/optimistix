@@ -120,7 +120,7 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
         terminate = cauchy_termination(
             self.rtol,
             self.atol,
-            self.norm,
+            jnp.abs,
             state.middle.y,
             y_diff,
             state.middle.f,
