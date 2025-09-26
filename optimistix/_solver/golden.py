@@ -79,7 +79,7 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
                 "producing a scalar output."
             )
 
-        # Compute the first mddle point such that the golden ratio is respected.
+        # Compute the first middle point such that the golden ratio is respected.
         # This divides the interval asymmetrically into components A and B, of
         # length a and b, respectively. The ratio of their lengths, b / a, is equal
         # to the golden ratio.
