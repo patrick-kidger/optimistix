@@ -8,7 +8,7 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn
 from .._minimise import AbstractMinimiser
-from .._misc import filter_cond, tree_where
+from .._misc import cauchy_termination, filter_cond, tree_where
 from .._solution import RESULTS
 
 
@@ -22,6 +22,7 @@ class _GoldenSearchState(eqx.Module):
     middle: _Point
     upper: _Point
     first: Bool[Array, ""]
+    terminate: Bool[Array, ""]
 
 
 class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
@@ -94,6 +95,7 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
             middle=_Point(middle, f_middle),
             upper=_Point(upper, f_upper),
             first=jnp.array(True),
+            terminate=jnp.array(False),
         )
 
     def step(
@@ -109,6 +111,22 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
         y_ = jnp.where(state.first, state.lower.y + (state.upper.y - state.middle.y), y)
         f, aux = fn(y_, args)
 
+        # Decide whether to terminate the solve after this step. We'll still compute a
+        # `new_y` below, but if we have converged already then its value is only going
+        # to be negligibly different from `y_`. We're comparing against the middle point
+        # since that is always the point closest to the current `y_`.
+        y_diff = state.middle.y - y_
+        f_diff = state.middle.f - f
+        terminate = cauchy_termination(
+            self.rtol,
+            self.atol,
+            self.norm,
+            state.middle.y,
+            y_diff,
+            state.middle.f,
+            f_diff,
+        )
+
         # y is either a new candidate minimum point (if the function value at `y_` is
         # lower than elsewhere), or it becomes an outer point, either the lower or the
         # upper bound to the interval in which we keep searching for the minimum. Which
@@ -122,7 +140,11 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
             new_lower = tree_where(is_lower, state.lower, state.middle)
             new_upper = tree_where(is_lower, state.middle, state.upper)
             return _GoldenSearchState(
-                lower=new_lower, middle=point, upper=new_upper, first=jnp.array(False)
+                lower=new_lower,
+                middle=point,
+                upper=new_upper,
+                first=jnp.array(False),
+                terminate=terminate,
             )
 
         def new_outer(point__state):
@@ -134,6 +156,7 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
                 middle=state.middle,
                 upper=new_upper,
                 first=jnp.array(False),
+                terminate=terminate,
             )
 
         point = _Point(y_, f)
@@ -151,14 +174,7 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
         state: _GoldenSearchState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
-        y_diff = y - state.middle.y  # This is always the smallest distance
-        # Note: currently avoiding computation of f_diff, to avoid calling it here
-        # + adding to compilation costs. These could easily be circumvented by writing
-        # the value of fn into the solver state. Taking the function values into account
-        # when checking convergence might make a difference, hence this is a TODO.
-
-        converged = jnp.abs(y_diff) < self.atol + self.rtol * jnp.abs(y)
-        return converged, RESULTS.successful
+        return state.terminate, RESULTS.successful
 
     def postprocess(
         self,
