@@ -34,10 +34,9 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
 
     This solver maintains a set of three reference points, defining the lower and upper
     boundaries of the interval, as well as a midpoint chosen to divide the interval into
-    two sections by the golden ratio.
-    At each step, the reference points are updated by dropping one of the outer points
-    and updating the midpoint, such that the interval shrinks monotonously until the
-    solver has converged.
+    two sections by the golden ratio. At each step, the reference points are updated by
+    dropping one of the outer points and updating the midpoint, such that the interval
+    shrinks monotonously until the solver has converged.
 
     If the function is unimodal (has just one minimum inside the interval), then this
     minimum is always found. If the function has several minima, then a local minimum is
