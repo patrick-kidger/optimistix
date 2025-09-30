@@ -1,20 +1,22 @@
+import math
 from collections.abc import Callable
 from typing import Any, ClassVar
 
 import equinox as eqx
 import jax
+import jax.lax as lax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, Float, PyTree
 
 from .._custom_types import Aux, Fn
 from .._minimise import AbstractMinimiser
-from .._misc import cauchy_termination, filter_cond, tree_where
+from .._misc import cauchy_termination, tree_where
 from .._solution import RESULTS
 
 
 class _Point(eqx.Module):
-    y: Scalar
-    f: Scalar
+    y: Float[Array, ""]
+    f: Float[Array, ""]
 
 
 class _GoldenSearchState(eqx.Module):
@@ -25,7 +27,7 @@ class _GoldenSearchState(eqx.Module):
     terminate: Bool[Array, ""]
 
 
-class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
+class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState]):
     """Golden-section search for finding the minimum of a univariate function in a given
     interval. It does not use gradients and is not particularly fast, but it is very
     robust.
@@ -46,19 +48,19 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
     - `lower`: The lower bound on the interval which contains the minimum.
     - `upper`: The upper bound on the interval which contains the minimum.
 
-    Note that the initial value `y0` is discarded in the first step to guarantee that
-    the golden ratio between interval segments is always maintained.
+    Note that the initial value `y0` is ignored to guarantee that the golden ratio
+    between interval segments is always maintained.
     """
 
     rtol: float
     atol: float
     # All norms are the same for scalars.
-    norm: ClassVar[Callable[[PyTree], Scalar]] = jnp.abs
+    norm: ClassVar[Callable[[PyTree], Float[Array, ""]]] = jnp.abs
 
     def init(
         self,
-        fn: Fn[Scalar, Scalar, Aux],
-        y: Scalar,
+        fn: Fn[Float[Array, ""], Float[Array, ""], Aux],
+        y: Float[Array, ""],
         args: PyTree,
         options: dict[str, Any],
         f_struct: jax.ShapeDtypeStruct,
@@ -83,7 +85,7 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
         # This divides the interval asymmetrically into components A and B, of
         # length a and b, respectively. The ratio of their lengths, b / a, is equal
         # to the golden ratio.
-        golden_ratio = (1 + jnp.sqrt(5)) / 2
+        golden_ratio = (1 + math.sqrt(5)) / 2
         middle = (upper - lower) / (golden_ratio + 1)
 
         f_lower, _ = fn(lower, args)
@@ -100,13 +102,13 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
 
     def step(
         self,
-        fn: Fn[Scalar, Scalar, Aux],
-        y: Scalar,
+        fn: Fn[Float[Array, ""], Float[Array, ""], Aux],
+        y: Float[Array, ""],
         args: PyTree,
         options: dict[str, Any],
         state: _GoldenSearchState,
         tags: frozenset[object],
-    ) -> tuple[Scalar, _GoldenSearchState, Aux]:
+    ) -> tuple[Float[Array, ""], _GoldenSearchState, Aux]:
         # Safeguard to ensure that the first step respects the golden ratio rule.
         y_ = jnp.where(state.first, state.lower.y + (state.upper.y - state.middle.y), y)
         f, aux = fn(y_, args)
@@ -160,15 +162,15 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
             )
 
         point = _Point(y_, f)
-        new_state = filter_cond(is_min, new_middle, new_outer, (point, state))
+        new_state = lax.cond(is_min, new_middle, new_outer, (point, state))
         new_y = new_state.lower.y + (new_state.upper.y - new_state.middle.y)
 
         return new_y, new_state, aux
 
     def terminate(
         self,
-        fn: Fn[Scalar, Scalar, Aux],
-        y: Scalar,
+        fn: Fn[Float[Array, ""], Float[Array, ""], Aux],
+        y: Float[Array, ""],
         args: PyTree,
         options: dict[str, Any],
         state: _GoldenSearchState,
@@ -178,15 +180,15 @@ class GoldenSearch(AbstractMinimiser[Scalar, Aux, _GoldenSearchState]):
 
     def postprocess(
         self,
-        fn: Fn[Scalar, Scalar, Aux],
-        y: Scalar,
+        fn: Fn[Float[Array, ""], Float[Array, ""], Aux],
+        y: Float[Array, ""],
         aux: Aux,
         args: PyTree,
         options: dict[str, Any],
         state: _GoldenSearchState,
         tags: frozenset[object],
         result: RESULTS,
-    ) -> tuple[Scalar, Aux, dict[str, Any]]:
+    ) -> tuple[Float[Array, ""], Aux, dict[str, Any]]:
         return y, aux, {}
 
 
