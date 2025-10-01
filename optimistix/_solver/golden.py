@@ -14,15 +14,11 @@ from .._misc import cauchy_termination, tree_where
 from .._solution import RESULTS
 
 
-class _Point(eqx.Module):
-    y: Float[Array, ""]
-    f: Float[Array, ""]
-
-
 class _GoldenSearchState(eqx.Module):
-    lower: _Point
-    middle: _Point
-    upper: _Point
+    lower: Float[Array, ""]
+    middle: Float[Array, ""]
+    upper: Float[Array, ""]
+    f_middle: Float[Array, ""]
     first: Bool[Array, ""]
     terminate: Bool[Array, ""]
 
@@ -87,14 +83,13 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
         golden_ratio = (1 + math.sqrt(5)) / 2
         middle = (upper - lower) / (golden_ratio + 1)
 
-        f_lower, _ = fn(lower, args)
         f_middle, _ = fn(middle, args)
-        f_upper, _ = fn(upper, args)
 
         return _GoldenSearchState(
-            lower=_Point(lower, f_lower),
-            middle=_Point(middle, f_middle),
-            upper=_Point(upper, f_upper),
+            lower=lower,
+            middle=middle,
+            upper=upper,
+            f_middle=f_middle,
             first=jnp.array(True),
             terminate=jnp.array(False),
         )
@@ -109,22 +104,24 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
         tags: frozenset[object],
     ) -> tuple[Float[Array, ""], _GoldenSearchState, Aux]:
         # Safeguard to ensure that the first step respects the golden ratio rule.
-        y_ = jnp.where(state.first, state.lower.y + (state.upper.y - state.middle.y), y)
+        y_ = jnp.where(state.first, state.lower + (state.upper - state.middle), y)
+        del y
+
         f, aux = fn(y_, args)
 
         # Decide whether to terminate the solve after this step. We'll still compute a
         # `new_y` below, but if we have converged already then its value is only going
         # to be negligibly different from `y_`. We're comparing against the middle point
         # since that is always the point closest to the current `y_`.
-        y_diff = state.middle.y - y_
-        f_diff = state.middle.f - f
+        y_diff = state.middle - y_
+        f_diff = state.f_middle - f
         terminate = cauchy_termination(
             self.rtol,
             self.atol,
             jnp.abs,
-            state.middle.y,
+            state.middle,
             y_diff,
-            state.middle.f,
+            state.f_middle,
             f_diff,
         )
 
@@ -133,36 +130,35 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
         # upper bound to the interval in which we keep searching for the minimum. Which
         # bound is replaced depends on whether the current `y_` is higher or lower than
         # the current middle point.
-        is_min = f < state.middle.f
-        is_lower = y_ < state.middle.y
+        is_min = f < state.f_middle
+        is_lower = y_ < state.middle
 
-        def new_middle(point__state):
-            point, state = point__state
+        def new_middle(state):
             new_lower = tree_where(is_lower, state.lower, state.middle)
             new_upper = tree_where(is_lower, state.middle, state.upper)
             return _GoldenSearchState(
                 lower=new_lower,
-                middle=point,
+                middle=y_,
                 upper=new_upper,
+                f_middle=f,
                 first=jnp.array(False),
                 terminate=terminate,
             )
 
-        def new_outer(point__state):
-            point, state = point__state
-            new_lower = tree_where(is_lower, point, state.lower)
-            new_upper = tree_where(is_lower, state.upper, point)
+        def new_outer(state):
+            new_lower = tree_where(is_lower, y_, state.lower)
+            new_upper = tree_where(is_lower, state.upper, y_)
             return _GoldenSearchState(
                 lower=new_lower,
                 middle=state.middle,
                 upper=new_upper,
+                f_middle=state.f_middle,
                 first=jnp.array(False),
                 terminate=terminate,
             )
 
-        point = _Point(y_, f)
-        new_state = lax.cond(is_min, new_middle, new_outer, (point, state))
-        new_y = new_state.lower.y + (new_state.upper.y - new_state.middle.y)
+        new_state = lax.cond(is_min, new_middle, new_outer, state)
+        new_y = new_state.lower + (new_state.upper - new_state.middle)
 
         return new_y, new_state, aux
 
