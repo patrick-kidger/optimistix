@@ -16,6 +16,7 @@ from .helpers import (
     bowl,
     finite_difference_jvp,
     forward_only_fn_init_options_expected,
+    golden_search_fn_y0_options_expected,
     matyas,
     minimisation_fn_minima_init_args,
     minimisers,
@@ -211,3 +212,14 @@ def test_forward_minimisation(fn, y0, options, expected, solver):
         sol = optx.minimise(fn, solver, y0, options=options, max_steps=2**10)
         assert sol.result == optx.RESULTS.successful
         assert tree_allclose(sol.value, expected, atol=1e-4, rtol=1e-4)
+
+
+_golden = optx.GoldenSearch(rtol=1e-9, atol=1e-9)
+
+
+@pytest.mark.parametrize(
+    "fn, y0, options, expected", golden_search_fn_y0_options_expected
+)
+def test_golden_search(fn, y0, options, expected):
+    sol = optx.minimise(fn, _golden, y0, options=options, max_steps=2**9)
+    assert tree_allclose(sol.value, expected)

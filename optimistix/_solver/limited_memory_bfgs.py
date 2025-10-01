@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Generic, TypeVar
+from typing import cast, Generic, TypeVar
 
 import equinox as eqx
 import jax
@@ -237,6 +237,7 @@ def _lbfgs_hessian_operator_fn(
     gamma_k = jnp.where(
         pred, tree_dot(latest_grad_diff, latest_grad_diff) / safe_curvature, 1.0
     )
+    gamma_k = cast(Array, gamma_k)  # where returns ArrayLike, making pyright sad
 
     # computation of eqn (3.22) in Byrd at al. 1994
     # eqn (2.26)

@@ -90,6 +90,11 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 
 ---
 
+::: optimistix.GoldenSearch
+    options:
+        members:
+            - __init__
+
 ::: optimistix.BestSoFarMinimiser
     options:
         members:
