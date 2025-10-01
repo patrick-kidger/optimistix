@@ -16,6 +16,7 @@ import optax
 import optimistix as optx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
+from optimistix._misc import tree_full_like
 
 
 Y = TypeVar("Y")
@@ -990,4 +991,22 @@ trees_to_clip = (
         {"a": jnp.array(6.0), "c": {"1": 0.2 * jnp.ones((8,)), "2": jnp.array(2.0)}},
         {"a": jnp.array(5.0), "c": {"1": 0.2 * jnp.ones((8,)), "2": jnp.array(2.0)}},
     ),
+)
+
+
+_true_tree = (jnp.array(8.0), jnp.arange(1.0, 3.0), {"a": jnp.ones(2)})
+_false_tree = tree_full_like(_true_tree, jnp.inf)
+
+tree_where__pred_true_false_expected = (
+    # pred is a scalar
+    (True, _true_tree, _false_tree, _true_tree),
+    # pred is a partial pre-fix
+    (
+        (True, False, True),
+        _true_tree,
+        _false_tree,
+        (jnp.array(8.0), jnp.inf * jnp.ones(2), {"a": jnp.ones(2)}),
+    ),
+    # pred has the same structure as true, false
+    (tree_full_like(_true_tree, False), _true_tree, _false_tree, _false_tree),
 )

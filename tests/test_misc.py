@@ -3,10 +3,7 @@ import jax.numpy as jnp
 import optimistix._misc as optx_misc
 import pytest
 
-from .helpers import (
-    tree_allclose,
-    trees_to_clip,
-)
+from .helpers import tree_allclose, tree_where__pred_true_false_expected, trees_to_clip
 
 
 def test_inexact_asarray_no_copy():
@@ -27,3 +24,11 @@ def test_inexact_asarray_jvp():
 def test_tree_clip(tree, lower, upper, result):
     clipped_tree = optx_misc.tree_clip(tree, lower, upper)
     assert tree_allclose(clipped_tree, result)
+
+
+@pytest.mark.parametrize(
+    "pred, true, false, expected", tree_where__pred_true_false_expected
+)
+def test_tree_where(pred, true, false, expected):
+    result = optx_misc.tree_where(pred, true, false)
+    assert tree_allclose(result, expected)

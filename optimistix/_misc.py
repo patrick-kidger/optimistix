@@ -83,34 +83,19 @@ def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = F
     return jtu.tree_map(fn, struct)
 
 
-@overload
 def tree_where(
-    pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
-) -> PyTree[Array]:
-    ...
-
-
-@overload
-def tree_where(
-    pred: PyTree[ArrayLike], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
-) -> PyTree[Array]:
-    ...
-
-
-def tree_where(pred, true, false):
+    pred: PyTree, true: PyTree[ArrayLike, " T"], false: PyTree[ArrayLike, " T"]
+) -> PyTree[ArrayLike, " T"]:
     """Return a pytree with values from `true` where `pred` is true, and `false` where
-    `pred` is false. If `pred` is a single boolean, then the same `pred` is used for all
-    elements of the tree. If `pred` is a PyTree, then it must have the same structure as
-    `true` and `false`, and the values of `pred` are used to select between the
-    corresponding values in `true` and `false`.
+    `pred` is false. `pred` can be any tree-prefix of `true` and `false`, but we do
+    assume that `true` and `false` share the same pytree structure.
     """
-    if jtu.tree_structure(pred) == jtu.tree_structure(true):
-        return jtu.tree_map(lambda p, t, f: jnp.where(p, t, f), pred, true, false)
-    else:
-        assert (
-            pred.shape == ()
-        ), "`pred` must be a scalar array or have the same PyTree structure as `true`."
-        return jtu.tree_map(lambda t, f: jnp.where(pred, t, f), true, false)
+    return jtu.tree_map(
+        lambda p, t, f: jtu.tree_map(lambda ti, fi: jnp.where(p, ti, fi), t, f),
+        pred,
+        true,
+        false,
+    )
 
 
 def tree_dtype(tree: PyTree[ArrayLike | jax.ShapeDtypeStruct]):
