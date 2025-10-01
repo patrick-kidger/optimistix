@@ -16,6 +16,7 @@ import optax
 import optimistix as optx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
+from optimistix._misc import tree_full_like
 
 
 Y = TypeVar("Y")
@@ -935,4 +936,77 @@ golden_search_fn_y0_options_expected = (
         dict(lower=0, upper=3),
         jnp.array(0.0),
     ),
+)
+
+# Define a bounded MLP (to check if clipping/projections works on complicated pytrees).
+# Set weights and bias to known values to get a ground truth to test against
+mlp = eqx.nn.MLP(2, 2, 2, 2, key=jr.key(0))
+w1 = jnp.array([[1.0, -1.0], [0.5, 3.0]])
+w2 = jnp.array([[4.0, 6.0], [-7, 8.0]])
+w3 = jnp.array([[1.0, -2], [4, 5.0]])
+b1 = jnp.array([[8.0, 1.0]])
+b2 = jnp.array([[4.0, -2]])
+b3 = jnp.array([[-3, 0.0]])
+lw = jnp.zeros_like(w1)  # All weights and biases must be in (0, 1)
+uw = jnp.ones_like(w1)
+lb = jnp.zeros_like(b1)
+ub = jnp.ones_like(1)
+
+rw1 = jnp.clip(w1, min=lw, max=uw)
+rw2 = jnp.clip(w2, min=lw, max=uw)
+rw3 = jnp.clip(w3, min=lw, max=uw)
+rb1 = jnp.clip(b1, min=lb, max=ub)
+rb2 = jnp.clip(b2, min=lb, max=ub)
+rb3 = jnp.clip(b3, min=lb, max=ub)
+
+
+def get_nn_weights(model):
+    l1, l2, l3 = model.layers
+    return l1.weight, l1.bias, l2.weight, l2.bias, l3.weight, l3.bias
+
+
+mlp_tree = eqx.tree_at(get_nn_weights, mlp, (w1, b1, w2, b2, w3, b3))
+mlp_tree, _ = eqx.partition(mlp_tree, eqx.is_array)
+mlp_lower = eqx.tree_at(get_nn_weights, mlp, (lw, lb, lw, lb, lw, lb))
+mlp_lower, _ = eqx.partition(mlp_lower, eqx.is_array)
+mlp_upper = eqx.tree_at(get_nn_weights, mlp, (uw, ub, uw, ub, uw, ub))
+mlp_upper, _ = eqx.partition(mlp_upper, eqx.is_array)
+mlp_result = eqx.tree_at(get_nn_weights, mlp, (rw1, rb1, rw2, rb2, rw3, rb3))
+mlp_result, _ = eqx.partition(mlp_result, eqx.is_array)
+
+
+trees_to_clip = (
+    # tree, lower, upper, result
+    (jnp.array(3.0), jnp.array(0.0), jnp.array(2.0), jnp.array(2.0)),
+    (
+        (jnp.array([4.0, 6.0]), jnp.array(8.0)),
+        (jnp.array([0.0, 1.0]), jnp.array(9.0)),
+        (jnp.array([3.0, 5.0]), jnp.array(10.0)),
+        (jnp.array([3.0, 5.0]), jnp.array(9.0)),
+    ),
+    (mlp_tree, mlp_lower, mlp_upper, mlp_result),
+    (
+        {"a": jnp.array(4.0), "c": {"1": 0.5 * jnp.ones((8,)), "2": jnp.array(3.0)}},
+        {"a": jnp.array(5.0), "c": {"1": 0.0 * jnp.ones((8,)), "2": -jnp.inf}},
+        {"a": jnp.array(6.0), "c": {"1": 0.2 * jnp.ones((8,)), "2": jnp.array(2.0)}},
+        {"a": jnp.array(5.0), "c": {"1": 0.2 * jnp.ones((8,)), "2": jnp.array(2.0)}},
+    ),
+)
+
+
+_true_tree = (jnp.array(8.0), jnp.arange(1.0, 3.0), {"a": jnp.ones(2)})
+_false_tree = tree_full_like(_true_tree, jnp.inf)
+
+tree_where__pred_true_false_expected = (
+    # pred is a scalar
+    (True, _true_tree, _false_tree, _true_tree),
+    # pred is a partial pre-fix
+    (
+        (True, False, True),
+        _true_tree,
+        _false_tree,
+        (jnp.array(8.0), jnp.inf * jnp.ones(2), {"a": jnp.ones(2)}),
+    ),
+    # pred has the same structure as true, false
+    (tree_full_like(_true_tree, False), _true_tree, _false_tree, _false_tree),
 )
