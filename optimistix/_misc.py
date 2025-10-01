@@ -83,12 +83,34 @@ def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = F
     return jtu.tree_map(fn, struct)
 
 
+@overload
 def tree_where(
     pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
 ) -> PyTree[Array]:
-    """Return the `true` or `false` pytree depending on `pred`."""
-    keep = lambda a, b: jnp.where(pred, a, b)
-    return jtu.tree_map(keep, true, false)
+    ...
+
+
+@overload
+def tree_where(
+    pred: PyTree[ArrayLike], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
+) -> PyTree[Array]:
+    ...
+
+
+def tree_where(pred, true, false):
+    """Return a pytree with values from `true` where `pred` is true, and `false` where
+    `pred` is false. If `pred` is a single boolean, then the same `pred` is used for all
+    elements of the tree. If `pred` is a PyTree, then it must have the same structure as
+    `true` and `false`, and the values of `pred` are used to select between the
+    corresponding values in `true` and `false`.
+    """
+    if jtu.tree_structure(pred) == jtu.tree_structure(true):
+        return jtu.tree_map(lambda p, t, f: jnp.where(p, t, f), pred, true, false)
+    else:
+        assert (
+            pred.shape == ()
+        ), "`pred` must be a scalar array or have the same PyTree structure as `true`."
+        return jtu.tree_map(lambda t, f: jnp.where(pred, t, f), true, false)
 
 
 def tree_dtype(tree: PyTree[ArrayLike | jax.ShapeDtypeStruct]):
@@ -98,6 +120,17 @@ def tree_dtype(tree: PyTree[ArrayLike | jax.ShapeDtypeStruct]):
         return default_floating_dtype()
     else:
         return jnp.result_type(*leaves)
+
+
+def tree_clip(
+    tree: PyTree[ArrayLike], lower: PyTree[ArrayLike], upper: PyTree[ArrayLike]
+) -> PyTree[Array]:
+    """Clip tree to values lower, upper. Note that we do not check that the lower bound
+    is actually less than the upper bound. If the upper bound is less than the lower
+    bound, then the values will be clipped to the upper bound, since this is what
+    `jnp.clip` does.
+    """
+    return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
 
 
 def resolve_rcond(rcond, n, m, dtype):
