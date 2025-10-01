@@ -84,11 +84,18 @@ def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = F
 
 
 def tree_where(
-    pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
-) -> PyTree[Array]:
-    """Return the `true` or `false` pytree depending on `pred`."""
-    keep = lambda a, b: jnp.where(pred, a, b)
-    return jtu.tree_map(keep, true, false)
+    pred: PyTree, true: PyTree[ArrayLike, " T"], false: PyTree[ArrayLike, " T"]
+) -> PyTree[ArrayLike, " T"]:
+    """Return a pytree with values from `true` where `pred` is true, and `false` where
+    `pred` is false. `pred` can be any tree-prefix of `true` and `false`, but we do
+    assume that `true` and `false` share the same pytree structure.
+    """
+    return jtu.tree_map(
+        lambda p, t, f: jtu.tree_map(lambda ti, fi: jnp.where(p, ti, fi), t, f),
+        pred,
+        true,
+        false,
+    )
 
 
 def tree_dtype(tree: PyTree[ArrayLike | jax.ShapeDtypeStruct]):
@@ -98,6 +105,17 @@ def tree_dtype(tree: PyTree[ArrayLike | jax.ShapeDtypeStruct]):
         return default_floating_dtype()
     else:
         return jnp.result_type(*leaves)
+
+
+def tree_clip(
+    tree: PyTree[ArrayLike], lower: PyTree[ArrayLike], upper: PyTree[ArrayLike]
+) -> PyTree[Array]:
+    """Clip tree to values lower, upper. Note that we do not check that the lower bound
+    is actually less than the upper bound. If the upper bound is less than the lower
+    bound, then the values will be clipped to the upper bound, since this is what
+    `jnp.clip` does.
+    """
+    return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
 
 
 def resolve_rcond(rcond, n, m, dtype):
