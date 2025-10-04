@@ -1078,10 +1078,10 @@ y__bounds__step__offset__expected_result = (
     ),
     (
         jnp.array([1.0, 2.0]),
-        (-jnp.array([jnp.inf, jnp.inf]), jnp.array([3.0, 4.0])),
+        (-jnp.array([jnp.inf, jnp.inf]), jnp.array([3.0, 3.0])),
         jnp.array([1.0, 2.0]),
         None,
-        jnp.array(1.0),
+        jnp.array([1.0, 0.5]),
     ),
     (
         (jnp.array(1), jnp.array(2)),  # simple pytree structure
@@ -1103,5 +1103,13 @@ y__bounds__step__offset__expected_result = (
         jnp.array(-1.0),  # step takes us further outside bounded region
         None,
         jnp.array(0.0),
+    ),
+    # No tree reduction over array leaves
+    (
+        (jnp.array(8.0), jnp.array([2, 4, 5.0])),
+        ((-jnp.inf, jnp.arange(1, 4.0)), (jnp.array(9.0), jnp.arange(3, 6.0))),
+        (jnp.array(0.1), jnp.ones(3)),
+        None,
+        (jnp.array(1.0), jnp.array([1.0, 0.0, 0.0])),
     ),
 )

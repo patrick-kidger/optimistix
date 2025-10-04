@@ -184,18 +184,20 @@ def feasible_step_length(
         max_to_lower = jnp.asarray(jnp.where(dx < 0, -distance_to_lower / dx, jnp.inf))
         max_to_upper = jnp.asarray(jnp.where(dx > 0, distance_to_upper / dx, jnp.inf))
 
-        # Negative distances when we're outside the bounds can result in step size < 0
-        # this means that we would worsen our current position, which we don't want
-        nonnegative_max_to_lower = jnp.where(max_to_lower > 0, max_to_lower, 0.0)
-        nonnegative_max_to_upper = jnp.where(max_to_upper > 0, max_to_upper, 0.0)
+        # We do not allow negative step sizes (which would flip directions)
+        max_to_lower = jnp.clip(max_to_lower, min=0)
+        max_to_upper = jnp.clip(max_to_upper, min=0)
 
-        min_to_lower = jnp.min(jnp.asarray(nonnegative_max_to_lower))
-        min_to_upper = jnp.min(jnp.asarray(nonnegative_max_to_upper))
+        # The shorter of the two is now the constrained step length (the other is inf)
+        joint_minimum = jnp.where(
+            max_to_lower < max_to_upper, max_to_lower, max_to_upper
+        )
 
-        return jnp.min(jnp.array([min_to_lower, min_to_upper, 1.0]))
+        return jnp.clip(
+            joint_minimum, max=1
+        )  # Lastly, propose no more than a full step
 
     max_steps = jtu.tree_map(max_step, current, proposed_step, lower_bound, upper_bound)
-
     return max_steps
 
 
