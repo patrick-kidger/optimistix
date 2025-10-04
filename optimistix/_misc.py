@@ -6,11 +6,12 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.extend as jex
+import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar, ScalarLike
 from lineax.internal import (
     default_floating_dtype as _default_floating_dtype,
     max_norm as _max_norm,
@@ -116,6 +117,93 @@ def tree_clip(
     `jnp.clip` does.
     """
     return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
+
+
+def tree_min(tree: PyTree[ArrayLike]) -> Scalar:
+    values, _ = jfu.ravel_pytree(tree)
+    return jnp.min(values)
+
+
+def tree_max(tree: PyTree[ArrayLike]) -> Scalar:
+    values, _ = jfu.ravel_pytree(tree)
+    return jnp.max(values)
+
+
+def feasible_step_length(
+    current: PyTree[Array],
+    proposed_step: PyTree[Array],
+    lower_bound: PyTree[Array],
+    upper_bound: PyTree[Array],
+    *,
+    offset: ScalarLike = jnp.array(0.0),
+    reduce: bool = True,
+) -> ScalarLike | PyTree[ScalarLike]:
+    """Returns the maximum feasible step length for any current value, its bounds, and a
+    proposed step. The current value can be an instance of an optimisation variable `y`,
+    a dual variable, or a slack variable.
+
+    If the proposed step has a positive sign, then it is limited by the distance to the
+    upper bound. If the proposed step has a negative sign, then it is limited by the
+    distance to the lower bound. When we're at the boundary or outside of it, steps that
+    improve upon this are allowed - e.g. when (upper - y) is negative, then we may take
+    a step in the direction of -y. Similarly, if (upper - y) is zero, steps in the
+    direction of -y are allowed.
+    As such, this utility function does not check whether the current value is within
+    the bounds and does not raise an error if it is not. It will, however, not make the
+    problem worse either. This means that it is up to the  solvers how this case is
+    handled or prevented.
+    (In certain active set methods, when values are allowed to be at the bounds, small
+    deviations outside of the bounds may be due to numerical errors.)
+
+    The distance to the bounds is computed as (1 - offset) * (x - lower) for the lower
+    bound, and (1 - offset) * (upper - x) for the upper bound. The offset can be used to
+    ensure that the step taken remains in the strict interior of the feasible set. (This
+    is required for interior point methods, where e.g. slack variables are required to
+    be strictly positive.)
+    Note that this function can return a feasible step length of 0.0, and this case
+    should be handled where this function is used.
+
+    **Arguments**:
+
+    - `current`: The current value of an optimisation variable, e.g. `y`.
+    - `proposed_step`: The proposed step - usually computed as the result of a linear
+        solve. Must have the same PyTree structure as `current`.
+    - `lower`: The lower bound. Must have the same PyTree structure as `current`.
+    - `upper`: The upper bound. Must have the same PyTree structure as `current`.
+    - `offset`: The offset from the boundary. If passed, then the distance to the bounds
+        is multiplied by (1 - offset), to ensure that we stay in the strict interior.
+        Keyword-only argument.
+    - `reduce`: Whether to reduce the computed maximum step length for each leaf of the
+        PyTree. (An array counts as one leaf.) This is useful in algorithms that allow
+        for different step lengths in different variables, e.g. primal variables `y` and
+        Lagrangian multipliers. Keyword-only argument, defaults to True - in which case
+        a single scalar value is returned.
+    """
+
+    def max_step(x, dx, lower, upper):
+        distance_to_lower = (1 - offset) * (x - lower)
+        distance_to_upper = (1 - offset) * (upper - x)
+
+        # Scale by the distance to the bounds if we're moving towards them
+        max_to_lower = jnp.asarray(jnp.where(dx < 0, -distance_to_lower / dx, jnp.inf))
+        max_to_upper = jnp.asarray(jnp.where(dx > 0, distance_to_upper / dx, jnp.inf))
+
+        # Negative distances when we're outside the bounds can result in step size < 0
+        # this means that we would worsen our current position, which we don't want
+        nonnegative_max_to_lower = jnp.where(max_to_lower > 0, max_to_lower, 0.0)
+        nonnegative_max_to_upper = jnp.where(max_to_upper > 0, max_to_upper, 0.0)
+
+        min_to_lower = jnp.min(jnp.asarray(nonnegative_max_to_lower))
+        min_to_upper = jnp.min(jnp.asarray(nonnegative_max_to_upper))
+
+        return jnp.min(jnp.array([min_to_lower, min_to_upper, 1.0]))
+
+    max_steps = jtu.tree_map(max_step, current, proposed_step, lower_bound, upper_bound)
+
+    if reduce:
+        return tree_min(max_steps)
+    else:
+        return max_steps
 
 
 def resolve_rcond(rcond, n, m, dtype):
