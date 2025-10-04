@@ -130,17 +130,18 @@ def tree_max(tree: PyTree[ArrayLike]) -> Scalar:
 
 
 def feasible_step_length(
-    current: PyTree[Array],
-    proposed_step: PyTree[Array],
-    lower_bound: PyTree[Array],
-    upper_bound: PyTree[Array],
+    current: PyTree[ArrayLike, " T"],
+    proposed_step: PyTree[ArrayLike, " T"],
+    lower_bound: PyTree[ArrayLike, " T"],
+    upper_bound: PyTree[ArrayLike, " T"],
     *,
     offset: ScalarLike = jnp.array(0.0),
-    reduce: bool = True,
-) -> ScalarLike | PyTree[ScalarLike]:
+) -> PyTree[ArrayLike, " T"]:
     """Returns the maximum feasible step length for any current value, its bounds, and a
-    proposed step. The current value can be an instance of an optimisation variable `y`,
-    a dual variable, or a slack variable.
+    proposed step, as a value for each leaf of the PyTree.
+    If taking the full step does not result in a violation of the bounds placed on the
+    value of the variable, then this function returns a value of 1.0 for any leaf to
+    which this applies.
 
     If the proposed step has a positive sign, then it is limited by the distance to the
     upper bound. If the proposed step has a negative sign, then it is limited by the
@@ -150,18 +151,18 @@ def feasible_step_length(
     direction of -y are allowed.
     As such, this utility function does not check whether the current value is within
     the bounds and does not raise an error if it is not. It will, however, not make the
-    problem worse either. This means that it is up to the  solvers how this case is
+    problem worse either. This means that it is up to the solvers how this case is
     handled or prevented.
-    (In certain active set methods, when values are allowed to be at the bounds, small
-    deviations outside of the bounds may be due to numerical errors.)
 
-    The distance to the bounds is computed as (1 - offset) * (x - lower) for the lower
-    bound, and (1 - offset) * (upper - x) for the upper bound. The offset can be used to
-    ensure that the step taken remains in the strict interior of the feasible set. (This
-    is required for interior point methods, where e.g. slack variables are required to
-    be strictly positive.)
+    Optionally, an offset may be used to ensure that we remain in the strict interior of
+    the feasible set.
+
     Note that this function can return a feasible step length of 0.0, and this case
-    should be handled where this function is used.
+    should be handled where this function is used. Likewise, any desired reduction over
+    fields or the PyTree as a whole (to get the maximum feasible step length for all
+    iterates, or for primal and dual variables separately, for instance) should be
+    performed where this function is used. The maximum feasible step length for the
+    whole tree is then obtained as `tree_min(feasible_step_length(...))`.
 
     **Arguments**:
 
@@ -173,11 +174,6 @@ def feasible_step_length(
     - `offset`: The offset from the boundary. If passed, then the distance to the bounds
         is multiplied by (1 - offset), to ensure that we stay in the strict interior.
         Keyword-only argument.
-    - `reduce`: Whether to reduce the computed maximum step length for each leaf of the
-        PyTree. (An array counts as one leaf.) This is useful in algorithms that allow
-        for different step lengths in different variables, e.g. primal variables `y` and
-        Lagrangian multipliers. Keyword-only argument, defaults to True - in which case
-        a single scalar value is returned.
     """
 
     def max_step(x, dx, lower, upper):
@@ -200,10 +196,7 @@ def feasible_step_length(
 
     max_steps = jtu.tree_map(max_step, current, proposed_step, lower_bound, upper_bound)
 
-    if reduce:
-        return tree_min(max_steps)
-    else:
-        return max_steps
+    return max_steps
 
 
 def resolve_rcond(rcond, n, m, dtype):

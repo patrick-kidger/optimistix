@@ -1088,7 +1088,7 @@ y__bounds__step__offset__expected_result = (
         ((-jnp.array(jnp.inf), -jnp.array(jnp.inf)), (jnp.array(3), jnp.array(4))),
         (jnp.array(1), jnp.array(2)),
         None,
-        jnp.array(1.0),
+        (jnp.array(1.0), jnp.array(1.0)),
     ),
     (
         jnp.array(-0.5),  # initial point outside bounds
