@@ -138,10 +138,9 @@ def feasible_step_length(
     offset: ScalarLike = jnp.array(0.0),
 ) -> PyTree[ArrayLike, " T"]:
     """Returns the maximum feasible step length for any current value, its bounds, and a
-    proposed step, as a value for each leaf of the PyTree.
-    If taking the full step does not result in a violation of the bounds placed on the
-    value of the variable, then this function returns a value of 1.0 for any leaf to
-    which this applies.
+    proposed step, as a value for each element of the PyTree.
+    Where taking the full step does not result in a violation of the bounds, a value of
+    1.0 is returned, which corresponds to a full step.
 
     If the proposed step has a positive sign, then it is limited by the distance to the
     upper bound. If the proposed step has a negative sign, then it is limited by the
