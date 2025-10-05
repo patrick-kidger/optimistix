@@ -3,12 +3,13 @@ import warnings
 
 import equinox as eqx
 import jax
+import optax
 import optimistix as optx
 import pytest
 import scipy as scp
 import sif2jax
 
-from .conftest import get_max_dimension
+from .conftest import get_max_dimension, get_min_dimension
 
 
 scipy = pytest.mark.skipif("not config.getoption('scipy')")
@@ -16,21 +17,58 @@ scipy = pytest.mark.skipif("not config.getoption('scipy')")
 
 # Set a consistent number of maximum steps for all solvers. We might want to override
 # this, make it solver-specific in the future, or make it a config option.
-max_steps = 2**8
+max_steps = 2**10
 
-# Benchmark solvers that are part of documented API.
-unconstrained_minimisers = (optx.BFGS(rtol=1e-3, atol=1e-6),)
+# Benchmark solvers that are part of documented API. Specifying the name is needed since
+# it cannot be retrieved for the OptaxMinimisers.
+unconstrained_minimisers = (
+    (optx.BFGS(rtol=1e-3, atol=1e-6), "optx.BFGS"),
+    (optx.LBFGS(rtol=1e-3, atol=1e-6, history_length=10), "optx.LBFGS"),
+    (
+        optx.OptaxMinimiser(
+            optax.lbfgs(
+                linesearch=optax.scale_by_backtracking_linesearch(
+                    max_backtracking_steps=20
+                )
+            ),
+            rtol=1e-3,
+            atol=1e-6,
+        ),
+        "optax.lbfgs",
+    ),
+)
 # Specify scipy minimisers using tuples (method_name: str, kwargs: dict)
-unconstrained_scipy_minimisers = (("BFGS", {}),)  # TODO(jhaffner): scipy tolerances?
+unconstrained_scipy_minimisers = (
+    ("BFGS", {}),
+    (
+        "L-BFGS-B",
+        dict(
+            max_corr=10,  # Corresponds to history_length in LBFGS
+            ftol=1e-3,  # ftol corresponds to rtol, but only applied to f
+        ),
+    ),
+)
 
 
 def get_test_cases(problems):
     max_dimension = get_max_dimension()
+    min_dimension = get_min_dimension()
     if max_dimension is not None:
         test_cases = []
         for problem in problems:
             problem_dimension = problem.y0().size
             if problem_dimension <= max_dimension:
+                if min_dimension is not None:
+                    if problem_dimension >= min_dimension:
+                        test_cases.append(problem)
+                else:
+                    test_cases.append(problem)
+        return tuple(test_cases)
+    elif min_dimension is not None:
+        test_cases = []
+        for problem in problems:
+            problem_dimension = problem.y0().size
+            if problem_dimension >= min_dimension:
                 test_cases.append(problem)
         return tuple(test_cases)
     else:
@@ -43,11 +81,12 @@ def get_test_cases(problems):
 )
 @pytest.mark.parametrize("minimiser", unconstrained_minimisers)
 def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
-    solve = jax.jit(
+    solver, name = minimiser
+    solve = eqx.filter_jit(
         ft.partial(
             optx.minimise,
             problem.objective,
-            minimiser,
+            solver,
             args=problem.args(),
             max_steps=max_steps,
             # We save on failure and filter during analysis to be able to compute the
@@ -58,14 +97,22 @@ def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
     y0 = jax.tree.map(
         lambda x: jax.device_put(x) if eqx.is_array(x) else x, problem.y0()
     )
-
     solve(y0)  # Warm up
 
-    def wrapped(y0):
-        solution = solve(y0)
-        objective_value = solution.state.f_info.f.block_until_ready()
-        num_steps = solution.stats["num_steps"]
-        return objective_value, solution.result, num_steps
+    if isinstance(solver, optx.OptaxMinimiser):
+
+        def wrapped(y0):
+            solution = solve(y0)
+            objective_value = solution.state.f.block_until_ready()
+            num_steps = solution.stats["num_steps"]
+            return objective_value, solution.result, num_steps
+    else:
+        # For non-OptaxMinimiser solvers, we need to access the FunctionInfo
+        def wrapped(y0):
+            solution = solve(y0)
+            objective_value = solution.state.f_info.f.block_until_ready()
+            num_steps = solution.stats["num_steps"]
+            return objective_value, solution.result, num_steps
 
     # Benchmark the runtime of the compiled function
     values = benchmark(wrapped, problem.y0())
@@ -76,15 +123,18 @@ def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
     benchmark.extra_info["objective value"] = float(objective_value)
     benchmark.extra_info["result"] = bool(result == optx.RESULTS.successful)
     benchmark.extra_info["problem name"] = problem.__class__.__name__
-    benchmark.extra_info["solver name"] = "optx." + minimiser.__class__.__name__
+    benchmark.extra_info["problem dimension"] = int(problem.y0().size)
+    benchmark.extra_info["solver name"] = name
+    benchmark.extra_info["max steps"] = int(max_steps)
 
 
 msg = (
-    "Unfiltered compilation with `jax.jit` is currently not supported for solvers "
-    "carrying a jaxpr in their state, and AOT compilation is not compatible with "
-    "`eqx.filter_jit`. "
-    "We'd need either one of these to work to run this test - the former is on the "
-    "list for Optimstix. Once we have it in, this benchmark can be re-instated."
+    "This benchmark requires AOT compilation. To support this we either need to "
+    "make all Optimistix solvers compatible with `jax.jit` compilation of our "
+    "top-level APIs (`optx.{minimise, least_squares, ...}`) or support AOT "
+    "compilation for functions compiled with `eqx.filter_jit`. The first of the "
+    "two solutions is on the list for Optimistix. Supporting it requires "
+    "different handling of solvers that carry a jaxpr in their state. "
 )
 
 
@@ -95,11 +145,13 @@ msg = (
 )
 @pytest.mark.parametrize("minimiser", unconstrained_minimisers)
 def test_compilation_time_unconstrained_minimisers(benchmark, minimiser, problem):
+    solver, name = minimiser
+
     def wrapped(y0):
         def _solve(y0):
-            return optx.minimise(problem.objective, minimiser, y0, problem.args())
+            return optx.minimise(problem.objective, solver, y0, problem.args())
 
-        return jax.jit(_solve).lower(y0).compile()
+        return jax.jit(lambda x: _solve(x)).lower(y0).compile()
 
     # Benchmark the runtime of the compiled function
     wrapped(problem.y0())  # Warm up
@@ -107,7 +159,7 @@ def test_compilation_time_unconstrained_minimisers(benchmark, minimiser, problem
 
     # Save information and results
     benchmark.extra_info["problem name"] = problem.__class__.__name__
-    benchmark.extra_info["solver name"] = "optx." + minimiser.__class__.__name__
+    benchmark.extra_info["solver name"] = name
 
 
 @scipy
@@ -159,4 +211,6 @@ def test_runtime_unconstrained_scipy_minimisers(benchmark, minimiser, problem):
     benchmark.extra_info["objective value"] = float(objective_value)
     benchmark.extra_info["result"] = bool(result)
     benchmark.extra_info["problem name"] = problem.__class__.__name__
+    benchmark.extra_info["problem dimension"] = int(problem.y0().size)
     benchmark.extra_info["solver name"] = "scipy." + method
+    benchmark.extra_info["max steps"] = int(max_steps)

@@ -3,6 +3,7 @@ import os
 import pathlib
 import re
 import warnings
+from collections import OrderedDict
 from typing import Literal
 
 import fire
@@ -150,7 +151,7 @@ def extract_solver_results(
                     "successful": is_successful,
                 }
 
-    return solver_data
+    return OrderedDict(solver_data)
 
 
 def _solver_runtimes(comparable_data: dict) -> tuple[dict, jnp.ndarray]:
@@ -170,7 +171,9 @@ def _solver_runtimes(comparable_data: dict) -> tuple[dict, jnp.ndarray]:
     return dict(zip(comparable_data.keys(), relative_runtimes)), unique_runtimes
 
 
-def get_relative_performance(solver_data: dict) -> tuple[dict, jnp.ndarray]:
+def get_relative_performance(
+    solver_data: dict, solver_names: list[str]
+) -> tuple[dict, jnp.ndarray]:
     """Process solver data + compute performance profiles. The performance profiles are
     returned as a pandas DataFrame that may be exported, and that can be used to
     generate a performance profile plot.
@@ -192,8 +195,7 @@ def get_relative_performance(solver_data: dict) -> tuple[dict, jnp.ndarray]:
         - An array of unique runtimes relative to the best solver (the x-axis in the
             performance profile plot).
     """
-    solvers = solver_data.keys()
-    if len(solvers) < 2:
+    if len(solver_names) < 2:
         raise ValueError("At least two solvers are required for a comparison.")
 
     problem_sets = [set(data.keys()) for data in solver_data.values()]
@@ -204,8 +206,8 @@ def get_relative_performance(solver_data: dict) -> tuple[dict, jnp.ndarray]:
             "the solvers to be compared."
         )
 
-    comparable_data = {}
-    for solver in solvers:
+    comparable_data = OrderedDict()
+    for solver in solver_names:
         runtimes = []
         successes = []
         for problem in comparable_problems:
@@ -217,8 +219,8 @@ def get_relative_performance(solver_data: dict) -> tuple[dict, jnp.ndarray]:
 
     relative_runtimes, unique_runtimes = _solver_runtimes(comparable_data)
 
-    solved_fractions = {}
-    for solver in solvers:
+    solved_fractions = OrderedDict()
+    for solver in solver_names:
         fractions = []
         for runtime in unique_runtimes:
             # Count how many problems this solver solved within the given runtime
@@ -231,7 +233,9 @@ def get_relative_performance(solver_data: dict) -> tuple[dict, jnp.ndarray]:
     return solved_fractions, unique_runtimes
 
 
-def plot_solver_performances(solver_performances: dict, unique_runtimes: jnp.ndarray):
+def plot_solver_performances(
+    solver_performances: dict, unique_runtimes: jnp.ndarray, max_steps: int
+):
     """Plot the performance of solvers based on the provided DataFrame."""
     fig, ax = plt.subplots(figsize=(7, 5))
 
@@ -249,8 +253,8 @@ def plot_solver_performances(solver_performances: dict, unique_runtimes: jnp.nda
 
     ax.set_xlabel("Relative Runtime (to best solver)")
     ax.set_ylabel("Fraction of Problems Solved")
-    ax.set_title("Solver Performance Comparison")
-    ax.legend()
+    ax.set_title(f"Solver Performance Comparison, max. steps = {max_steps}")
+    ax.legend(loc="lower right")
     ax.grid(True, alpha=0.3)
 
     plt.show()
@@ -283,11 +287,19 @@ def main(
     benchmark_data = find_benchmark_run(
         benchmarks_dir, platform, str(python_version), precision, run_id
     )  # casting the python version to a string seems to be necessary with fire
+    print(
+        f"Specified platform: {platform}, Python version: {python_version}, "
+        f"precision: {precision}, run iD: {run_id} and kind: {kind}."
+    )
     assert len(solver_names) > 1, "At least two solver names must be provided."
 
     solver_data = extract_solver_results(benchmark_data, [*solver_names], kind)
-    solver_performances, unique_runtimes = get_relative_performance(solver_data)
-    plot_solver_performances(solver_performances, unique_runtimes)
+    solver_performances, unique_runtimes = get_relative_performance(
+        solver_data, [*solver_names]
+    )
+
+    max_steps = benchmark_data["benchmarks"][0]["extra_info"].get("max steps", None)
+    plot_solver_performances(solver_performances, unique_runtimes, max_steps)
 
 
 if __name__ == "__main__":
