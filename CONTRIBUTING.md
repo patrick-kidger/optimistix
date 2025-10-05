@@ -74,7 +74,7 @@ If you're interested in more extensive benchmarking - for instance when contribu
 You can save benchmark results with
 
 ```
-pytest benchmarks/ --benchmark-autosave --benchmark-only
+pytest benchmarks/ --benchmark-save=<benchmark_name> --benchmark-only
 ```
 
 and compare against previous runs with `pytest --benchmark-compare`, which will automatically pull in the last saved commit, but also takes run iDs as arguments. See the `pytest-benchmark` [documentation](https://pytest-benchmark.readthedocs.io/en/latest/usage.html#commandline-options) for more command line options. 
@@ -83,7 +83,7 @@ The autosave option will specify the commit iD - for reproducibility, make sure 
 
 We support some custom flags: 
 
-- `--max-dimension=<int>` benchmarks can be run on a subset of problems based on problem size.
+- `--min-dimension=<int>, --max-dimension=<int>` benchmarks can be run on a subset of problems based on problem size.
 - `--scipy` benchmarks of our solvers are run against the corresponding Python implementation. You might want to limit problem dimension here, they can be quite slow.
 
 pytest' `-k` flags also work in this setting to enable selective execution of benchmarking functions.
@@ -93,11 +93,11 @@ pytest' `-k` flags also work in this setting to enable selective execution of be
 You can find a convenience script to analyse benchmark results in `benchmarks/profile.py`. Run it with
 
 ```bash
-python benchmarks/profile.py solver1 solver2 platform python_version precision iD
+python benchmarks/profile.py platform python_version precision iD kind *solver_names
 ```
 
 Where platform refers to the platform on which the benchmarks were run (e.g. Darwin), precision is the numerical precision, e.g. 32bit, and iD is the benchmark run, a four-digit integer.
-These are necessary to identify the saved results for the specific run.
+These are necessary to identify the saved results for the specific run. `kind` specifies if `runtime` or `compilation` benchmarks are to be compared, and solver names should be given as indicated in `benchmarks/test_benchmarks.py`.
 
 **If you are contributing a solver**
 
