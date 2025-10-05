@@ -49,3 +49,5 @@ def test_feasible_step_length(y, bounds, step, offset, expected_result):
     else:
         result = optx_misc.feasible_step_length(y, step, *bounds, offset=offset)
     assert tree_allclose(result, expected_result)
+    assert optx_misc.tree_min(result) >= 0.0
+    assert optx_misc.tree_max(result) <= 1.0

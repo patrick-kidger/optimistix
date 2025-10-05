@@ -173,7 +173,8 @@ def feasible_step_length(
     - `upper`: The upper bound. Must have the same PyTree structure as `current`.
     - `offset`: The offset from the boundary. If passed, then the distance to the bounds
         is multiplied by (1 - offset), to ensure that we stay in the strict interior.
-        Keyword-only argument.
+        The value of this offset should be in [0, 1), but this is not checked. Values
+        used are typically on the order of 10^-2. Keyword-only argument.
     """
 
     def max_step(x, dx, lower, upper):
