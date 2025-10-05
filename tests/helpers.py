@@ -1010,3 +1010,127 @@ tree_where__pred_true_false_expected = (
     # pred has the same structure as true, false
     (tree_full_like(_true_tree, False), _true_tree, _false_tree, _false_tree),
 )
+
+
+y_bounds_step_offset_expected = (
+    (
+        jnp.array(3.0),
+        (jnp.array(0.0), jnp.array(5.0)),  # initial point inside bounds
+        jnp.array(1.0),  # step inside bounds
+        None,
+        jnp.array(1.0),  # take full step
+    ),
+    (
+        jnp.array(3),
+        (jnp.array(3.0), jnp.array(5)),  # initial point on boundary
+        jnp.array(4.0),  # step exceeds distance to upper bound
+        None,
+        jnp.array(0.5),  # take at most half a step
+    ),
+    (
+        jnp.array(3),
+        (jnp.array(3.0), jnp.array(5)),  # initial point on boundary
+        -jnp.array(4.0),  # step would take us into disallowed region
+        None,
+        jnp.array(0.0),  # no movement allowed
+    ),
+    (
+        jnp.array(3),
+        (-jnp.array(jnp.inf), jnp.array(5)),  # initial point inside bounds
+        jnp.array(-1.0),  # step inside bounds
+        None,
+        jnp.array(1.0),  # take full step
+    ),
+    (
+        jnp.array(3),
+        (jnp.array(-5), jnp.array(jnp.inf)),  # initial point inside bounds
+        jnp.array(-4.0),  # step inside bounds
+        None,
+        jnp.array(1.0),  # take full step
+    ),
+    (
+        jnp.array(3),
+        (jnp.array(-1), jnp.array(jnp.inf)),  # initial point inside bounds, upper inf
+        jnp.array(-8.0),  # step would take us into disallowed region (negative)
+        None,
+        jnp.array(0.5),  # take at most half a step
+    ),
+    (
+        jnp.array(3),
+        (-jnp.array(jnp.inf), jnp.array(5)),
+        jnp.array(1.0),
+        jnp.array(0.5),  # offset to adjust the step: enforces strict interior
+        jnp.array(1.0),
+    ),
+    (
+        jnp.array(3),
+        (-jnp.array(jnp.inf), jnp.array(5)),
+        jnp.array(4.0),
+        jnp.array(0.5),
+        jnp.array(0.25),
+    ),
+    (
+        jnp.array(3),
+        (-jnp.array(jnp.inf), jnp.array(3)),
+        jnp.array(1.0),
+        None,
+        jnp.array(0.0),
+    ),
+    (
+        jnp.array([1.0, 2.0]),
+        (-jnp.array([jnp.inf, jnp.inf]), jnp.array([3.0, 3.0])),
+        jnp.array([1.0, 2.0]),
+        None,
+        jnp.array([1.0, 0.5]),
+    ),
+    (
+        (jnp.array(1), jnp.array(2)),  # simple pytree structure
+        ((-jnp.array(jnp.inf), -jnp.array(jnp.inf)), (jnp.array(3), jnp.array(4))),
+        (jnp.array(1), jnp.array(2)),
+        None,
+        (jnp.array(1.0), jnp.array(1.0)),
+    ),
+    (
+        jnp.array(-0.5),  # initial point outside bounds
+        (jnp.array(0.0), jnp.array(5.0)),
+        jnp.array(1.0),  # step takes us back into bounded region
+        None,
+        jnp.array(1.0),
+    ),
+    (
+        jnp.array(-0.5),  # initial point outside bounds
+        (jnp.array(0.0), jnp.array(5.0)),
+        jnp.array(-1.0),  # step takes us further outside bounded region
+        None,
+        jnp.array(0.0),
+    ),
+    # No tree reduction over array leaves
+    (
+        (jnp.array(8.0), jnp.array([2.0, 4.0, 5.0])),
+        ((-jnp.inf, jnp.arange(1.0, 4.0)), (jnp.array(9.0), jnp.arange(3.0, 6.0))),
+        (jnp.array(0.1), jnp.ones(3)),
+        None,
+        (jnp.array(1.0), jnp.array([1.0, 0.0, 0.0])),
+    ),
+    (
+        jnp.array([1.0, 0.0]),
+        (jnp.array([0.0, 0.0]), jnp.array([1.0, 1.0])),
+        jnp.array([1.0, -1.0]),
+        None,
+        jnp.array([0.0, 0.0]),
+    ),
+    (
+        jnp.array([1.0, 0.0]),
+        (jnp.array([0.0, 0.0]), jnp.array([1.0, 1.0])),
+        jnp.array([1.0, -1.0]),
+        0.5,
+        jnp.array([0.0, 0.0]),
+    ),
+    (
+        jnp.array([0.5, 0.5]),
+        (jnp.array([0.0, 0.0]), jnp.array([1.0, 1.0])),
+        jnp.array([1.0, -1.0]),
+        None,
+        jnp.array([0.5, 0.5]),
+    ),
+)
