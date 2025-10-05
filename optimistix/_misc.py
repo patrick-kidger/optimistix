@@ -6,11 +6,12 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.extend as jex
+import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar, ScalarLike
 from lineax.internal import (
     default_floating_dtype as _default_floating_dtype,
     max_norm as _max_norm,
@@ -116,6 +117,85 @@ def tree_clip(
     `jnp.clip` does.
     """
     return jtu.tree_map(lambda x, l, u: jnp.clip(x, min=l, max=u), tree, lower, upper)
+
+
+def tree_min(tree: PyTree[ArrayLike]) -> Scalar:
+    values, _ = jfu.ravel_pytree(tree)
+    return jnp.min(values)
+
+
+def tree_max(tree: PyTree[ArrayLike]) -> Scalar:
+    values, _ = jfu.ravel_pytree(tree)
+    return jnp.max(values)
+
+
+def feasible_step_length(
+    current: PyTree[ArrayLike, " T"],
+    proposed_step: PyTree[ArrayLike, " T"],
+    lower_bound: PyTree[ArrayLike, " T"],
+    upper_bound: PyTree[ArrayLike, " T"],
+    *,
+    offset: ScalarLike = jnp.array(0.0),
+) -> PyTree[ArrayLike, " T"]:
+    """Returns the maximum feasible step length for any current value, its bounds, and a
+    proposed step, as a value for each element of the PyTree.
+    Where taking the full step does not result in a violation of the bounds, a value of
+    1.0 is returned, which corresponds to a full step.
+
+    If the proposed step has a positive sign, then it is limited by the distance to the
+    upper bound. If the proposed step has a negative sign, then it is limited by the
+    distance to the lower bound. When we're at the boundary or outside of it, steps that
+    improve upon this are allowed - e.g. when (upper - y) is negative, then we may take
+    a step in the direction of -y. Similarly, if (upper - y) is zero, steps in the
+    direction of -y are allowed.
+    As such, this utility function does not check whether the current value is within
+    the bounds and does not raise an error if it is not. It will, however, not make the
+    problem worse either. This means that it is up to the solvers how this case is
+    handled or prevented.
+
+    Optionally, an offset may be used to ensure that we remain in the strict interior of
+    the feasible set.
+
+    Note that this function can return a feasible step length of 0.0, and this case
+    should be handled where this function is used. Likewise, any desired reduction over
+    fields or the PyTree as a whole (to get the maximum feasible step length for all
+    iterates, or for primal and dual variables separately, for instance) should be
+    performed where this function is used. The maximum feasible step length for the
+    whole tree is then obtained as `tree_min(feasible_step_length(...))`.
+
+    **Arguments**:
+
+    - `current`: The current value of an optimisation variable, e.g. `y`.
+    - `proposed_step`: The proposed step - usually computed as the result of a linear
+        solve. Must have the same PyTree structure as `current`.
+    - `lower`: The lower bound. Must have the same PyTree structure as `current`.
+    - `upper`: The upper bound. Must have the same PyTree structure as `current`.
+    - `offset`: The offset from the boundary. If passed, then the distance to the bounds
+        is multiplied by (1 - offset), to ensure that we stay in the strict interior.
+        The value of this offset should be in [0, 1), but this is not checked. Values
+        used are typically on the order of 10^-2. Keyword-only argument.
+    """
+
+    def max_step(x, dx, lower, upper):
+        distance_to_lower = (1 - offset) * (x - lower)
+        distance_to_upper = (1 - offset) * (upper - x)
+
+        # Scale by the distance to the bounds if we're moving towards them
+        max_to_lower = jnp.asarray(jnp.where(dx < 0, -distance_to_lower / dx, jnp.inf))
+        max_to_upper = jnp.asarray(jnp.where(dx > 0, distance_to_upper / dx, jnp.inf))
+
+        # We do not allow negative step sizes. These can occur if we're already outside
+        # the feasible region, and allowing them would let us venture further where
+        # we do not want to go!
+        # We also do not propose taking more than a full step, and hence truncate to 1.
+        max_to_lower = jnp.clip(max_to_lower, min=0, max=1)
+        max_to_upper = jnp.clip(max_to_upper, min=0, max=1)
+
+        # The shorter of the two is now the constrained step length
+        return jnp.where(max_to_lower < max_to_upper, max_to_lower, max_to_upper)
+
+    max_steps = jtu.tree_map(max_step, current, proposed_step, lower_bound, upper_bound)
+    return max_steps
 
 
 def resolve_rcond(rcond, n, m, dtype):
