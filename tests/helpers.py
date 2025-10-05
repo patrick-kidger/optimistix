@@ -1012,7 +1012,7 @@ tree_where__pred_true_false_expected = (
 )
 
 
-y__bounds__step__offset__expected_result = (
+y_bounds_step_offset_expected = (
     (
         jnp.array(3.0),
         (jnp.array(0.0), jnp.array(5.0)),  # initial point inside bounds

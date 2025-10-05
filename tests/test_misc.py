@@ -7,7 +7,7 @@ from .helpers import (
     tree_allclose,
     tree_where__pred_true_false_expected,
     trees_to_clip,
-    y__bounds__step__offset__expected_result,
+    y_bounds_step_offset_expected,
 )
 
 
@@ -41,7 +41,7 @@ def test_tree_where(pred, true, false, expected):
 
 @pytest.mark.parametrize(
     "y, bounds, step, offset, expected_result",
-    y__bounds__step__offset__expected_result,
+    y_bounds_step_offset_expected,
 )
 def test_feasible_step_length(y, bounds, step, offset, expected_result):
     if offset is None:
