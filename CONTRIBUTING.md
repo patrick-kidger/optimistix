@@ -70,10 +70,10 @@ pytest benchmarks/ --benchmark-save=<benchmark_name> --benchmark-only
 ```
 
 and compare against previous runs with `pytest --benchmark-compare`, which will automatically pull in the last saved commit, but also takes run iDs as arguments. See the `pytest-benchmark` [documentation](https://pytest-benchmark.readthedocs.io/en/latest/usage.html#commandline-options) for more command line options. 
+The `benchmark-autosave` option will specify the commit iD, instead of a user-defined name.
+Make sure that you are running benchmarks with a clean working tree, so you can trace how changes affect performance!
 
-The autosave option will specify the commit iD - for reproducibility, make sure that you are running benchmarks with a clean working tree.
-
-We support some custom flags: 
+For convenience, we support some custom flags: 
 
 - `--min-dimension=<int>, --max-dimension=<int>` benchmarks can be run on a subset of problems based on problem size.
 - `--scipy` benchmarks of our solvers are run against the corresponding Python implementation. You might want to limit problem dimension here, they can be quite slow.
@@ -82,7 +82,7 @@ pytest' `-k` flags also work in this setting to enable selective execution of be
 
 **Analysing benchmark results**
 
-You can find a convenience script to analyse benchmark results in `benchmarks/profile.py`. Run it with
+You can find a script to analyse benchmark results in `benchmarks/profile.py`. Run it with
 
 ```bash
 python benchmarks/profile.py platform python_version precision iD kind *solver_names
