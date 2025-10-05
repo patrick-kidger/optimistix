@@ -20,7 +20,7 @@ def pytest_addoption(parser):
         action="store_true",
         dest="scipy",
         default=False,
-        help="Enable comparison against scipy solvers on benchmark (CUTEST) tests.",
+        help="Benchmark against scipy solvers.",
     )
     parser.addoption(
         "--max-dimension",
