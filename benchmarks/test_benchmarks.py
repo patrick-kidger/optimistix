@@ -79,6 +79,16 @@ def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
     benchmark.extra_info["solver name"] = "optx." + minimiser.__class__.__name__
 
 
+msg = (
+    "Unfiltered compilation with `jax.jit` is currently not supported for solvers "
+    "carrying a jaxpr in their state, and AOT compilation is not compatible with "
+    "`eqx.filter_jit`. "
+    "We'd need either one of these to work to run this test - the former is on the "
+    "list for Optimstix. Once we have it in, this benchmark can be re-instated."
+)
+
+
+@pytest.mark.skip(reason=msg)
 @pytest.mark.benchmark
 @pytest.mark.parametrize(
     "problem", get_test_cases(sif2jax.unconstrained_minimisation_problems)
