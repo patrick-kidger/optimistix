@@ -12,9 +12,6 @@ import sif2jax
 from .conftest import get_max_dimension, get_min_dimension
 
 
-scipy = pytest.mark.skipif("not config.getoption('scipy')")
-
-
 # Set a consistent number of maximum steps for all solvers. We might want to override
 # this, make it solver-specific in the future, or make it a config option.
 max_steps = 2**10
@@ -162,7 +159,7 @@ def test_compilation_time_unconstrained_minimisers(benchmark, minimiser, problem
     benchmark.extra_info["solver name"] = name
 
 
-@scipy
+@pytest.mark.skipif("not config.getoption('scipy')")
 @pytest.mark.benchmark
 @pytest.mark.parametrize(
     "problem", get_test_cases(sif2jax.unconstrained_minimisation_problems)
