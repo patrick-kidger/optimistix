@@ -44,7 +44,7 @@ If your changes could affect solver (or compilation) performance, please run the
 pytest benchmarks/ --benchmark-only
 ```
 
-You can run benchmarks on `main` / `dev` or on your feature branch for a before-and-after comparison, and also save more extensive results for analysis. For more on this, skip to the "Benchmarking" section below. 
+You can run benchmarks before or after your change, and also save more extensive results for analysis. For more on this, skip to the "Benchmarking" section below. 
 Then push your changes back to your fork of the repository:
 
 ```bash
@@ -86,18 +86,18 @@ For convenience, we support some custom flags:
 - `--min-dimension=<int>, --max-dimension=<int>` benchmarks can be run on a subset of problems based on problem size.
 - `--scipy` benchmarks of our solvers are run against the corresponding Python implementation. You might want to limit problem dimension here, they can be quite slow.
 
-pytest' `-k` flags also work in this setting to enable selective execution of benchmarking functions.
+pytest's `-k` flags also work in this setting to enable selective execution of benchmarking functions.
 
 **Analysing benchmark results**
 
 You can find a script to analyse benchmark results in `benchmarks/profile.py`. Run it with
 
 ```bash
-python benchmarks/profile.py platform python_version precision iD kind *solver_names
+python benchmarks/profile.py <platform> <python_version> <precision> <iD> <kind> *solver_names
 ```
 
 Where platform refers to the platform on which the benchmarks were run (e.g. Darwin), precision is the numerical precision, e.g. 32bit, and iD is the benchmark run, a four-digit integer.
-These are necessary to identify the saved results for the specific run. `kind` specifies if `runtime` or `compilation` benchmarks are to be compared, and solver names should be given as indicated in `benchmarks/test_benchmarks.py`.
+These are necessary to identify the saved results for the specific run. `kind` specifies if `runtime` or `compilation` benchmarks are to be compared, and solver names should be given as strings. These are defined in `benchmarks/test_benchmarks.py` for every benchmarked solver, e.g. `optx.BFGS`.
 
 **If you are contributing a solver**
 
