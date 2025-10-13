@@ -22,8 +22,7 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 
     ::: optimistix.AbstractGradientDescent
         options:
-            members:
-                false
+            members: none
 
 ::: optimistix.GradientDescent
     options:
