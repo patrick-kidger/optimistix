@@ -44,7 +44,7 @@ def fletcher_reeves(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     # Triggers at initialisation and convergence, as above.
     pred = denominator > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    return jnp.where(pred, numerator / safe_denom, 0)
+    return cast(Scalar, jnp.where(pred, numerator / safe_denom, 0))
 
 
 def hestenes_stiefel(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
@@ -56,7 +56,7 @@ def hestenes_stiefel(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     # Triggers at initialisation and convergence, as above.
     pred = jnp.abs(denominator) > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    return jnp.where(pred, numerator / safe_denom, 0)
+    return cast(Scalar, jnp.where(pred, numerator / safe_denom, 0))
 
 
 def dai_yuan(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
@@ -67,7 +67,7 @@ def dai_yuan(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     # Triggers at initialisation and convergence, as above.
     pred = jnp.abs(denominator) > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
-    return jnp.where(pred, numerator / safe_denom, 0)
+    return cast(Scalar, jnp.where(pred, numerator / safe_denom, 0))
 
 
 class _NonlinearCGDescentState(eqx.Module, Generic[Y]):

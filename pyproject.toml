@@ -69,6 +69,7 @@ include = ["optimistix/*"]
 include = ["optimistix", "tests"]
 reportIncompatibleMethodOverride = true
 reportIncompatibleVariableOverride = false # Incompatible with eqx.AbstractVar
+reportInvalidTypeForm = false # Incompatible with FunctionInfo.Foo
 
 [tool.pytest.ini_options]
 addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
@@ -76,12 +77,6 @@ addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=bearty
 [tool.ruff]
 extend-include = ["*.ipynb"]
 src = []
-
-[tool.ruff.isort]
-combine-as-imports = true
-extra-standard-library = ["typing_extensions"]
-lines-after-imports = 2
-order-by-type = false
 
 [tool.ruff.lint]
 fixable = ["I001", "F401", "UP"]
@@ -92,3 +87,9 @@ select = ["E", "F", "I001", "UP"]
 "collections" = "co"
 "functools" = "ft"
 "itertools" = "it"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+extra-standard-library = ["typing_extensions"]
+lines-after-imports = 2
+order-by-type = false
