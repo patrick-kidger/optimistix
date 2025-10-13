@@ -58,35 +58,42 @@ def optax_cubicmin(
     c: FloatScalar,
     value_c: FloatScalar,
 ) -> FloatScalar:
-    """Cubic interpolation. Adapted from Optax. Optax docs follow:
+    """Find minimum by cubic interpolation. Adapted from Optax.
+
+    Adapted Optax docs follow:
 
     Finds a critical point of a cubic polynomial
-    p(x) = A *(x-a)^3 + B*(x-a)^2 + C*(x-a) + D, that goes through the
+    p(x) = A*(x-a)^3 + B*(x-a)^2 + C*(x-a) + D, that goes through the
     points (a,value_a), (b,value_b), and (c,value_c) with derivative at a of slope_a.
     May return NaN (if radical<0), in that case, the point will be ignored.
     Adapted from scipy.optimize._linesearch.py.
 
     Args:
       a: scalar
-      value_a: value of a function f at a
-      slope_a: slope of a function f at a
+      value_a: function value at a
+      slope_a: slope at a
       b: scalar
-      value_b: value of a function f at b
+      value_b: function value at b
       c: scalar
-      value_c: value of a function f at c
+      value_c: function value at c
 
     Returns:
       xmin: point at which p'(xmin) = 0
     """
     C = slope_a
-    db = b - a
-    dc = c - a
-    denom = (db * dc) ** 2 * (db - dc)
-    d1 = jnp.array([[dc**2, -(db**2)], [-(dc**3), db**3]])
+    b_minus_a = b - a
+    c_minus_a = c - a
+    denom = (b_minus_a * c_minus_a) ** 2 * (b_minus_a - c_minus_a)
+    d1 = jnp.array([[c_minus_a**2, -(b_minus_a**2)], [-(c_minus_a**3), b_minus_a**3]])
     A, B = (
         jnp.dot(
             d1,
-            jnp.array([value_b - value_a - C * db, value_c - value_a - C * dc]),
+            jnp.array(
+                [
+                    value_b - value_a - C * b_minus_a,
+                    value_c - value_a - C * c_minus_a,
+                ]
+            ),
             precision=jax.lax.Precision.HIGHEST,
         )
         / denom
