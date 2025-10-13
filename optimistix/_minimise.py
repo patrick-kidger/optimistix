@@ -90,7 +90,7 @@ def minimise(
     fn = OutAsArray(fn)
     fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
     fn = cast(Fn[Y, Scalar, Aux], fn)
-    f_struct, aux_struct = fn.out_struct
+    f_struct, aux_struct = fn.out_struct  # pyright: ignore[reportFunctionMemberAccess]
     if options is None:
         options = {}
 
