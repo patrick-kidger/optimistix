@@ -30,7 +30,7 @@ def _wrap(fn):
     def wrapped_fn(*args, **kwargs):
         return fn(*args, **kwargs)
 
-    wrapped_fn.__signature__ = inspect.signature(fn)
+    wrapped_fn.__signature__ = inspect.signature(fn)  # pyright: ignore[reportFunctionMemberAccess]
     wrapped_fn.__name__ = wrapped_fn.__qualname__ = fn.__name__
     wrapped_fn.__module__ = __name__
     wrapped_fn.__doc__ = fn.__doc__
@@ -50,15 +50,13 @@ def tree_full_like(
     struct: PyTree[Array | jax.ShapeDtypeStruct],
     fill_value: ArrayLike,
     allow_static: Literal[False] = False,
-):
-    ...
+): ...
 
 
 @overload
 def tree_full_like(
     struct: PyTree, fill_value: ArrayLike, allow_static: Literal[True] = True
-):
-    ...
+): ...
 
 
 def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = False):
@@ -85,8 +83,10 @@ def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = F
 
 
 def tree_where(
-    pred: PyTree, true: PyTree[ArrayLike, " T"], false: PyTree[ArrayLike, " T"]
-) -> PyTree[ArrayLike, " T"]:
+    pred: PyTree,
+    true: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
+    false: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
+) -> PyTree[ArrayLike, " T"]:  # pyright: ignore[reportUndefinedVariable]
     """Return a pytree with values from `true` where `pred` is true, and `false` where
     `pred` is false. `pred` can be any tree-prefix of `true` and `false`, but we do
     assume that `true` and `false` share the same pytree structure.
@@ -130,13 +130,13 @@ def tree_max(tree: PyTree[ArrayLike]) -> Scalar:
 
 
 def feasible_step_length(
-    current: PyTree[ArrayLike, " T"],
-    proposed_step: PyTree[ArrayLike, " T"],
-    lower_bound: PyTree[ArrayLike, " T"],
-    upper_bound: PyTree[ArrayLike, " T"],
+    current: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
+    proposed_step: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
+    lower_bound: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
+    upper_bound: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
     *,
     offset: ScalarLike = jnp.array(0.0),
-) -> PyTree[ArrayLike, " T"]:
+) -> PyTree[ArrayLike, " T"]:  # pyright: ignore[reportUndefinedVariable]
     """Returns the maximum feasible step length for any current value, its bounds, and a
     proposed step, as a value for each element of the PyTree.
     Where taking the full step does not result in a violation of the bounds, a value of

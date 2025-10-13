@@ -45,16 +45,16 @@ def _to_lstsq_fn(root_fn, y, args):
 class _ToRoot(AbstractIterativeSolver):
     solver: AbstractVar[AbstractIterativeSolver]
 
-    @property  # pyright: ignore
+    @property
     def rtol(self):
         return self.solver.rtol
 
-    @property  # pyright: ignore
+    @property
     def atol(self):
         return self.solver.atol
 
-    @property  # pyright: ignore
-    def norm(self):
+    @property
+    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         return self.solver.norm
 
     def init(self, fn, y, args, options, f_struct, aux_struct, tags):
@@ -85,16 +85,16 @@ class _MinimToRoot(AbstractMinimiser, _ToRoot):
 
     # Redeclare these three to work around the Equinox bug fixed here:
     # https://github.com/patrick-kidger/equinox/pull/544
-    @property  # pyright: ignore
+    @property
     def rtol(self):
         return self.solver.rtol
 
-    @property  # pyright: ignore
+    @property
     def atol(self):
         return self.solver.atol
 
-    @property  # pyright: ignore
-    def norm(self):
+    @property
+    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         return self.solver.norm
 
 
@@ -103,16 +103,16 @@ class _LstsqToRoot(AbstractLeastSquaresSolver, _ToRoot):
 
     # Redeclare these three to work around the Equinox bug fixed here:
     # https://github.com/patrick-kidger/equinox/pull/544
-    @property  # pyright: ignore
+    @property
     def rtol(self):
         return self.solver.rtol
 
-    @property  # pyright: ignore
+    @property
     def atol(self):
         return self.solver.atol
 
-    @property  # pyright: ignore
-    def norm(self):
+    @property
+    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         return self.solver.norm
 
 
@@ -212,7 +212,7 @@ def root_find(
         y0 = jtu.tree_map(inexact_asarray, y0)
         fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
         fn = cast(Fn[Y, Out, Aux], fn)
-        f_struct, aux_struct = fn.out_struct
+        f_struct, aux_struct = fn.out_struct  # pyright: ignore[reportFunctionMemberAccess]
         if options is None:
             options = {}
         return iterative_solve(
