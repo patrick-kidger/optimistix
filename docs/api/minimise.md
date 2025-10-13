@@ -40,15 +40,33 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
                 - init_hessian
                 - update_hessian
 
+??? abstract "`optimistix.AbstractBFGS`"
+
+    ::: optimistix.AbstractBFGS
+        options:
+            members: none
+
 ::: optimistix.BFGS
     options:
         members:
             - __init__
 
+??? abstract "`optimistix.AbstractDFP`"
+
+    ::: optimistix.AbstractDFP
+        options:
+            members: none
+
 ::: optimistix.DFP
     options:
         members:
             - __init__
+
+??? abstract "`optimistix.AbstractLBFGS`"
+
+    ::: optimistix.AbstractLBFGS
+        options:
+            members: none
 
 ::: optimistix.LBFGS
     options:

@@ -328,7 +328,8 @@ class AbstractQuasiNewton(
 class AbstractBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
     """Abstract version of the BFGS (Broyden–Fletcher–Goldfarb–Shanno) minimisation
     algorithm. This class may be subclassed to implement custom solvers with alternative
-    searches and descent methods that use the BFGS update to the Hessian approximation.
+    searches and descent methods that use the BFGS update to approximate the Hessian or
+    the inverse Hessian.
     """
 
     def init_hessian(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, None]:
@@ -486,7 +487,8 @@ BFGS.__init__.__doc__ = """**Arguments:**
 class AbstractDFP(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
     """Abstract version of the DFP (Davidon–Fletcher–Powell) minimisation algorithm.
     This class may be subclassed to implement custom solvers with alternative searches
-    and descent methods that use the DFP update to the Hessian approximation.
+    and descent methods that use the DFP update to approximate the Hessian or the
+    inverse Hessian.
     """
 
     def init_hessian(self, y: Y, f: Scalar, grad: Y) -> tuple[_Hessian, None]:
