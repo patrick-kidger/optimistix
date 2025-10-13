@@ -280,7 +280,7 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
     def init_stepsize_from_previous(self, prev_stepsize: FloatScalar) -> FloatScalar:
         """Initialize the linesearch's stepsize based on the previous steps size.
 
-        Initialization is done aaccording to one of three strategies:
+        Initialization is done according to one of three strategies:
             - "one": initialize to 1.0. Recommended for quasi-Newton methods.
             - "keep": initialize to and start from the previous stepsize.
             - "increase": increase the previous stepsize by `increase_factor`.
@@ -854,7 +854,7 @@ class Zoom(AbstractSearch[Y, _FnInfo, FunctionInfo.EvalGrad, ZoomState]):
         f_eval_info: FunctionInfo.EvalGrad,
         state: ZoomState,
     ):
-        """Dispatches to fake_first_step if `first_step` is true, to _step otherwise.
+        """Takes a fake first step if `first_step` is true, calls to _step otherwise.
 
         `y_eval` is accepted in 3 conditions:
             - on the fake first step
