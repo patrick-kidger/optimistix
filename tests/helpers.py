@@ -1,6 +1,6 @@
 import functools as ft
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, NamedTuple, TypeVar
 
 import diffrax as dfx
 import equinox as eqx
@@ -1132,5 +1132,149 @@ y_bounds_step_offset_expected = (
         jnp.array([1.0, -1.0]),
         None,
         jnp.array([0.5, 0.5]),
+    ),
+)
+
+
+# Easy tests for bounded and constrained optimisation. These are all smoke tests, but
+# they are varied enough that they help catch quite a few different cases early.
+# For example, initial points may be on the constraint boundary, or be a (general)
+# Cauchy point, upper as well as lower bounds may be blocking, etc.
+
+
+def _paraboloid(y, args):
+    del args
+    squares = jtu.tree_map(lambda x: x**2, y)
+    squares, _ = jfu.ravel_pytree(squares)
+    return jnp.sum(squares)
+
+
+class _Point(NamedTuple):
+    a: float
+    b: float
+
+
+# Vary cases and pytree types: smoke tests with trivial quadratic function
+bounded_paraboloids = (
+    # fn, y0, args, bounds, expected result
+    # No bounds active at (0.0, 0.0), bounds far from minimum
+    (
+        _paraboloid,
+        jnp.array([-1.0, -5.0]),
+        None,
+        (jnp.array([-jnp.inf, -jnp.inf]), jnp.array([1.0, 1.0])),
+        jnp.array([0.0, 0.0]),
+    ),
+    # One upper bound active at (0.0, 0.0), Cauchy point is at minimum
+    (
+        _paraboloid,
+        jnp.array([-4.0, -1.0]),
+        None,
+        (jnp.array([-jnp.inf, -jnp.inf]), jnp.array([0.0, 1.0])),
+        jnp.array([0.0, 0.0]),
+    ),
+    # Two upper bounds active at (0.0, 0.0), Cauchy point is at minimum
+    (
+        _paraboloid,
+        [-1.0, -1.0],
+        None,
+        ([-jnp.inf, -jnp.inf], [0.0, 0.0]),
+        [0.0, 0.0],
+    ),
+    # One bound active at (-1.0, 0.0)
+    (
+        _paraboloid,
+        {"a": -3.0, "b": -1.0},
+        None,
+        ({"a": -jnp.inf, "b": -jnp.inf}, {"a": -1.0, "b": 1.0}),
+        {"a": -1.0, "b": 0.0},
+    ),
+    # Two bounds active at (-1.0, 0.0), initial point at minimum and Cauchy point
+    (
+        _paraboloid,
+        (-1.0, 0.0),
+        None,
+        ((-jnp.inf, -jnp.inf), (-1.0, 0.0)),
+        (-1.0, 0.0),
+    ),
+    # One bound active at (0.0, -1.0), initial point out of bounds
+    (
+        _paraboloid,
+        (0.0, {"b": -2.0}),
+        None,
+        ((-jnp.inf, {"b": -jnp.inf}), (1.0, {"b": -1.0})),
+        (0.0, {"b": -1.0}),
+    ),
+    # Two bounds active at (0.0, -1.0)
+    (
+        _paraboloid,
+        _Point(-1.0, -7.0),
+        None,
+        (_Point(-jnp.inf, -jnp.inf), _Point(0.0, -1.0)),
+        _Point(0.0, -1.0),
+    ),
+    # Two bounds active at (-1.0, -1.)
+    (
+        _paraboloid,
+        jnp.array([-3.0, -1.0]),
+        None,
+        (jnp.array([-jnp.inf, -jnp.inf]), jnp.array([-1.0, -1.0])),
+        jnp.array([-1.0, -1.0]),
+    ),
+    # Two bounds active at (1, 1), lower bound blocking
+    (
+        _paraboloid,
+        jnp.array([2.0, 3.0]),
+        None,
+        (jnp.array([1.0, 1.0]), jnp.array([jnp.inf, jnp.inf])),
+        jnp.array([1.0, 1.0]),
+    ),
+)
+
+
+def _scalar_rosenbrock(y, args):
+    out = rosenbrock(y, args)
+    flat, _ = jfu.ravel_pytree(out)
+    return jnp.sum(flat)
+
+
+minimise_bounded_with_local_minima = (
+    # fn, y0, args, bounds, expected result
+    (
+        _himmelblau,
+        [4.0, 1.0],  # Initialise between two minima
+        (jnp.array(11.0), jnp.array(7.0)),
+        ([0.0, 0.0], [5.0, 5.0]),  # Quadrant: I
+        [3.0, 2.0],
+    ),
+    (
+        _himmelblau,
+        jnp.array([4.0, -1.0]),
+        (jnp.array(11.0), jnp.array(7.0)),
+        (jnp.array([0.0, -5.0]), jnp.array([5.0, 0.0])),  # II
+        jnp.array([3.584428, -1.848126]),
+    ),
+    (
+        _himmelblau,
+        (-3.0, -2.0),  # TODO: This problem is sensitive to initialisation
+        # This makes it a good test case for inertia correction and initialisation of
+        # dual variables. It converges to a stationary point when started at (-3, -1).
+        (jnp.array(11.0), jnp.array(7.0)),
+        ((-5.0, -5.0), (0.0, 0.0)),  # Quadrant: III
+        (-3.779310, -3.283186),
+    ),
+    (
+        _himmelblau,
+        [jnp.array(-3.0), jnp.array(2.0)],
+        (jnp.array(11.0), jnp.array(7.0)),
+        ([jnp.array(-8.0), jnp.array(0.0)], [jnp.array(0.0), jnp.array(8.0)]),  # IV
+        [jnp.array(-2.805118), jnp.array(3.131312)],
+    ),
+    (
+        _scalar_rosenbrock,
+        (0.4, 0.0),
+        None,
+        ((-5.0, -6.0), (4.0, 5.0)),
+        (1.0, 1.0),
     ),
 )
