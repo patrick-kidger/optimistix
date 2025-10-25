@@ -1155,6 +1155,20 @@ class _Point(NamedTuple):
 
 
 # Vary cases and pytree types: smoke tests with trivial quadratic function
+# What do we mean by Cauchy point? This point is the first local minimiser
+# of a piecewise linear path along the surface of a hypercube defined by the
+# bounds on the optimisation problem, identified by solving for the minimum
+# of the quadratic approximation to the target function on each of the segments
+# making up the piecewise linear path. This point is used e.g. in BFGS-B and
+# its variants to identify the set of active bound constraints, and then solve
+# for a new direction in the unconstrained subspace.
+# In the literature, it is sometimes also called the "generalised Cauchy point"
+# (e.g. in Trust Region Methods by Conn, Gould, Toint).
+# Below, if locations of the Cauchy point are indicated, these are given with
+# respect to the initial point. For example, if the Cauchy point is at the
+# minimum, then we expect to encounter it in the first step due to the projection
+# onto the hypercube, even if a full gradient or Newton step would have led us
+# to leave the feasible set.
 bounded_paraboloids = (
     # fn, y0, args, bounds, expected result
     # No bounds active at (0.0, 0.0), bounds far from minimum
