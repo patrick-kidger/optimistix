@@ -136,6 +136,25 @@ def cauchy_point(
 
     in t, which may be understood as a fractional step length.
 
+
+    Given some box, we can picture the directions + points computed: the gradient
+    step, the path defined by the projected gradient, and the Cauchy point somewhere
+    along this path:
+
+                   Δ
+                  /
+                 /
+                /
+               /
+              /
+             /
+     -------/==*==>     º   Initial point / current `y`
+     |     /      |     /   gradient step
+     |    /       |     ==> projected gradient step
+     |   /        |     *   Cauchy point
+     |  º         |     _|  box outlines
+     |____________|
+
     Once we have located the generalised Cauchy point, we use it as our educated
     guess at the set of active bound constraints at the solution, by simply assuming
     that all elements on the surface of the hypercube (at their respective bounds)
