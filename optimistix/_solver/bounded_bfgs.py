@@ -14,16 +14,17 @@ from .._custom_types import Y
 from .._misc import filter_cond, tree_clip, tree_dot
 
 
-def _boundary_intercepts(y: Y, lower: Y, upper: Y, grad: Y):
-    """Compute the intercepts of the gradient with the hyperplanes defined by the
-    bounds on y, as fractions of the full gradient step.
+# Are we doing the right thing for nonfinite bounds?
 
-    Intercepts are computed as
+
+def _boundary_intercepts(y: Y, lower: Y, upper: Y, grad: Y):
+    """Compute the intercepts of the gradient with the bounds on y, as fractions of
+    the full gradient step. These are computed as
 
         (y - bound) / gradient > 0 and gradient != 0, else jnp.inf
 
     under the assumption that y is always inside the feasible region defined by the
-    bounds. This works because
+    bounds. This then works because
 
      -  if the gradient < 0, taking a step will increase y, so there could be an
         intercept. (y - upper bound) is a negative value, resulting in a positive
@@ -45,11 +46,11 @@ def _boundary_intercepts(y: Y, lower: Y, upper: Y, grad: Y):
     lower_intercepts = jtu.tree_map(leaf_intercepts, y, lower, grad)
     upper_intercepts = jtu.tree_map(leaf_intercepts, y, upper, grad)
 
-    intercepts = jtu.tree_map(
+    all_intercepts = jtu.tree_map(
         lambda x, y: jnp.minimum(x, y), lower_intercepts, upper_intercepts
     )
-    intercepts, _ = jfu.ravel_pytree(intercepts)
-    return intercepts
+    all_intercepts, _ = jfu.ravel_pytree(all_intercepts)
+    return all_intercepts
 
 
 class _CauchyState(eqx.Module, Generic[Y]):
@@ -103,7 +104,7 @@ def _find_cauchy_point(
         point = (y**ω - t_opt * grad**ω).ω
         point = tree_clip(point, lower, upper)
 
-        # Overwrite current value and any duplicates with inf
+        # Overwrite current intercept value and any duplicates with inf
         intercepts = state.intercepts
         intercepts = jnp.asarray(jnp.where(intercepts == t_next, jnp.inf, intercepts))
         more_to_try = jnp.any(jnp.isfinite(intercepts))
@@ -135,7 +136,6 @@ def cauchy_point(
         q(Δy(t)) = grad^T Δy(t) + 1/2 Δy(t)^T Hess Δy(t)
 
     in t, which may be understood as a fractional step length.
-
 
     Given some box, we can picture the directions + points computed: the gradient
     step, the path defined by the projected gradient, and the Cauchy point somewhere
@@ -181,10 +181,8 @@ def cauchy_point(
     intercepts = _boundary_intercepts(y, lower, upper, grad)
     has_intercepts = jnp.any(jnp.isfinite(intercepts))
 
-    # TODO(jhaffner): minimise the number of arguments passed to these two branches
-    def project(args):
-        y, grad, hessian_operator, intercepts = args
-        return _find_cauchy_point(y, lower, upper, grad, hessian_operator, intercepts)
+    def project(_y):
+        return _find_cauchy_point(_y, lower, upper, grad, hessian_operator, intercepts)
 
     # Rather than solving for the optimal step length using the quadratic
     # approximation, we just take a gradient step if the full gradient step does not
@@ -193,10 +191,8 @@ def cauchy_point(
     # iterate itself. We are therefore interested in its location relative to the
     # bounds, which just requires taking a step.
     # (We should move since we might currently be at the boundary.)
-    def just_move(args):
-        y, grad, _, _ = args
-        return (y**ω - grad**ω).ω
+    def just_move(_y):
+        return (_y**ω - grad**ω).ω
 
-    args = (y, grad, hessian_operator, intercepts)
-    cauchy = filter_cond(has_intercepts, project, just_move, args)
+    cauchy = filter_cond(has_intercepts, project, just_move, y)
     return cauchy
