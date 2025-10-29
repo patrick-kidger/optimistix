@@ -114,7 +114,7 @@ class AbstractQuasiNewton(
 
     Alternative flavors of quasi-Newton approximations may be implemented by subclassing
     `AbstractQuasiNewton` and providing implementations for the abstract methods
-    `update_init` and `update_call`. The former is called to initialize the Hessian
+    `init_hessian` and `update_hessian`. The former is called to initialize the Hessian
     structure and the Hessian update state, while the latter is called to compute an
     update to the approximation of the Hessian or the inverse Hessian.
 
