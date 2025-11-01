@@ -49,6 +49,18 @@ def _boundary_intercepts(y: Y, lower: Y, upper: Y, grad: Y):
     return all_intercepts
 
 
+def _next_intercept(intercepts, previous_intercept):
+    """The next intercept is the first finite intercept that is larger than the
+    previous one. We're inverting that and taking the argmin to get the first
+    element for which this condition evaluates to True.
+    """
+    candidates = jnp.invert(intercepts > previous_intercept)
+    candidates = jnp.where(
+        jnp.isfinite(intercepts), candidates, jnp.ones_like(candidates)
+    )
+    return intercepts[jnp.argmin(candidates)]
+
+
 def _point(y, grad, intercept, lower, upper):
     return tree_clip((y**ω - intercept * grad**ω).ω, lower, upper)
 
@@ -78,10 +90,7 @@ def _find_cauchy_point(
         return jnp.invert(state.terminate)
 
     def body_fun(state):
-        next_intercept = state.intercepts[
-            jnp.argmin(jnp.invert(state.intercepts > state.previous_intercept))
-        ]  # Find the first intercept that is larger than the previous intercept
-
+        next_intercept = _next_intercept(state.intercepts, state.previous_intercept)
         next_point = _point(y, grad, next_intercept, lower, upper)
         point_diff = (next_point**ω - y**ω).ω
         linear = tree_dot(grad, point_diff) + tree_dot(
@@ -180,7 +189,6 @@ def cauchy_point(
     intercepts = _boundary_intercepts(y, lower, upper, grad)
     # Iteratively search for the Cauchy point if there are finite intercept values > 0
     has_intercepts = jnp.any(jnp.logical_and(jnp.isfinite(intercepts), intercepts > 0))
-    print(intercepts)
 
     def project(_y):
         return _find_cauchy_point(_y, lower, upper, grad, hessian_operator, intercepts)
