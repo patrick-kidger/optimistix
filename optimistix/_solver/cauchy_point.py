@@ -37,6 +37,10 @@ def _boundary_intercepts(y: Y, lower: Y, upper: Y, grad: Y):
         intercepts = (y - bound) / gradient
         intercepts = jnp.where(intercepts >= 0, intercepts, jnp.inf)
         intercepts = jnp.where(gradient != 0.0, jnp.asarray(intercepts), jnp.inf)
+        # We're not interested in steps longer than a full gradient step (1.0)
+        intercepts = jnp.where(
+            jnp.isfinite(intercepts), jnp.clip(intercepts, max=1.0), intercepts
+        )
         return intercepts
 
     lower_intercepts = jtu.tree_map(leaf_intercepts, y, lower, grad)
@@ -187,8 +191,8 @@ def cauchy_point(
         ```
     """
     intercepts = _boundary_intercepts(y, lower, upper, grad)
-    # Iteratively search for the Cauchy point if there are finite intercept values > 0
-    has_intercepts = jnp.any(jnp.logical_and(jnp.isfinite(intercepts), intercepts > 0))
+    # Iteratively search for the Cauchy point if there are intercept values in (0, 1)
+    has_intercepts = jnp.any(jnp.logical_and(intercepts > 0, intercepts < 1))
 
     def project(_y):
         return _find_cauchy_point(_y, lower, upper, grad, hessian_operator, intercepts)
