@@ -1299,7 +1299,7 @@ def _wrapped_paraboloid(y):
 
 
 y00 = jnp.array([3.0, 3.0])
-y01 = jnp.array([-1.0, 3.0])
+y01 = jnp.array([-2.0, 2.0])
 y02 = jnp.array([2.0, 2.0])
 y03 = jnp.array([1.0, 1.0])
 y04 = jnp.array([3.0, 3.0])
@@ -1335,7 +1335,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
             jax.hessian(_wrapped_paraboloid)(y01),
             output_structure=jax.eval_shape(lambda: y01),
         ),
-        None,
+        jnp.array([2.0, -2.0]),
     ),
     (
         y02,
@@ -1355,7 +1355,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
             jax.hessian(_wrapped_paraboloid)(y03),
             output_structure=jax.eval_shape(lambda: y03),
         ),
-        None,
+        jnp.array([-1.0, -1.0]),
     ),
     (
         y04,
@@ -1385,7 +1385,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
             jax.hessian(_wrapped_paraboloid)(y06),
             output_structure=jax.eval_shape(lambda: y06),
         ),
-        None,
+        jnp.array([1.0, -1.0]),
     ),
     (
         y07,
@@ -1425,7 +1425,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
             jax.hessian(_wrapped_paraboloid)(y10),
             output_structure=jax.eval_shape(lambda: y10),
         ),
-        None,
+        jnp.array([-3.0, -2.0]),
     ),
     (
         y11,
@@ -1435,7 +1435,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
             jax.hessian(_wrapped_paraboloid)(y11),
             output_structure=jax.eval_shape(lambda: y11),
         ),
-        None,
+        jnp.array([1.5, 1.0]),
     ),
     (
         y12,
@@ -1445,7 +1445,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
             jax.hessian(_wrapped_paraboloid)(y12),
             output_structure=jax.eval_shape(lambda: y12),
         ),
-        None,
+        jnp.array([1.0, 1.0]),
     ),
     (
         y13,
@@ -1455,7 +1455,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
             jax.hessian(_wrapped_paraboloid)(y13),
             output_structure=jax.eval_shape(lambda: y13),
         ),
-        jnp.array([-0.5, 0.5]),
+        jnp.array([-0.5, -0.5]),
     ),
     (
         y14,
