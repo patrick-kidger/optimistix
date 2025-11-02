@@ -101,6 +101,9 @@ def _find_cauchy_point(
             state.point, hessian_operator.mv(point_diff)
         )
         quadratic = tree_dot(point_diff, hessian_operator.mv(point_diff))
+        # Assuming that the Hessian is positive semidefinite (e.g. a BFGS approximation)
+        # and that point_diff is nonzero (since the next intercept must have a value
+        # that is greater than the previous one), we can safely divide by quadratic.
         optimal_intercept = -linear / quadratic
 
         stop_at_previous = linear > 0  # Enforce descent condition along segment
