@@ -1,5 +1,5 @@
 import abc
-from typing import TypeAlias, TypeVar
+from typing import ClassVar, TypeAlias, TypeVar
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -46,6 +46,7 @@ class _AbstractTrustRegion(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _TrustRegionS
     low_cutoff: AbstractVar[ScalarLike]
     high_constant: AbstractVar[ScalarLike]
     low_constant: AbstractVar[ScalarLike]
+    _needs_grad_at_y_eval: ClassVar[bool] = False
 
     def __post_init__(self):
         # You would not expect `self.low_cutoff` or `self.high_cutoff` to
