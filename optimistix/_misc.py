@@ -135,7 +135,7 @@ def feasible_step_length(
     lower_bound: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
     upper_bound: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
     *,
-    offset: ScalarLike = jnp.array(0.0),
+    offset: ScalarLike | None = None,
 ) -> PyTree[ArrayLike, " T"]:  # pyright: ignore[reportUndefinedVariable]
     """Returns the maximum feasible step length for any current value, its bounds, and a
     proposed step, as a value for each element of the PyTree.
@@ -175,6 +175,10 @@ def feasible_step_length(
         The value of this offset should be in [0, 1), but this is not checked. Values
         used are typically on the order of 10^-2. Keyword-only argument.
     """
+    # Workaround for
+    # https://github.com/patrick-kidger/optimistix/issues/185#issuecomment-3492999481
+    if offset is None:
+        offset = jnp.array(0.0)
 
     def max_step(x, dx, lower, upper):
         distance_to_lower = (1 - offset) * (x - lower)
