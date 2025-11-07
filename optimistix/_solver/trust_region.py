@@ -42,12 +42,12 @@ class _AbstractTrustRegion(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _TrustRegionS
     - else, accept the step and make no change to the step-size.
     """
 
-    initial_step_size: AbstractVar[ScalarLike]
-
     high_cutoff: AbstractVar[ScalarLike]
     low_cutoff: AbstractVar[ScalarLike]
     high_constant: AbstractVar[ScalarLike]
     low_constant: AbstractVar[ScalarLike]
+
+    initial_step_size: AbstractVar[ScalarLike]
 
     def __post_init__(self):
         # You would not expect `self.low_cutoff` or `self.high_cutoff` to
@@ -105,6 +105,7 @@ class _AbstractTrustRegion(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _TrustRegionS
         mul = jnp.where(accept, mul, self.low_constant)
         new_step_size = mul * state.step_size
         new_state = _TrustRegionState(step_size=new_step_size)
+
         return new_step_size, accept, RESULTS.successful, new_state
 
 
