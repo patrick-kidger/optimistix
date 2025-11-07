@@ -42,6 +42,8 @@ class _AbstractTrustRegion(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _TrustRegionS
     - else, accept the step and make no change to the step-size.
     """
 
+    initial_step_size: AbstractVar[ScalarLike]
+
     high_cutoff: AbstractVar[ScalarLike]
     low_cutoff: AbstractVar[ScalarLike]
     high_constant: AbstractVar[ScalarLike]
@@ -72,7 +74,7 @@ class _AbstractTrustRegion(AbstractSearch[Y, _FnInfo, _FnEvalInfo, _TrustRegionS
 
     def init(self, y: Y, f_info_struct: _FnInfo) -> _TrustRegionState:
         del f_info_struct
-        return _TrustRegionState(step_size=jnp.array(1.0))
+        return _TrustRegionState(step_size=jnp.array(self.initial_step_size))
 
     def step(
         self,
@@ -126,6 +128,8 @@ class ClassicalTrustRegion(
     low_cutoff: ScalarLike = 0.01
     high_constant: ScalarLike = 3.5
     low_constant: ScalarLike = 0.25
+
+    initial_step_size: ScalarLike = 1.0
 
     def predict_reduction(
         self,
@@ -222,13 +226,17 @@ class LinearTrustRegion(
     high_constant: ScalarLike = 3.5
     low_constant: ScalarLike = 0.25
 
+    initial_step_size: ScalarLike = 1.0
+
     def predict_reduction(
         self,
         y_diff: Y,
-        f_info: FunctionInfo.EvalGrad
-        | FunctionInfo.EvalGradHessian
-        | FunctionInfo.EvalGradHessianInv
-        | FunctionInfo.ResidualJac,
+        f_info: (
+            FunctionInfo.EvalGrad
+            | FunctionInfo.EvalGradHessian
+            | FunctionInfo.EvalGradHessianInv
+            | FunctionInfo.ResidualJac
+        ),
     ) -> Scalar:
         """Compute the expected decrease in loss from taking the step `y_diff`.
 
@@ -283,6 +291,7 @@ and decrease the step-size on the next iteration.
 high_constant`.
 - `low_constant`: when `ratio < low_cutoff`, multiply the previous step-size by
 low_constant`.
+- `initial_step_size`: the step size used for initialization.
 """
 
 LinearTrustRegion.__init__.__doc__ = _init_doc
