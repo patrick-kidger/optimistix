@@ -35,7 +35,6 @@ def damped_newton_step(
     step_size: Scalar,
     f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
     linear_solver: lx.AbstractLinearSolver,
-    unit_step_size: ScalarLike = 1.0,
 ) -> tuple[PyTree[Array], RESULTS]:
     """Compute a damped Newton step.
 
@@ -55,9 +54,7 @@ def damped_newton_step(
 
     pred = step_size > jnp.finfo(step_size.dtype).eps
     safe_step_size = jnp.where(pred, step_size, 1)
-    lm_param = jnp.where(
-        pred, unit_step_size / safe_step_size, jnp.finfo(step_size.dtype).max
-    )
+    lm_param = jnp.where(pred, 1 / safe_step_size, jnp.finfo(step_size.dtype).max)
     lm_param = cast(Array, lm_param)
     if isinstance(f_info, FunctionInfo.EvalGradHessian):
         operator = f_info.hessian + lm_param * lx.IdentityLinearOperator(
@@ -107,7 +104,6 @@ class DampedNewtonDescent(
     # Will probably resolve to either Cholesky (for minimisation problems) or
     # QR (for least-squares problems).
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
-    unit_step_size: ScalarLike = 1.0
 
     def init(
         self,
@@ -131,7 +127,7 @@ class DampedNewtonDescent(
         self, step_size: Scalar, state: _DampedNewtonDescentState
     ) -> tuple[Y, RESULTS]:
         sol_value, result = damped_newton_step(
-            step_size, state.f_info, self.linear_solver, self.unit_step_size
+            step_size, state.f_info, self.linear_solver
         )
         y_diff = (-(sol_value**ω)).ω
         return y_diff, result
@@ -140,10 +136,6 @@ class DampedNewtonDescent(
 DampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 
 - `linear_solver`: The linear solver used to compute the Newton step.
-- `unit_step_size`: A scalar that defines what a "unit" step size is.
-    This defines the Levenberg--Marquardt parameter as
-    `lambda = unit_step_size / step_size`. Useful for working in unnormalized
-    parameter spaces. 
 """
 
 
@@ -293,13 +285,12 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.QR(),
         verbose: frozenset[str] = frozenset(),
-        search: ClassicalTrustRegion[Y] | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.descent = DampedNewtonDescent(linear_solver=linear_solver)
-        self.search = search or ClassicalTrustRegion()
+        self.search = ClassicalTrustRegion()
         self.verbose = verbose
 
 
@@ -317,9 +308,6 @@ LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
     Should be a frozenset of strings, specifying what information to print out. Valid
     entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
     `verbose=frozenset({"loss", "step_size"})`.
-- `search`: The `ClassicalTrustRegion` instance used for the
-    optimization. If not provided, the default `ClassicalTrustRegion` is used
-    (i.e. `search = ClassicalTrustRegion()`).
 """
 
 
@@ -358,7 +346,6 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False),
         root_finder: AbstractRootFinder = Newton(rtol=0.01, atol=0.01),
         verbose: frozenset[str] = frozenset(),
-        search: ClassicalTrustRegion[Y] | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
@@ -368,7 +355,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
             linear_solver=linear_solver,
             root_finder=root_finder,
         )
-        self.search = search or ClassicalTrustRegion()
+        self.search = ClassicalTrustRegion()
         self.verbose = verbose
 
 
@@ -390,7 +377,4 @@ IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
     Should be a frozenset of strings, specifying what information to print out. Valid
     entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
     `verbose=frozenset({"loss", "step_size"})`.
-- `search`: The `ClassicalTrustRegion` instance used for the
-    optimization. If not provided, the default `ClassicalTrustRegion` is used
-    (i.e. `search = ClassicalTrustRegion()`).
 """

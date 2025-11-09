@@ -29,11 +29,9 @@ from .learning_rate import LearningRate
 
 
 def newton_step(
-    f_info: (
-        FunctionInfo.EvalGradHessian
-        | FunctionInfo.EvalGradHessianInv
-        | FunctionInfo.ResidualJac
-    ),
+    f_info: FunctionInfo.EvalGradHessian
+    | FunctionInfo.EvalGradHessianInv
+    | FunctionInfo.ResidualJac,
     linear_solver: lx.AbstractLinearSolver,
 ) -> tuple[PyTree[Array], RESULTS]:
     """Compute a Newton step.
@@ -113,11 +111,9 @@ class NewtonDescent(
     def query(
         self,
         y: Y,
-        f_info: (
-            FunctionInfo.EvalGradHessian
-            | FunctionInfo.EvalGradHessianInv
-            | FunctionInfo.ResidualJac
-        ),
+        f_info: FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac,
         state: _NewtonDescentState,
     ) -> _NewtonDescentState:
         del state
@@ -403,13 +399,12 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
         verbose: frozenset[str] = frozenset(),
-        search: LearningRate | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.descent = NewtonDescent(linear_solver=linear_solver)
-        self.search = search or LearningRate(1.0)
+        self.search = LearningRate(1.0)
         self.verbose = verbose
 
 
@@ -426,6 +421,4 @@ GaussNewton.__init__.__doc__ = """**Arguments:**
     Should be a frozenset of strings, specifying what information to print out. Valid
     entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
     `verbose=frozenset({"loss", "step_size"})`.
-- `search`: The `LearningRate` instance used for
-    optimization. If not provided, `LearningRate(1.0)` is used.
 """

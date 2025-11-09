@@ -411,15 +411,9 @@ class AbstractBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
         # the `use_inverse` attribute.
         # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
         if self.use_inverse:
-            return (
-                FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian),
-                None,
-            )  # pyright: ignore
+            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore
         else:
-            return (
-                FunctionInfo.EvalGradHessian(f_eval, grad, hessian),
-                None,
-            )  # pyright: ignore
+            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore
 
 
 class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
@@ -454,7 +448,6 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
         norm: Callable[[PyTree], Scalar] = max_norm,
         use_inverse: bool = True,
         verbose: frozenset[str] = frozenset(),
-        search: BacktrackingArmijo | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
@@ -462,7 +455,7 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
         self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
-        self.search = search or BacktrackingArmijo()
+        self.search = BacktrackingArmijo()
         self.verbose = verbose
 
 
@@ -575,15 +568,9 @@ class AbstractDFP(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
         # the `use_inverse` attribute.
         # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
         if self.use_inverse:
-            return (
-                FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian),
-                None,
-            )  # pyright: ignore
+            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore
         else:
-            return (
-                FunctionInfo.EvalGradHessian(f_eval, grad, hessian),
-                None,
-            )  # pyright: ignore
+            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore
 
 
 class DFP(AbstractDFP[Y, Aux, _Hessian]):
@@ -621,7 +608,6 @@ class DFP(AbstractDFP[Y, Aux, _Hessian]):
         norm: Callable[[PyTree], Scalar] = max_norm,
         use_inverse: bool = True,
         verbose: frozenset[str] = frozenset(),
-        search: BacktrackingArmijo | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
@@ -629,7 +615,7 @@ class DFP(AbstractDFP[Y, Aux, _Hessian]):
         self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
-        self.search = search or BacktrackingArmijo()
+        self.search = BacktrackingArmijo()
         self.verbose = verbose
 
 
@@ -655,7 +641,4 @@ DFP.__init__.__doc__ = """**Arguments:**
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example
     `verbose=frozenset({"step_size", "loss"})`.
-- `search`: The `BacktrackingArmijo` instance used for the
-    optimization. If not provided, the default `BacktrackingArmijo` is used
-    (i.e. `search = BacktrackingArmijo()`).
 """

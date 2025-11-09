@@ -326,9 +326,7 @@ class AbstractLBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, _LBFGSUpdateState]):
                 jax.eval_shape(lambda: y),
                 tags=lx.positive_semidefinite_tag,
             )
-            f_info = FunctionInfo.EvalGradHessianInv(
-                f, grad, operator
-            )  # pyright: ignore
+            f_info = FunctionInfo.EvalGradHessianInv(f, grad, operator)  # pyright: ignore
             return f_info, state  # pyright: ignore
         else:
             state = _LBFGSHessianUpdateState(
@@ -581,14 +579,13 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         use_inverse: bool = True,
         history_length: int = 10,
         verbose: frozenset[str] = frozenset(),
-        search: BacktrackingArmijo | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.use_inverse = use_inverse
         self.descent = NewtonDescent()
-        self.search = search or BacktrackingArmijo()
+        self.search = BacktrackingArmijo()
         self.history_length = history_length
         self.verbose = verbose
 
@@ -614,7 +611,4 @@ LBFGS.__init__.__doc__ = """**Arguments:**
     proceeding. Should be a frozenset of strings, specifying what information to print.
     Valid entries are `step_size`, `loss`, `y`. For example
     `verbose=frozenset({"step_size", "loss"})`.
-- `search`: The `BacktrackingArmijo` instance used for the
-    optimization. If not provided, the default `BacktrackingArmijo` is used
-    (i.e. `search = BacktrackingArmijo()`).
 """

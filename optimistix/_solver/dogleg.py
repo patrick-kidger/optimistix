@@ -248,7 +248,6 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
         verbose: frozenset[str] = frozenset(),
-        search: ClassicalTrustRegion[Y] | None = None,
     ):
         # We don't expose root_finder to the default API for Dogleg because
         # we assume the `trust_region_norm` norm is `two_norm`, which has
@@ -257,7 +256,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         self.atol = atol
         self.norm = norm
         self.descent = DoglegDescent(linear_solver=linear_solver)
-        self.search = search or ClassicalTrustRegion()
+        self.search = ClassicalTrustRegion()
         self.verbose = verbose
 
 
@@ -274,7 +273,4 @@ Dogleg.__init__.__doc__ = """**Arguments:**
     Should be a frozenset of strings, specifying what information to print out. Valid
     entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
     `verbose=frozenset({"loss", "step_size"})`.
-- `search`: The `ClassicalTrustRegion` instance used for the
-    optimization. If not provided, the default `ClassicalTrustRegion` is used
-    (i.e. `search = ClassicalTrustRegion()`).
 """
