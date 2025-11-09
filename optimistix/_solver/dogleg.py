@@ -6,7 +6,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Scalar
+from jaxtyping import Array, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Out, Y
 from .._misc import (
@@ -246,6 +246,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
+        initial_radius: ScalarLike = 1.0,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
         verbose: frozenset[str] = frozenset(),
     ):
@@ -256,7 +257,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         self.atol = atol
         self.norm = norm
         self.descent = DoglegDescent(linear_solver=linear_solver)
-        self.search = ClassicalTrustRegion()
+        self.search = ClassicalTrustRegion(initial_step_size=initial_radius)
         self.verbose = verbose
 
 
@@ -268,6 +269,9 @@ Dogleg.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `initial_radius`: The trust-region radius used for the first
+    iteration. Controlling this parameter can be useful if there are initially
+    rejected iterations.
 - `linear_solver`: The linear solver used to compute the Newton part of the dogleg step.
 - `verbose`: Whether to print out extra information about how the solve is proceeding.
     Should be a frozenset of strings, specifying what information to print out. Valid

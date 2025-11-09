@@ -283,6 +283,7 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
+        initial_lambda: ScalarLike = 1.0,
         linear_solver: lx.AbstractLinearSolver = lx.QR(),
         verbose: frozenset[str] = frozenset(),
     ):
@@ -290,7 +291,7 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         self.atol = atol
         self.norm = norm
         self.descent = DampedNewtonDescent(linear_solver=linear_solver)
-        self.search = ClassicalTrustRegion()
+        self.search = ClassicalTrustRegion(initial_step_size=1 / initial_lambda)
         self.verbose = verbose
 
 
@@ -302,6 +303,9 @@ LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `initial_lambda`: The value of the Levenberg--Marquardt parameter used for the first
+    iteration. Controlling this parameter can be useful if there are initially rejected
+    iterations.
 - `linear_solver`: The linear solver to use to solve the damped Newton step. Defaults to
     `lineax.QR`.
 - `verbose`: Whether to print out extra information about how the solve is proceeding.
@@ -343,6 +347,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         lambda_0: ScalarLike = 1.0,
+        initial_radius: ScalarLike = 1.0,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False),
         root_finder: AbstractRootFinder = Newton(rtol=0.01, atol=0.01),
         verbose: frozenset[str] = frozenset(),
@@ -355,7 +360,7 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
             linear_solver=linear_solver,
             root_finder=root_finder,
         )
-        self.search = ClassicalTrustRegion()
+        self.search = ClassicalTrustRegion(initial_step_size=initial_radius)
         self.verbose = verbose
 
 
@@ -370,6 +375,9 @@ IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 - `lambda_0`: The initial value of the Levenberg--Marquardt parameter used in the root-
     find to hit the trust-region radius. If `IndirectLevenbergMarquardt` is failing,
     this value may need to be increased.
+- `initial_radius`: The trust-region radius used for the first
+    iteration. Controlling this parameter can be useful if there are initially
+    rejected iterations.
 - `linear_solver`: The linear solver used to compute the Newton step.
 - `root_finder`: The root finder used to find the Levenberg--Marquardt parameter which
     hits the trust-region radius.
