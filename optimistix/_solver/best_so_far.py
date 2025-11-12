@@ -112,7 +112,16 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return state.best_y, state.best_aux, {}
+        f, aux = fn(y, args)
+        loss = self._to_loss(y, f)
+
+        best_f, best_aux = fn(state.best_y, args)
+        best_loss = self._to_loss(state.best_y, best_f)
+
+        pred = loss < best_loss
+        best_y = tree_where(pred, y, state.best_y)
+        best_aux = tree_where(pred, aux, state.best_aux)
+        return best_y, best_aux, {}
 
 
 class BestSoFarMinimiser(  # pyright: ignore
