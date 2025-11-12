@@ -69,6 +69,7 @@ from ._solver import (
     LearningRate as LearningRate,
     LevenbergMarquardt as LevenbergMarquardt,
     LinearTrustRegion as LinearTrustRegion,
+    max_diagonal_scaling_update as max_diagonal_scaling_update,
     NelderMead as NelderMead,
     Newton as Newton,
     NewtonDescent as NewtonDescent,
@@ -76,6 +77,7 @@ from ._solver import (
     NonlinearCGDescent as NonlinearCGDescent,
     OptaxMinimiser as OptaxMinimiser,
     polak_ribiere as polak_ribiere,
+    ScaledDampedNewtonDescent as ScaledDampedNewtonDescent,
     SteepestDescent as SteepestDescent,
 )
 
