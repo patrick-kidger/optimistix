@@ -114,6 +114,19 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
         self.verbose = frozenset()
 
 
+class LineSearchLM(optx.AbstractGaussNewton[Y, Out, Aux]):
+    """Scale-invariant levenberg marquardt with a `BacktrackingArmijo`
+    line search"""
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    use_inverse: bool = False
+    search: optx.AbstractSearch = optx.BacktrackingArmijo()
+    descent: optx.AbstractDescent = optx.ScaledDampedNewtonDescent()
+    verbose: frozenset[str] = frozenset()
+
+
 class BFGSDampedNewton(optx.AbstractBFGS):
     """BFGS Hessian + direct Levenberg Marquardt update."""
 
@@ -123,6 +136,18 @@ class BFGSDampedNewton(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DampedNewtonDescent()
+    verbose: frozenset[str] = frozenset()
+
+
+class BFGSScaledDampedNewton(optx.AbstractBFGS):
+    """BFGS Hessian + direct Levenberg Marquardt update."""
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    use_inverse: bool = False
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.ScaledDampedNewtonDescent()
     verbose: frozenset[str] = frozenset()
 
 
@@ -198,6 +223,18 @@ class DFPDampedNewton(optx.AbstractDFP):
     verbose: frozenset[str] = frozenset()
 
 
+class DFPScaledDampedNewton(optx.AbstractDFP):
+    """DFP Hessian + direct Levenberg Marquardt update."""
+
+    rtol: float
+    atol: float
+    norm: Callable = optx.max_norm
+    use_inverse: bool = False
+    search: optx.AbstractSearch = optx.ClassicalTrustRegion()
+    descent: optx.AbstractDescent = optx.ScaledDampedNewtonDescent()
+    verbose: frozenset[str] = frozenset()
+
+
 class DFPIndirectDampedNewton(optx.AbstractDFP):
     """DFP Hessian + indirect Levenberg Marquardt update."""
 
@@ -264,10 +301,12 @@ _minim_only = (
     BFGSClassicalTrustRegionHessian(rtol, atol),
     BFGSLinearTrustRegionHessian(rtol, atol),
     BFGSLinearTrustRegion(rtol, atol),
+    BFGSScaledDampedNewton(rtol, atol),
     optx.DFP(rtol, atol, use_inverse=False),
     optx.DFP(rtol, atol, use_inverse=True),
     DFPDampedNewton(rtol, atol),
     DFPIndirectDampedNewton(rtol, atol),
+    DFPScaledDampedNewton(rtol, atol),
     # Tighter tolerance needed to have DFPDogleg pass the JVP test.
     DFPDogleg(1e-10, 1e-10),
     DFPClassicalTrustRegionHessian(rtol, atol),
