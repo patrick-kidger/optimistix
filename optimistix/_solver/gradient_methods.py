@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, cast, Generic, TypeAlias
+from typing import Any, Generic, TypeAlias
 
 import equinox as eqx
 import jax
@@ -195,7 +195,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
                 grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
                 f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
 
-            f_eval_info = cast(FunctionInfo.EvalGrad, f_eval_info)
+            assert isinstance(f_eval_info, FunctionInfo.EvalGrad)
 
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
             y_diff = (state.y_eval**ω - y**ω).ω
