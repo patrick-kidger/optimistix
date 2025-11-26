@@ -78,6 +78,7 @@ from ._solver import (
     OptaxMinimiser as OptaxMinimiser,
     polak_ribiere as polak_ribiere,
     ScaledDampedNewtonDescent as ScaledDampedNewtonDescent,
+    ScaledLevenbergMarquardt as ScaledLevenbergMarquardt,
     SteepestDescent as SteepestDescent,
 )
 

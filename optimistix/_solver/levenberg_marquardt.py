@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import cast, Generic, TypeAlias
+from typing import cast, Generic
 
 import equinox as eqx
 import jax
@@ -21,11 +21,6 @@ from .newton_chord import Newton
 from .trust_region import ClassicalTrustRegion
 
 
-UpdateScalingFn: TypeAlias = Callable[
-    [lx.AbstractLinearOperator, lx.DiagonalLinearOperator], lx.DiagonalLinearOperator
-]
-
-
 class _Damped(eqx.Module):
     operator: lx.AbstractLinearOperator
     damping: Float[Array, ""]
@@ -38,25 +33,14 @@ class _Damped(eqx.Module):
 
 
 class _ScalingUpdate(eqx.Module):
-    update_scaling_fn: UpdateScalingFn
-    scaling_operator: lx.DiagonalLinearOperator
+    update_scaling_fn: Callable[
+        [lx.AbstractLinearOperator, lx.AbstractLinearOperator],
+        lx.AbstractLinearOperator,
+    ]
+    scaling_operator: lx.AbstractLinearOperator
 
-    def __call__(self, hessian: lx.AbstractLinearOperator) -> lx.DiagonalLinearOperator:
+    def __call__(self, hessian: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
         return self.update_scaling_fn(hessian, self.scaling_operator)
-
-
-def max_diagonal_scaling_update(
-    hessian: lx.AbstractLinearOperator, scaling_operator: lx.DiagonalLinearOperator
-) -> lx.DiagonalLinearOperator:
-    """Update the matrix `D` that controls the relative scaling of each
-    parameter based on the procedure described by More (1977).
-    This takes `D` on each iteration as the maximum diagonal of the
-    hessian so far encountered.
-    """
-    diagonal, unflatten_fn = jfu.ravel_pytree(scaling_operator.diagonal)
-    return lx.DiagonalLinearOperator(
-        unflatten_fn(jnp.maximum(lx.diagonal(hessian), diagonal))
-    )
 
 
 def damped_newton_step(
@@ -239,10 +223,7 @@ class IndirectDampedNewtonDescent(
         newton, result = newton_step(f_info, self.linear_solver)
         newton_norm = self.trust_region_norm(newton)
         return _IndirectDampedNewtonDescentState(
-            f_info=f_info,
-            newton=newton,
-            newton_norm=newton_norm,
-            result=result,
+            f_info=f_info, newton=newton, newton_norm=newton_norm, result=result
         )
 
     def step(
@@ -299,9 +280,25 @@ IndirectDampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
+def max_diagonal_scaling_update(
+    hessian: lx.AbstractLinearOperator, scaling_operator: lx.AbstractLinearOperator
+) -> lx.AbstractLinearOperator:
+    """Update the scaling matrix `D` as the maximum diagonal of the
+    hessian so far encountered. Used with [`optimistix.ScaledLevenbergMarquardt`][].
+
+    This procedure follows the implementation in
+    [`scipy.least_squares`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html).
+    """  # noqa: E501
+    scaling_operator = cast(lx.DiagonalLinearOperator, scaling_operator)
+    diagonal, unflatten_fn = jfu.ravel_pytree(scaling_operator.diagonal)
+    return lx.DiagonalLinearOperator(
+        unflatten_fn(jnp.maximum(lx.diagonal(hessian), diagonal))
+    )
+
+
 class _ScaledDampedNewtonDescentState(eqx.Module):
     f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac
-    scaling_operator: lx.DiagonalLinearOperator
+    scaling_operator: lx.AbstractLinearOperator
 
 
 class ScaledDampedNewtonDescent(
@@ -317,7 +314,7 @@ class ScaledDampedNewtonDescent(
     [`optimistix.DampedNewtonDescent`][], update based on `(Hess + λ D)^{-1} grad`,
     where `D` controls the relative scaling of each parameter.
 
-    Taking `D = I` is the original procedure proposed by Leverberg, whereas
+    Taking `D = I` is the original procedure proposed by Levenberg, whereas
     More (1977) describes taking `D` as the maximum diagonal of the hessian
     so far encountered. This procedure is used in [`scipy.least_squares`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html)
     via the Fortran code MINPACK.
@@ -332,7 +329,10 @@ class ScaledDampedNewtonDescent(
     # Will probably resolve to either Cholesky (for minimisation problems) or
     # QR (for least-squares problems).
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
-    update_scaling_fn: UpdateScalingFn = max_diagonal_scaling_update
+    update_scaling_fn: Callable[
+        [lx.AbstractLinearOperator, lx.AbstractLinearOperator],
+        lx.AbstractLinearOperator,
+    ] = max_diagonal_scaling_update
 
     def init(
         self,
@@ -368,11 +368,11 @@ class ScaledDampedNewtonDescent(
 ScaledDampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 
 - `linear_solver`: The linear solver used to compute the Newton step.
-- `update_scaling_fn`: A function with signature `fn(hessian, scaling)`,
-    where `hessian` is an `AbstractLinearOperator` and `scaling` is a
-    `DiagonalLinearOperator` for the scaling operator on the kth iteration.
-    By default, this is the procedure used in [`scipy.least_squares`]
-    (https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html)
+- `update_scaling_fn`: A function with signature `fn(hessian, scaling_operator)`,
+    where `hessian` is an `AbstractLinearOperator` and `scaling_operator` is a
+    `AbstractLinearOperator` for the scaling operator from the last iteration.
+    This should return an `AbstractLinearOperator` for the `scaling_operator`
+    for the next iteration.
 """  # noqa: E501
 
 
@@ -496,6 +496,77 @@ IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 - `linear_solver`: The linear solver used to compute the Newton step.
 - `root_finder`: The root finder used to find the Levenberg--Marquardt parameter which
     hits the trust-region radius.
+- `verbose`: Whether to print out extra information about how the solve is proceeding.
+    Should be a frozenset of strings, specifying what information to print out. Valid
+    entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
+    `verbose=frozenset({"loss", "step_size"})`.
+"""
+
+
+class ScaledLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
+    """A Levenberg--Marquardt method invariant to parameter rescaling.
+
+    This is a variant of [`optimistix.LevenbergMarquardt`][], which uses
+    the hessian to estimate how to preserve scale-invariance when applying
+    the damping factor to each parameter. See [`optimistix.ScaledDampedNewtonDescent`][]
+    for more information.
+
+    Unlike [`optimistix.LevenbergMarquardt`][], this method requires materialising
+    the hessian so may not be preferred for large systems.
+
+    Supports the following `options`:
+
+    - `jac`: whether to use forward- or reverse-mode autodifferentiation to compute the
+        Jacobian. Can be either `"fwd"` or `"bwd"`. Defaults to `"fwd"`, which is
+        usually more efficient. Changing this can be useful when the target function has
+        a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar]
+    descent: ScaledDampedNewtonDescent[Y]
+    search: ClassicalTrustRegion[Y]
+    verbose: frozenset[str]
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        update_scaling_fn: Callable[
+            [lx.AbstractLinearOperator, lx.AbstractLinearOperator],
+            lx.AbstractLinearOperator,
+        ] = max_diagonal_scaling_update,
+        linear_solver: lx.AbstractLinearSolver = lx.QR(),
+        verbose: frozenset[str] = frozenset(),
+    ):
+        self.rtol = rtol
+        self.atol = atol
+        self.norm = norm
+        self.descent = ScaledDampedNewtonDescent(
+            update_scaling_fn=update_scaling_fn, linear_solver=linear_solver
+        )
+        self.search = ClassicalTrustRegion()
+        self.verbose = verbose
+
+
+ScaledLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `update_scaling_fn`: A function with signature `fn(hessian, scaling_operator)`,
+    where `hessian` is an `AbstractLinearOperator` and `scaling_operator` is a
+    `AbstractLinearOperator` for the scaling operator from the last iteration.
+    This should return an `AbstractLinearOperator` for the `scaling_operator`
+    for the next iteration.
+    The scaling operator is usually taken to be a `DiagonalLinearOperator`.
+- `linear_solver`: The linear solver to use to solve the damped Newton step. Defaults to
+    `lineax.QR`.
 - `verbose`: Whether to print out extra information about how the solve is proceeding.
     Should be a frozenset of strings, specifying what information to print out. Valid
     entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example

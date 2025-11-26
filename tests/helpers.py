@@ -275,6 +275,7 @@ atol = rtol = 1e-8
 _lsqr_only = (
     optx.LevenbergMarquardt(rtol, atol),
     optx.IndirectLevenbergMarquardt(rtol, atol),
+    optx.ScaledLevenbergMarquardt(rtol, atol),
     optx.GaussNewton(rtol, atol, linear_solver=lx.AutoLinearSolver(well_posed=False)),
     optx.Dogleg(rtol, atol, linear_solver=lx.AutoLinearSolver(well_posed=False)),
     DoglegMax(rtol, atol),

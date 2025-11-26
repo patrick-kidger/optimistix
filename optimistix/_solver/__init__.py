@@ -27,6 +27,7 @@ from .levenberg_marquardt import (
     LevenbergMarquardt as LevenbergMarquardt,
     max_diagonal_scaling_update as max_diagonal_scaling_update,
     ScaledDampedNewtonDescent as ScaledDampedNewtonDescent,
+    ScaledLevenbergMarquardt as ScaledLevenbergMarquardt,
 )
 from .limited_memory_bfgs import AbstractLBFGS as AbstractLBFGS, LBFGS as LBFGS
 from .nelder_mead import NelderMead as NelderMead

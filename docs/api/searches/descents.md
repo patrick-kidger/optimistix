@@ -42,6 +42,13 @@
 
 ---
 
+::: optimistix.ScaledDampedNewtonDescent
+    options:
+        members:
+            - __init__
+
+---
+
 ::: optimistix.DoglegDescent
     options:
         members:

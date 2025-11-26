@@ -48,6 +48,17 @@
 
 ---
 
+::: optimistix.ScaledLevenbergMarquardt
+    options:
+        members:
+            - __init__
+
+[`optimistix.ScaledLevenbergMarquardt`][] supports modularity in updating the scaling matrix `D` via the `update_scaling_fn` argument. The default method is exposed to public API and is documented below.
+
+::: optimistix.max_diagonal_scaling_update
+
+---
+
 ::: optimistix.Dogleg
     options:
         members:
