@@ -320,6 +320,8 @@ class AbstractSearch(eqx.Module, Generic[Y, _FnInfo, _FnEvalInfo, SearchState]):
     See [this documentation](./introduction.md) for more information.
     """
 
+    _needs_grad_at_y_eval: ClassVar[bool]
+
     @abc.abstractmethod
     def init(self, y: Y, f_info_struct: _FnInfo) -> SearchState:
         """Is called just once, at the very start of the entire optimisation problem.
@@ -363,7 +365,7 @@ class AbstractSearch(eqx.Module, Generic[Y, _FnInfo, _FnEvalInfo, SearchState]):
         - `f_info`: An [`optimistix.FunctionInfo`][] describing information about `f`
             evaluated at `y`, the gradient of `f` at `y`, etc.
         - `f_eval_info`: An [`optimistix.FunctionInfo`][] describing information about
-            `f` evaluated at `y`, the gradient of `f` at `y`, etc.
+            `f` evaluated at `y_eval`, the gradient of `f` at `y_eval`, etc.
         - `state`: the evolving state of the repeated searches.
 
         **Returns:**

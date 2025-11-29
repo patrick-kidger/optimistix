@@ -32,3 +32,10 @@
     options:
         members:
             - __init__
+
+---
+
+::: optimistix.Zoom
+    options:
+        members:
+            - __init__
