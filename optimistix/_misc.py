@@ -141,6 +141,7 @@ def feasible_step_length(
     proposed step, as a value for each element of the PyTree.
     Where taking the full step does not result in a violation of the bounds, a value of
     1.0 is returned, which corresponds to a full step.
+    We're assuming that the step is to be added to the current value.
 
     If the proposed step has a positive sign, then it is limited by the distance to the
     upper bound. If the proposed step has a negative sign, then it is limited by the
