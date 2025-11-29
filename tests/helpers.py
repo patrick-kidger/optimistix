@@ -1294,6 +1294,10 @@ minimise_bounded_with_local_minima = (
 )
 
 
+# Cauchy point tests: these all use a simple paraboloid centered around the origin as
+# the objective function. This means that the gradient evaluated at any of the
+# following test points is equal to the reflection of this point about the origin, and
+# the bounds determine where the Cauchy point then lies.
 def _wrapped_paraboloid(y):
     return _paraboloid(y, None)
 
@@ -1314,11 +1318,12 @@ y12 = jnp.array([-1.0, -1.0])
 y13 = jnp.array([-2.0, -2.0])
 y14 = jnp.array([1.0, 1.0])
 y15 = jnp.array([1.0, 1.0])
+y16 = jnp.array(1.0)
 
 
 cauchy_point__y_bounds_grad_hessian_expected = (
     (
-        y00,
+        y00,  # Cauchy point at lower bounds, shorter than full gradient step
         (jnp.array([-2.0, -2.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y00),
         lx.PyTreeLinearOperator(
@@ -1328,7 +1333,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([-2.0, -2.0]),
     ),
     (
-        y01,
+        y01,  # Full gradient step possible, lower blocking bound changes
         (jnp.array([-2.0, -2.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y01),
         lx.PyTreeLinearOperator(
@@ -1338,7 +1343,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([2.0, -2.0]),
     ),
     (
-        y02,
+        y02,  # Full gradient step coincides exactly with lower bounds
         (jnp.array([-2.0, -2.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y02),
         lx.PyTreeLinearOperator(
@@ -1348,7 +1353,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([-2.0, -2.0]),
     ),
     (
-        y03,
+        y03,  # Full gradient step possible, starts and ends inside feasible set
         (jnp.array([-2.0, -2.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y03),
         lx.PyTreeLinearOperator(
@@ -1358,7 +1363,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([-1.0, -1.0]),
     ),
     (
-        y04,
+        y04,  # ????
         (jnp.array([1.0, -2.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y04),
         lx.PyTreeLinearOperator(
@@ -1368,7 +1373,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([1.0, 1.0]),
     ),
     (
-        y05,
+        y05,  # Gradient is zero, no displacement
         (jnp.array([-2.0, -2.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y05),
         lx.PyTreeLinearOperator(
@@ -1378,7 +1383,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([0.0, 0.0]),
     ),
     (
-        y06,
+        y06,  # Lower bound blocking for y1, not blocking for y2
         (jnp.array([1.0, -2.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y06),
         lx.PyTreeLinearOperator(
@@ -1388,7 +1393,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([1.0, -1.0]),
     ),
     (
-        y07,
+        y07,  # Cauchy point at both lower bounds, nonfinite upper bounds
         (jnp.array([-2.0, -2.0]), jnp.array([jnp.inf, jnp.inf])),
         jax.grad(_wrapped_paraboloid)(y07),
         lx.PyTreeLinearOperator(
@@ -1398,7 +1403,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([-2.0, -2.0]),
     ),
     (
-        y08,
+        y08,  # Full gradient step possible, nonfinite lower bounds not blocking
         (jnp.array([-jnp.inf, -jnp.inf]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y08),
         lx.PyTreeLinearOperator(
@@ -1408,7 +1413,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([-3.0, -3.0]),
     ),
     (
-        y09,
+        y09,  # Zero gradient + starting point at lower bounds, no displacement
         (jnp.array([0.0, -jnp.inf]), jnp.array([3.0, jnp.inf])),
         jax.grad(_wrapped_paraboloid)(y09),
         lx.PyTreeLinearOperator(
@@ -1418,7 +1423,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([0.0, 0.0]),
     ),
     (
-        y10,
+        y10,  # Full gradient step coincides with one lower bound
         (jnp.array([-jnp.inf, -2.0]), jnp.array([jnp.inf, 3.0])),
         jax.grad(_wrapped_paraboloid)(y10),
         lx.PyTreeLinearOperator(
@@ -1428,7 +1433,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([-3.0, -2.0]),
     ),
     (
-        y11,
+        y11,  # Lower bound blocks y2, but not y1
         (jnp.array([1.0, 1.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y11),
         lx.PyTreeLinearOperator(
@@ -1438,7 +1443,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([1.5, 1.0]),
     ),
     (
-        y12,
+        y12,  # Full gradient step possible (direction flipped w.r.t. earlier case)
         (jnp.array([-2.0, -2.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y12),
         lx.PyTreeLinearOperator(
@@ -1448,7 +1453,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([1.0, 1.0]),
     ),
     (
-        y13,
+        y13,  # Satring point at lower bounds, upper bounds block full gradient step
         (jnp.array([-2.0, -2.0]), jnp.array([-0.5, 3.0])),
         jax.grad(_wrapped_paraboloid)(y13),
         lx.PyTreeLinearOperator(
@@ -1458,7 +1463,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([-0.5, -0.5]),
     ),
     (
-        y14,
+        y14,  # Lower bound blocking, gradient pointing outside the feasible set
         (jnp.array([1.0, 1.0]), jnp.array([3.0, 3.0])),
         jax.grad(_wrapped_paraboloid)(y14),
         lx.PyTreeLinearOperator(
@@ -1468,7 +1473,7 @@ cauchy_point__y_bounds_grad_hessian_expected = (
         jnp.array([1.0, 1.0]),
     ),
     (
-        y15,
+        y15,  # Lower bound blocking, gradient pointing outside, w/ nonfinite bounds
         (jnp.array([-jnp.inf, 1.0]), jnp.array([jnp.inf, 3.0])),
         jax.grad(_wrapped_paraboloid)(y15),
         lx.PyTreeLinearOperator(
@@ -1476,5 +1481,15 @@ cauchy_point__y_bounds_grad_hessian_expected = (
             output_structure=jax.eval_shape(lambda: y15),
         ),
         jnp.array([1.0, 1.0]),
+    ),
+    (
+        y16,  # 1D, lower bound blocking
+        (jnp.array(0.0), jnp.array(2.0)),
+        jax.grad(_wrapped_paraboloid)(y16),
+        lx.PyTreeLinearOperator(
+            jax.hessian(_wrapped_paraboloid)(y16),
+            output_structure=jax.eval_shape(lambda: y16),
+        ),
+        jnp.array(0.0),
     ),
 )
