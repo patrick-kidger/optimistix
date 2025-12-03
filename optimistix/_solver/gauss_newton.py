@@ -211,6 +211,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         AbstractSearch[Y, FunctionInfo.ResidualJac, FunctionInfo.ResidualJac, Any]
     ]
     verbose: AbstractVar[frozenset[str]]
+    verbose_callback: Callable[..., None] = verbose_print
 
     def init(
         self,
@@ -302,7 +303,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             verbose_y = "y" in self.verbose
             loss_eval = 0.5 * sum_squares(f_eval_info.residual)
             loss = 0.5 * sum_squares(state.f_info.residual)
-            verbose_print(
+            self.verbose_callback(
                 (verbose_step, "Step", state.num_steps),
                 (
                     verbose_step and verbose_accepted,

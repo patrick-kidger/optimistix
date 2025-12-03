@@ -30,6 +30,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
     atol: float
     norm: Callable[[PyTree], Scalar]
     verbose: frozenset[str]
+    verbose_callback: Callable[..., None] = verbose_print
 
     def __init__(
         self,
@@ -92,7 +93,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         (f, aux), grads = eqx.filter_value_and_grad(fn, has_aux=True)(y, args)
         f = cast(Array, f)
         if len(self.verbose) > 0:
-            verbose_print(
+            self.verbose_callback(
                 ("step" in self.verbose, "Step", state.step),
                 ("loss" in self.verbose, "Loss", f),
                 ("y" in self.verbose, "y", y),

@@ -138,6 +138,8 @@ class AbstractQuasiNewton(
     search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
     verbose: AbstractVar[frozenset[str]]
 
+    verbose_callback: Callable[..., None] = verbose_print
+
     @abc.abstractmethod
     def init_hessian(
         self, y: Y, f: Scalar, grad: Y
@@ -272,7 +274,7 @@ class AbstractQuasiNewton(
             verbose_y = "y" in self.verbose
             loss_eval = f_eval
             loss = state.f_info.f
-            verbose_print(
+            self.verbose_callback(
                 (verbose_loss, "Loss on this step", loss_eval),
                 (verbose_loss, "Loss on the last accepted step", loss),
                 (verbose_step_size, "Step size", step_size),
