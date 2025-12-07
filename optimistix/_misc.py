@@ -233,7 +233,7 @@ class OutAsArray(eqx.Module):
     def __call__(self, *args, **kwargs):
         out, aux = self.fn(*args, **kwargs)
         out = jtu.tree_map(inexact_asarray, out)
-        aux = jtu.tree_map(asarray, aux)
+        aux = jtu.tree_map(jnp.asarray, aux)
         return out, aux
 
 
@@ -253,31 +253,11 @@ def lin_to_grad(lin_fn, y_eval, autodiff_mode=None):
         )
 
 
-def _asarray(dtype, x):
-    return jnp.asarray(x, dtype=dtype)
-
-
-# Work around JAX issue #15676
-_asarray = jax.custom_jvp(_asarray, nondiff_argnums=(0,))
-
-
-@_asarray.defjvp
-def _asarray_jvp(dtype, x, tx):
-    (x,) = x
-    (tx,) = tx
-    return _asarray(dtype, x), _asarray(dtype, tx)
-
-
-def asarray(x):
-    dtype = jnp.result_type(x)
-    return _asarray(dtype, x)
-
-
 def inexact_asarray(x):
     dtype = jnp.result_type(x)
     if not jnp.issubdtype(jnp.result_type(x), jnp.inexact):
         dtype = default_floating_dtype()
-    return _asarray(dtype, x)
+    return jnp.asarray(x, dtype)
 
 
 _F = TypeVar("_F")
