@@ -20,7 +20,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Information Analysis",
   "Topic :: Scientific/Engineering :: Mathematics"
 ]
-dependencies = ["jax>=0.4.38,!=0.7.0,!=0.7.1", "jaxtyping>=0.2.24", "lineax>=0.0.6", "equinox>=0.11.11", "typing_extensions>=4.5.0"]
+dependencies = ["jax>=0.7.2", "jaxtyping>=0.2.24", "lineax>=0.0.6", "equinox>=0.13.1", "typing_extensions>=4.5.0"]
 description = "Nonlinear optimisation in JAX and Equinox."
 keywords = [
   "jax",
@@ -35,7 +35,7 @@ keywords = [
 license = {file = "LICENSE"}
 name = "optimistix"
 readme = "README.md"
-requires-python = "~=3.10"
+requires-python = "~=3.11"
 urls = {repository = "https://github.com/patrick-kidger/optimistix"}
 version = "0.0.11"
 
