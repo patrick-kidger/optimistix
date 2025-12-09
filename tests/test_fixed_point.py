@@ -21,7 +21,7 @@ from .helpers import (
 
 atol = rtol = 1e-6
 _fp_solvers = (optx.FixedPointIteration(rtol, atol),)
-smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
+smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)}, {"nonarray": 1})
 
 
 @pytest.mark.parametrize("solver", _fp_solvers)

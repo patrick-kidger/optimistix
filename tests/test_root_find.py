@@ -22,7 +22,7 @@ _root_finders = (
     optx.Newton(rtol, atol),
     optx.Chord(rtol, atol),
 )
-smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
+smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)}, {"nonarray": 1})
 
 
 @pytest.mark.parametrize("solver", _root_finders)

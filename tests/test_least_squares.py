@@ -21,7 +21,7 @@ from .helpers import (
 )
 
 
-smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
+smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)}, {"nonarray": 1})
 
 
 @pytest.mark.parametrize("solver", least_squares_optimisers)
