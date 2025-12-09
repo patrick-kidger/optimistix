@@ -25,6 +25,15 @@ def test_inexact_asarray_jvp():
     assert type(t) is not float
 
 
+def test_asarray_closure_convert_consts():
+    def f():
+        return jax.numpy.asarray(1)
+
+    f, consts = jax.closure_convert(f)
+    out = f(*consts)
+    assert type(out) is not int
+
+
 @pytest.mark.parametrize("tree, lower, upper, result", trees_to_clip)
 def test_tree_clip(tree, lower, upper, result):
     clipped_tree = optx_misc.tree_clip(tree, lower, upper)
