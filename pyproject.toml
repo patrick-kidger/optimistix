@@ -35,7 +35,7 @@ keywords = [
 license = {file = "LICENSE"}
 name = "optimistix"
 readme = "README.md"
-requires-python = "~=3.10"
+requires-python = "~=3.11"
 urls = {repository = "https://github.com/patrick-kidger/optimistix"}
 version = "0.0.11"
 
