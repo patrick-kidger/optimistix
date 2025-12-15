@@ -53,7 +53,7 @@
         members:
             - __init__
 
-[`optimistix.ScaledLevenbergMarquardt`][] supports modularity in updating the scaling operator via the `update_scaling_fn` argument. The default method is exposed to public API and is documented below.
+[`optimistix.ScaledLevenbergMarquardt`][] supports different methods for updating the scaling operator via `ScaledLevenbergMarquardt(..., update_scaling_fn=...)`.
 
 ::: optimistix.max_diagonal_scaling_update
 
