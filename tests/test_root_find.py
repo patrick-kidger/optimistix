@@ -217,3 +217,4 @@ def test_newton_chord_small_diff(solver_cls):
     solver = solver_cls(rtol=1e-5, atol=1e-5, cauchy_termination=False)
     sol = optx.root_find(f, solver, 0.0, throw=False)
     assert sol.result == optx.RESULTS.successful
+    assert sol.stats["num_steps"] == 2
