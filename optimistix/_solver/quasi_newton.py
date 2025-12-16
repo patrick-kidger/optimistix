@@ -313,8 +313,6 @@ class AbstractQuasiNewton(
         converged = state.terminate
         diverged, result = check_params_diverged(y, state.result)
         terminate = converged | diverged
-        # terminate = converged
-        # result = RESULTS.successful
 
         return terminate, result
 
