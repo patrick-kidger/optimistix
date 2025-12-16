@@ -15,6 +15,7 @@ from .._custom_types import Aux, DescentState, Fn, HessianUpdateState, SearchSta
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
+    check_params_diverged,
     filter_cond,
     lin_to_grad,
     max_norm,
@@ -309,7 +310,13 @@ class AbstractQuasiNewton(
         state: _QuasiNewtonState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
-        return state.terminate, state.result
+        converged = state.terminate
+        diverged, result = check_params_diverged(y, state.result)
+        terminate = converged | diverged
+        # terminate = converged
+        # result = RESULTS.successful
+
+        return terminate, result
 
     def postprocess(
         self,
