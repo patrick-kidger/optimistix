@@ -12,6 +12,7 @@ from .._custom_types import Aux, DescentState, Fn, Out, SearchState, Y
 from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
+    check_params_diverged,
     filter_cond,
     lin_to_grad,
     max_norm,
@@ -228,7 +229,11 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         state: _GradientDescentState,
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
-        return state.terminate, state.result
+        converged = state.terminate
+        diverged, result = check_params_diverged(y, state.result)
+        terminate = converged | diverged
+
+        return terminate, result
 
     def postprocess(
         self,

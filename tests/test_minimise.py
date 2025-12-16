@@ -223,3 +223,38 @@ _golden = optx.GoldenSearch(rtol=1e-9, atol=1e-9)
 def test_golden_search(fn, y0, options, expected):
     sol = optx.minimise(fn, _golden, y0, options=options, max_steps=2**9)
     assert tree_allclose(sol.value, expected)
+
+
+@pytest.mark.parametrize(
+    "options", (dict(autodiff_mode="fwd"), dict(autodiff_mode="bwd"))
+)
+@pytest.mark.parametrize("solver", minimisers)
+@pytest.mark.parametrize(
+    "fn, minimum, init, args", minimisation_fn_minima_init_args[1:]
+)
+def test_minimise_stops_on_diverge(solver, fn, minimum, init, args, options):
+    max_steps = 10_000
+
+    if isinstance(init, list):
+        init[0] = jnp.array(jnp.inf)
+    else:
+        init = jnp.array(jnp.inf)
+
+    if isinstance(solver, optx.OptaxMinimiser):
+        context = jax.numpy_dtype_promotion("standard")
+    else:
+        context = contextlib.nullcontext()
+
+    with context:
+        solution = optx.minimise(
+            fn,
+            solver,
+            init,
+            has_aux=False,
+            args=args,
+            options=options,
+            max_steps=max_steps,
+            throw=False,
+        )
+        assert solution.stats["num_steps"] < 2
+        assert solution.result == optx.RESULTS.nonlinear_divergence
