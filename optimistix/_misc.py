@@ -360,13 +360,33 @@ def filter_cond(pred, true_fun, false_fun, *operands):
     return eqx.combine(dynamic_out, static_out.value)
 
 
-def verbose_print(*args: tuple[bool, str, Any]) -> None:
+def default_verbose(verbose: bool | Callable[..., None]) -> Callable[..., None]:
+    if callable(verbose):
+        return verbose
+    elif verbose is True:
+        return _default_verbose
+    elif verbose is False:
+        return _default_no_verbose
+    else:
+        raise ValueError(
+            f"Unrecognized `verbose` of type {type(verbose)}. Accepted types are "
+            "either booleans or callables. Note that this changed in Optimistix "
+            "version 0.1.0, prior to which frozensets were expected instead. To "
+            "migrate, either simply set `verbose=True` to display everything, or pass "
+            "a custom callable `**kwargs -> None` to customise what is displayed."
+        )
+
+
+def _default_verbose(**kwargs: tuple[str, Any]) -> None:
     string_pieces = []
     arg_pieces = []
-    for display, name, value in args:
-        if display:
-            string_pieces.append(name + ": {}")
-            arg_pieces.append(value)
+    for name, value in kwargs.values():
+        string_pieces.append(name + ": {}")
+        arg_pieces.append(value)
     if len(string_pieces) > 0:
         string = ", ".join(string_pieces)
         jax.debug.print(string, *arg_pieces)
+
+
+def _default_no_verbose(**kwargs):
+    del kwargs
