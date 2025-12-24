@@ -16,7 +16,7 @@ import optax
 import optimistix as optx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
-from optimistix._misc import tree_full_like
+from optimistix._misc import default_verbose, tree_full_like
 
 
 Y = TypeVar("Y")
@@ -95,7 +95,7 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: optx.DoglegDescent[Y]
     search: optx.ClassicalTrustRegion[Y]
-    verbose: frozenset[str]
+    verbose: Callable[..., None]
 
     def __init__(
         self,
@@ -111,7 +111,7 @@ class DoglegMax(optx.AbstractGaussNewton[Y, Out, Aux]):
             trust_region_norm=optx.max_norm,
         )
         self.search = optx.ClassicalTrustRegion()
-        self.verbose = frozenset()
+        self.verbose = default_verbose(False)
 
 
 class BFGSDampedNewton(optx.AbstractBFGS):
@@ -123,7 +123,7 @@ class BFGSDampedNewton(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DampedNewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class BFGSIndirectDampedNewton(optx.AbstractBFGS):
@@ -135,7 +135,7 @@ class BFGSIndirectDampedNewton(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.IndirectDampedNewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class BFGSDogleg(optx.AbstractBFGS):
@@ -147,7 +147,7 @@ class BFGSDogleg(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DoglegDescent(linear_solver=lx.SVD())
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class BFGSLinearTrustRegion(optx.AbstractBFGS):
@@ -159,7 +159,7 @@ class BFGSLinearTrustRegion(optx.AbstractBFGS):
     use_inverse: bool = True
     search: optx.AbstractSearch = optx.LinearTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class BFGSLinearTrustRegionHessian(optx.AbstractBFGS):
@@ -171,7 +171,7 @@ class BFGSLinearTrustRegionHessian(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.LinearTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class BFGSClassicalTrustRegionHessian(optx.AbstractBFGS):
@@ -183,7 +183,7 @@ class BFGSClassicalTrustRegionHessian(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class DFPDampedNewton(optx.AbstractDFP):
@@ -195,7 +195,7 @@ class DFPDampedNewton(optx.AbstractDFP):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DampedNewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class DFPIndirectDampedNewton(optx.AbstractDFP):
@@ -207,7 +207,7 @@ class DFPIndirectDampedNewton(optx.AbstractDFP):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.IndirectDampedNewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class DFPDogleg(optx.AbstractDFP):
@@ -219,7 +219,7 @@ class DFPDogleg(optx.AbstractDFP):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.DoglegDescent(linear_solver=lx.SVD())
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class DFPClassicalTrustRegionHessian(optx.AbstractDFP):
@@ -231,7 +231,7 @@ class DFPClassicalTrustRegionHessian(optx.AbstractDFP):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.NewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 atol = rtol = 1e-8
