@@ -41,7 +41,8 @@ version = "0.0.11"
 
 [project.optional-dependencies]
 dev = [
-  "pre-commit"
+  "pre-commit",
+  "sif2jax"
 ]
 docs = [
   "hippogriffe==0.2.2",
