@@ -12,6 +12,12 @@ import jax.tree_util as jtu
 import matplotlib.pyplot as plt
 
 
+# This script currently requires the usage of an OrderedDict, rather than a
+# regular one, since otherwise benchmark results can get scrambled between
+# solvers. This should very much *not* be necessary in a modern version of
+# Python, but it is unclear to me where this could be coming from. (jhaffner)
+
+
 def find_benchmark_directory():
     """Find the .benchmarks directory in the current or parent directory."""
     script_dir = pathlib.Path(__file__).parent
