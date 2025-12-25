@@ -42,16 +42,6 @@ version = "0.0.11"
 [project.optional-dependencies]
 dev = [
   "pre-commit"
-  "beartype>=0.20.2",
-  "diffrax>=0.7.0",
-  "fire>=0.7.0",
-  "matplotlib>=3.9.2",
-  "optax>=0.2.4",
-  "pyright>=1.1.399",
-  "pytest>=8.3.5",
-  "pytest-benchmark>=5.1.0",
-  "ruff>=0.11.6",
-  "sif2jax>=0.0.4"
 ]
 docs = [
   "hippogriffe==0.2.2",
@@ -82,7 +72,7 @@ reportIncompatibleVariableOverride = false # Incompatible with eqx.AbstractVar
 reportInvalidTypeForm = false # Incompatible with FunctionInfo.Foo
 
 [tool.pytest.ini_options]
-addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On)) --benchmark-skip"
+addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
 
 [tool.ruff]
 extend-include = ["*.ipynb"]
