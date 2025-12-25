@@ -41,8 +41,7 @@ version = "0.0.11"
 
 [project.optional-dependencies]
 dev = [
-  "pre-commit",
-  "sif2jax"
+  "pre-commit"
 ]
 docs = [
   "hippogriffe==0.2.2",
@@ -60,7 +59,10 @@ tests = [
   "diffrax>=0.7.0",
   "optax>=0.2.4",
   "pytest>=8.3.5",
-  "jaxlib"
+  "jaxlib",
+  "sif2jax",
+  "fire",
+  "matplotlib"
 ]
 
 [tool.hatch.build]
