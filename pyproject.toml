@@ -75,7 +75,7 @@ reportIncompatibleVariableOverride = false # Incompatible with eqx.AbstractVar
 reportInvalidTypeForm = false # Incompatible with FunctionInfo.Foo
 
 [tool.pytest.ini_options]
-addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
+addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On)) --benchmark-skip"
 
 [tool.ruff]
 extend-include = ["*.ipynb"]
