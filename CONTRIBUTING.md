@@ -89,7 +89,11 @@ python benchmarks/profile.py <platform> <python_version> <precision> <iD> <kind>
 ```
 
 Where platform refers to the platform on which the benchmarks were run (e.g. Darwin), precision is the numerical precision, e.g. 32bit, and iD is the benchmark run, a four-digit integer.
-These are necessary to identify the saved results for the specific run. `kind` specifies if `runtime` or `compilation` benchmarks are to be compared, and solver names should be given as strings. These are defined in `benchmarks/test_benchmarks.py` for every benchmarked solver, e.g. `optx.BFGS`.
+These are necessary to identify the saved results for the specific run. `kind` specifies if `runtime` or `compilation` benchmarks are to be compared, and solver names should be given as strings. These are defined in `benchmarks/test_benchmarks.py` for every benchmarked solver, e.g. `optx.BFGS`. Putting this together, an example call would be
+
+```bash
+python benchmarks/profile.py Darwin 3.13 64bit 0001 runtime optx.BFGS optx.LBFGS
+```
 
 **If you are contributing a solver**
 

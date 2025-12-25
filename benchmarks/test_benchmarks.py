@@ -53,7 +53,7 @@ def get_test_cases(problems):
     if max_dimension is not None:
         test_cases = []
         for problem in problems:
-            problem_dimension = problem.y0().size
+            problem_dimension = problem.y0.size
             if problem_dimension <= max_dimension:
                 if min_dimension is not None:
                     if problem_dimension >= min_dimension:
@@ -64,7 +64,7 @@ def get_test_cases(problems):
     elif min_dimension is not None:
         test_cases = []
         for problem in problems:
-            problem_dimension = problem.y0().size
+            problem_dimension = problem.y0.size
             if problem_dimension >= min_dimension:
                 test_cases.append(problem)
         return tuple(test_cases)
@@ -84,16 +84,14 @@ def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
             optx.minimise,
             problem.objective,
             solver,
-            args=problem.args(),
+            args=problem.args,
             max_steps=max_steps,
             # We save on failure and filter during analysis to be able to compute the
             # fraction of solved problems for performance profiles.
             throw=False,
         )
     )
-    y0 = jax.tree.map(
-        lambda x: jax.device_put(x) if eqx.is_array(x) else x, problem.y0()
-    )
+    y0 = jax.tree.map(lambda x: jax.device_put(x) if eqx.is_array(x) else x, problem.y0)
     solve(y0)  # Warm up
 
     if isinstance(solver, optx.OptaxMinimiser):
@@ -112,7 +110,7 @@ def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
             return objective_value, solution.result, num_steps
 
     # Benchmark the runtime of the compiled function
-    values = benchmark(wrapped, problem.y0())
+    values = benchmark(wrapped, problem.y0)
 
     # Save information and results, convert to Python types for serialisation
     objective_value, result, num_steps = values
@@ -120,7 +118,7 @@ def test_runtime_unconstrained_minimisers(benchmark, minimiser, problem):
     benchmark.extra_info["objective value"] = float(objective_value)
     benchmark.extra_info["result"] = bool(result == optx.RESULTS.successful)
     benchmark.extra_info["problem name"] = problem.__class__.__name__
-    benchmark.extra_info["problem dimension"] = int(problem.y0().size)
+    benchmark.extra_info["problem dimension"] = int(problem.y0.size)
     benchmark.extra_info["solver name"] = name
     benchmark.extra_info["max steps"] = int(max_steps)
 
@@ -146,13 +144,13 @@ def test_compilation_time_unconstrained_minimisers(benchmark, minimiser, problem
 
     def wrapped(y0):
         def _solve(y0):
-            return optx.minimise(problem.objective, solver, y0, problem.args())
+            return optx.minimise(problem.objective, solver, y0, problem.args)
 
         return jax.jit(lambda x: _solve(x)).lower(y0).compile()
 
     # Benchmark the runtime of the compiled function
-    wrapped(problem.y0())  # Warm up
-    benchmark(wrapped, problem.y0())
+    wrapped(problem.y0)  # Warm up
+    benchmark(wrapped, problem.y0)
 
     # Save information and results
     benchmark.extra_info["problem name"] = problem.__class__.__name__
@@ -168,11 +166,11 @@ def test_compilation_time_unconstrained_minimisers(benchmark, minimiser, problem
 def test_runtime_unconstrained_scipy_minimisers(benchmark, minimiser, problem):
     # Provide a jitted objective function, gradient and Hessian
     objective = jax.jit(problem.objective)
-    _ = objective(problem.y0(), problem.args())  # Warm up
+    _ = objective(problem.y0, problem.args)  # Warm up
     gradient = jax.jit(jax.grad(problem.objective))
-    _ = gradient(problem.y0(), problem.args())
+    _ = gradient(problem.y0, problem.args)
     hessian = jax.jit(jax.hessian(problem.objective))
-    _ = hessian(problem.y0(), problem.args())
+    _ = hessian(problem.y0, problem.args)
 
     method, kwargs = minimiser
 
@@ -188,7 +186,7 @@ def test_runtime_unconstrained_scipy_minimisers(benchmark, minimiser, problem):
         solution = scp.optimize.minimize(
             objective,
             y0,
-            args=problem.args(),
+            args=problem.args,
             method=method,
             jac=gradient,
             hess=hessian,
@@ -200,7 +198,7 @@ def test_runtime_unconstrained_scipy_minimisers(benchmark, minimiser, problem):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         # Ignore warnings from scipy.optimize.minimize - they break benchmark saving
-        values = benchmark(wrapped, problem.y0())
+        values = benchmark(wrapped, problem.y0)
 
     # Save information
     objective_value, result, num_steps = values
@@ -208,6 +206,6 @@ def test_runtime_unconstrained_scipy_minimisers(benchmark, minimiser, problem):
     benchmark.extra_info["objective value"] = float(objective_value)
     benchmark.extra_info["result"] = bool(result)
     benchmark.extra_info["problem name"] = problem.__class__.__name__
-    benchmark.extra_info["problem dimension"] = int(problem.y0().size)
+    benchmark.extra_info["problem dimension"] = int(problem.y0.size)
     benchmark.extra_info["solver name"] = "scipy." + method
     benchmark.extra_info["max steps"] = int(max_steps)
