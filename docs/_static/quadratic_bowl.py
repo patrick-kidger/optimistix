@@ -1,4 +1,4 @@
-import matplotlib.pyplot as plt  # pyright: ignore
+import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -14,19 +14,19 @@ x_values, y_values = np.meshgrid(
 z_values = quadratic_bowl(x_values, y_values)
 fig = plt.figure()
 ax = fig.add_subplot(111, projection="3d")
-ax.plot_surface(x_values, y_values, z_values, cmap="coolwarm")
+ax.plot_surface(x_values, y_values, z_values, cmap="coolwarm")  # pyright: ignore[reportAttributeAccessIssue]
 plt.xticks([-10, -5, 0, 5, 10])
 plt.yticks([-10, -5, 0, 5, 10])
-ax.set_zticks([0, 50, 100, 150, 200])
+ax.set_zticks([0, 50, 100, 150, 200])  # pyright: ignore
 ax.set_xticklabels([])
 ax.set_yticklabels([])
-ax.set_zticklabels([])
+ax.set_zticklabels([])  # pyright: ignore
 ax.set_xlabel("x", labelpad=-28)
 ax.set_ylabel("y", labelpad=-28)
-ax.set_zlabel("f(x, y)\n\n\n\n\n\n\n\n", labelpad=-30)
-ax.zaxis.set_rotate_label(False)
-ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
-ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
-ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
+ax.set_zlabel("f(x, y)\n\n\n\n\n\n\n\n", labelpad=-30)  # pyright: ignore[reportAttributeAccessIssue]
+ax.zaxis.set_rotate_label(False)  # pyright: ignore[reportAttributeAccessIssue]
+ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))  # pyright: ignore
+ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))  # pyright: ignore
+ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))  # pyright: ignore[reportAttributeAccessIssue]
 fig.set_facecolor("none")
 plt.savefig("quadratic_bowl.png", transparent=True, bbox_inches="tight")

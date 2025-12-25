@@ -33,4 +33,4 @@ repos:
     rev: v1.1.405
     hooks:
     - id: pyright
-      additional_dependencies: ["equinox", "jax", "lineax", "pytest", "optax", "diffrax"]
+      additional_dependencies: ["equinox", "jax", "lineax", "pytest", "optax", "diffrax", "sif2jax", "fire", "matplotlib"]
