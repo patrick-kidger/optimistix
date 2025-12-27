@@ -60,7 +60,10 @@ tests = [
   "diffrax>=0.7.0",
   "optax>=0.2.4",
   "pytest>=8.3.5",
-  "jaxlib"
+  "jaxlib",
+  "sif2jax",
+  "fire",
+  "matplotlib"
 ]
 
 [tool.hatch.build]
@@ -73,7 +76,7 @@ reportIncompatibleVariableOverride = false # Incompatible with eqx.AbstractVar
 reportInvalidTypeForm = false # Incompatible with FunctionInfo.Foo
 
 [tool.pytest.ini_options]
-addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
+addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On)) --benchmark-skip"
 
 [tool.ruff]
 extend-include = ["*.ipynb"]
