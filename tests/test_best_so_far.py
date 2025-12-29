@@ -41,3 +41,13 @@ def test_minimise():
     solver = optx.BestSoFarMinimiser(solver)
     sol = optx.minimise(fn, solver, jnp.array(0.0))
     assert jnp.allclose(sol.value, 0.96118069, rtol=1e-5, atol=1e-5)
+
+
+def test_checks_last_point():
+    def fn(y, _):
+        return (y - 3.0) ** 2
+
+    solver = optx.BestSoFarMinimiser(optx.BFGS(rtol=1e-5, atol=1e-5))
+    sol = optx.minimise(fn, solver, jnp.array(0.0))
+    assert sol.value == 3.0
+    # assert fn(sol.value, None) <= fn(sol.state.state.y_eval, None)
