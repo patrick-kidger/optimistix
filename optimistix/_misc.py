@@ -22,6 +22,7 @@ from lineax.internal import (
 )
 
 from ._custom_types import Y
+from ._solution import RESULTS
 
 
 # Make the wrapped function a genuine member of this module.
@@ -303,6 +304,27 @@ def cauchy_termination(
     y_converged = norm((ω(y_diff).call(jnp.abs) / y_scale**ω).ω) < 1
     f_converged = norm((ω(f_diff).call(jnp.abs) / f_scale**ω).ω) < 1
     return y_converged & f_converged
+
+
+def check_params_diverged(y: Y, result: RESULTS) -> tuple[Bool[Array, ""], RESULTS]:
+    """Check if y contains non-finite values.
+
+    Returns whether the parameters diverged and the results updated
+    to signal if they did.
+    """
+    diverged = jnp.invert(
+        jax.tree.reduce(
+            jnp.logical_and,
+            jax.tree.map(lambda x: jnp.all(jnp.isfinite(x)), y),
+        )
+    )
+    result = RESULTS.where(
+        diverged,
+        RESULTS.nonlinear_divergence,
+        result,
+    )
+
+    return diverged, result
 
 
 class _JaxprEqual:

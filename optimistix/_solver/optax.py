@@ -9,7 +9,7 @@ from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
-from .._misc import cauchy_termination, max_norm, verbose_print
+from .._misc import cauchy_termination, check_params_diverged, max_norm, verbose_print
 from .._solution import RESULTS
 
 
@@ -129,7 +129,12 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         tags: frozenset[object],
     ) -> tuple[Bool[Array, ""], RESULTS]:
         del fn, args, options
-        return state.terminate, RESULTS.successful
+
+        converged = state.terminate
+        diverged, result = check_params_diverged(y, RESULTS.successful)
+        terminate = converged | diverged
+
+        return terminate, result
 
     def postprocess(
         self,
