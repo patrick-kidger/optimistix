@@ -244,7 +244,7 @@ def _lbfgs_hessian_operator_fn(
     safe_y_diff_grad_diff_inner = jnp.where(
         state.y_diff_grad_diff_inner == 0, 1, state.y_diff_grad_diff_inner
     )
-    J_square = gamma_k * state.y_diff_cross_inner + (
+    J_square = cast(Array, gamma_k) * state.y_diff_cross_inner + (
         jnp.dot(
             state.y_diff_grad_diff_cross_inner
             / jnp.expand_dims(safe_y_diff_grad_diff_inner, axis=0),

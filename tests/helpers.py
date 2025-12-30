@@ -234,6 +234,38 @@ class DFPClassicalTrustRegionHessian(optx.AbstractDFP):
     verbose: frozenset[str] = frozenset()
 
 
+class BFGSZoom(optx.AbstractBFGS[Y, Aux, optx._solver.quasi_newton._Hessian]):
+    """BFGS with Zoom linesearch."""
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar] = optx.max_norm
+    use_inverse: bool = True
+    descent: optx.NewtonDescent = optx.NewtonDescent(linear_solver=lx.Cholesky())
+    search: optx.Zoom = optx.Zoom(initial_guess_strategy="one")
+    verbose: frozenset[str] = frozenset()
+
+
+class LBFGSZoom(
+    optx._solver.limited_memory_bfgs.AbstractLBFGS[
+        Y,
+        Aux,
+        optx._solver.limited_memory_bfgs._Hessian,
+        optx._solver.limited_memory_bfgs._LBFGSUpdateState,
+    ]
+):
+    """L-BFGS with Zoom linesearch."""
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar] = optx.max_norm
+    use_inverse: bool = True
+    descent: optx.NewtonDescent = optx.NewtonDescent()
+    search: optx.Zoom = optx.Zoom(initial_guess_strategy="one")
+    history_length: int = 10
+    verbose: frozenset[str] = frozenset()
+
+
 atol = rtol = 1e-8
 _lsqr_only = (
     optx.LevenbergMarquardt(rtol, atol),
@@ -258,6 +290,8 @@ _general_minimisers = (
     optx.OptaxMinimiser(optax.adam(learning_rate=3e-3), rtol=rtol, atol=atol),
     # optax.lbfgs includes their linesearch by default
     optx.OptaxMinimiser(optax.lbfgs(), rtol=rtol, atol=atol),
+    BFGSZoom(rtol, atol),
+    LBFGSZoom(rtol, atol),
 )
 
 _minim_only = (
