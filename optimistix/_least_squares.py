@@ -10,6 +10,7 @@ from ._custom_types import Args, Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._minimise import AbstractMinimiser, minimise
 from ._misc import inexact_asarray, NoneAux, OutAsArray, sum_squares
+from ._progress_meter import AbstractProgressMeter, NoProgressMeter
 from ._solution import Solution
 
 
@@ -55,6 +56,7 @@ def least_squares(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
+    progress_meter: AbstractProgressMeter = NoProgressMeter(),
 ) -> Solution[Y, Aux]:
     r"""Solve a nonlinear least-squares problem.
 
@@ -89,6 +91,8 @@ def least_squares(
         any structure of the Hessian of `y -> sum(fn(y, args)**2)` with respect to y.
         Used with [`optimistix.ImplicitAdjoint`][] to implement the implicit function
         theorem as efficiently as possible. Keyword only argument.
+    - `progress_meter`: A progress meter to display the progress of the solve. Defaults
+        to [`optimistix.NoProgressMeter`][]. Keyword only argument.
 
     **Returns:**
 
@@ -111,6 +115,7 @@ def least_squares(
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
+            progress_meter=progress_meter,
         )
     else:
         y0 = jtu.tree_map(inexact_asarray, y0)
@@ -132,4 +137,5 @@ def least_squares(
             f_struct=f_struct,
             aux_struct=aux_struct,
             rewrite_fn=_rewrite_fn,
+            progress_meter=progress_meter,
         )

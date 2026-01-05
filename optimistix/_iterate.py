@@ -14,6 +14,7 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 from ._adjoint import AbstractAdjoint
 from ._custom_types import Aux, Fn, Out, SolverState, Y
 from ._misc import unwrap_jaxpr, wrap_jaxpr
+from ._progress_meter import AbstractProgressMeter, NoProgressMeter
 from ._solution import RESULTS, Solution
 
 
@@ -202,6 +203,7 @@ def _iterate(inputs):
         f_struct,
         aux_struct,
         tags,
+        progress_meter,
         while_loop,
     ) = inputs
     del inputs
@@ -211,34 +213,43 @@ def _iterate(inputs):
     init_aux = jtu.tree_map(_zero, aux_struct)
     init_state = solver.init(fn, y0, args, options, f_struct, aux_struct, tags)
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
+    progress_meter_state = progress_meter.init()
     init_carry = (
         y0,
         jnp.array(0),
         dynamic_init_state,
         init_aux,
+        progress_meter_state,
     )
 
     def cond_fun(carry):
-        y, _, dynamic_state, _ = carry
+        y, _, dynamic_state, _, _ = carry
         state = eqx.combine(static_state, dynamic_state)
         terminate, result = solver.terminate(fn, y, args, options, state, tags)
         return jnp.invert(terminate) | (result != RESULTS.successful)
 
     def body_fun(carry):
-        y, num_steps, dynamic_state, _ = carry
+        y, num_steps, dynamic_state, _, progress_meter_state = carry
         state = eqx.combine(static_state, dynamic_state)
         new_y, new_state, aux = solver.step(fn, y, args, options, state, tags)
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
 
         assert eqx.tree_equal(static_state, new_static_state) is True
-        return new_y, num_steps + 1, new_dynamic_state, aux
+
+        # Update progress meter
+        progress = (num_steps + 1) / max_steps
+        new_progress_meter_state = progress_meter.step(progress_meter_state, progress)
+
+        return new_y, num_steps + 1, new_dynamic_state, aux, new_progress_meter_state
 
     def buffers(carry):
-        _, _, state, _ = carry
+        _, _, state, _, _ = carry
         return solver.buffers(state)
 
     final_carry = while_loop(cond_fun, body_fun, init_carry, max_steps=max_steps)
-    final_y, num_steps, dynamic_final_state, final_aux = final_carry
+    final_y, num_steps, dynamic_final_state, final_aux, final_progress_meter_state = (
+        final_carry
+    )
     final_state = eqx.combine(static_state, dynamic_final_state)
     terminate, result = solver.terminate(fn, final_y, args, options, final_state, tags)
     result = RESULTS.where(
@@ -249,6 +260,7 @@ def _iterate(inputs):
     final_y, final_aux, stats = solver.postprocess(
         fn, final_y, final_aux, args, options, final_state, tags, result
     )
+    progress_meter.close(final_progress_meter_state)
     return final_y, (
         num_steps,
         result,
@@ -279,6 +291,7 @@ def iterative_solve(
     f_struct: PyTree[jax.ShapeDtypeStruct],
     aux_struct: PyTree[jax.ShapeDtypeStruct],
     rewrite_fn: Callable,
+    progress_meter: AbstractProgressMeter = NoProgressMeter(),
 ) -> Solution[Y, Aux]:
     """Compute the iterates of an iterative numerical method.
 
@@ -328,9 +341,24 @@ def iterative_solve(
             "imaginary parts, so that Optimistix sees only real numbers."
         )
 
+    # Validate that max_steps is set when using a progress meter
+    if not isinstance(progress_meter, NoProgressMeter) and max_steps is None:
+        raise ValueError("Progress meters require max_steps to be set")
+
     f_struct = jtu.tree_map(eqxi.Static, f_struct)
     aux_struct = jtu.tree_map(eqxi.Static, aux_struct)
-    inputs = fn, solver, y0, args, options, max_steps, f_struct, aux_struct, tags
+    inputs = (
+        fn,
+        solver,
+        y0,
+        args,
+        options,
+        max_steps,
+        f_struct,
+        aux_struct,
+        tags,
+        progress_meter,
+    )
     (
         out,
         (

@@ -12,6 +12,7 @@ from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver, least_squares
 from ._minimise import AbstractMinimiser, minimise
 from ._misc import inexact_asarray, NoneAux, OutAsArray, tree_full_like
+from ._progress_meter import AbstractProgressMeter, NoProgressMeter
 from ._solution import Solution
 
 
@@ -130,6 +131,7 @@ def root_find(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
+    progress_meter: AbstractProgressMeter = NoProgressMeter(),
 ) -> Solution[Y, Aux]:
     """Solve a root-finding problem.
 
@@ -166,6 +168,8 @@ def root_find(
         solvers (e.g. [`optimistix.Newton`][]), and with some adjoint methods (e.g.
         [`optimistix.ImplicitAdjoint`][]) to improve the efficiency of linear solves.
         Keyword only argument.
+    - `progress_meter`: A progress meter to display the progress of the solve. Defaults
+        to [`optimistix.NoProgressMeter`][]. Keyword only argument.
 
     **Returns:**
 
@@ -188,6 +192,7 @@ def root_find(
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
+            progress_meter=progress_meter,
         )
         _, aux = sol.aux
         sol = eqx.tree_at(lambda s: s.aux, sol, aux)
@@ -204,6 +209,7 @@ def root_find(
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
+            progress_meter=progress_meter,
         )
         _, aux = sol.aux
         sol = eqx.tree_at(lambda s: s.aux, sol, aux)
@@ -228,4 +234,5 @@ def root_find(
             f_struct=f_struct,
             aux_struct=aux_struct,
             rewrite_fn=_rewrite_fn,
+            progress_meter=progress_meter,
         )
