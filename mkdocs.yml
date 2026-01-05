@@ -117,6 +117,7 @@ nav:
         - 'api/solution.md'
     - Advanced API:
         - 'api/norms.md'
+        - 'api/progress_meter.md'
         - 'api/adjoints.md'
         - Searches and descents:
             - 'api/searches/introduction.md'
