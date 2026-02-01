@@ -5,7 +5,10 @@ from .best_so_far import (
     BestSoFarMinimiser as BestSoFarMinimiser,
     BestSoFarRootFinder as BestSoFarRootFinder,
 )
-from .bisection import Bisection as Bisection
+from .bisection import (
+    Bisection as Bisection,
+    NewtonBisection as NewtonBisection,
+)
 from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
 from .fixed_point import FixedPointIteration as FixedPointIteration
 from .gauss_newton import (
