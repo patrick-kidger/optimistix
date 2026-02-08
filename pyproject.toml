@@ -76,7 +76,11 @@ reportIncompatibleVariableOverride = false # Incompatible with eqx.AbstractVar
 reportInvalidTypeForm = false # Incompatible with FunctionInfo.Foo
 
 [tool.pytest.ini_options]
-addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On)) --benchmark-skip"
+addopts = "--jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On)) --benchmark-skip"
+filterwarnings = [
+  "error",
+  'ignore:Setting \`jax_pmap_shmap_merge:DeprecationWarning'
+]
 
 [tool.ruff]
 extend-include = ["*.ipynb"]
