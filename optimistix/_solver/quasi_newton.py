@@ -20,6 +20,7 @@ from .._misc import (
     max_norm,
     tree_dot,
     tree_full_like,
+    tree_where,
     verbose_print,
 )
 from .._search import (
@@ -286,6 +287,7 @@ class AbstractQuasiNewton(
             search_result == RESULTS.successful, descent_result, search_result
         )
 
+        prev_aux = tree_where(state.first_step, aux, state.aux)
         state = _QuasiNewtonState(
             first_step=jnp.array(False),
             y_eval=y_eval,
@@ -298,7 +300,7 @@ class AbstractQuasiNewton(
             num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
             hessian_update_state=hessian_update_state,
         )
-        return y, state, aux
+        return y, state, prev_aux
 
     def terminate(
         self,
