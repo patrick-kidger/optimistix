@@ -137,11 +137,8 @@ class NormalCholesky(lx.AbstractLinearSolver):
     def conj(self, state, options):
         assert False
 
-    def allow_dependent_columns(self, operator):
-        assert False
-
-    def allow_dependent_rows(self, operator):
-        assert False
+    def assume_full_rank(self) -> bool:
+        return True
 
 
 # Default option for Optimistix. (QR linear solver.)
