@@ -24,9 +24,8 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
     This is one of the simplest ways to find a fixed point `y` of `f`: simply
     repeatedly call `y_{n+1}=f(y_n)` until `y_n` stops changing.
 
-    Optionally, one can use damping between iterations, then the update becomes:
-    `y_{n+1}=(1-damp)*f(y_n)+damp*y_n`
-    Where damp is the damping factor.
+    Optionally, one can use damping between iterations, then the update becomes
+    `y_{n+1}=(1-damp)*f(y_n)+damp*y_n` where `damp` is the damping factor.
 
     Note that this is often not a very effective method, and root-finding algorithms are
     frequently preferred in practice.
@@ -60,7 +59,9 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
         tags: frozenset[object],
     ) -> tuple[Y, _FixedPointState, Aux]:
         fn_y_n, aux = fn(y, args)
-        new_y = jtu.tree_map(lambda i_np1, i_n : (1-self.damp)*i_np1+self.damp*i_n, fn_y_n ,y)
+        new_y = jtu.tree_map(
+            lambda i_np1, i_n: (1 - self.damp) * i_np1 + self.damp * i_n, fn_y_n, y
+        )
         error = (y**ω - new_y**ω).ω
         with jax.numpy_dtype_promotion("standard"):
             scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
