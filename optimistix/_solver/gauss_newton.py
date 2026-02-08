@@ -17,6 +17,7 @@ from .._misc import (
     max_norm,
     sum_squares,
     tree_full_like,
+    tree_where,
     verbose_print,
 )
 from .._search import (
@@ -331,6 +332,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             search_result == RESULTS.successful, descent_result, search_result
         )
 
+        prev_aux = tree_where(state.first_step, aux, state.aux)
         state = _GaussNewtonState(
             first_step=jnp.array(False),
             y_eval=y_eval,
@@ -344,7 +346,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             num_accepted_steps=num_accepted_steps,
             num_steps_since_acceptance=num_steps_since_acceptance,
         )
-        return y, state, aux
+        return y, state, prev_aux
 
     def terminate(
         self,
