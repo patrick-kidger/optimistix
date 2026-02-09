@@ -13,7 +13,7 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint
 from ._custom_types import Aux, Fn, Out, SolverState, Y
-from ._misc import unwrap_jaxpr, wrap_jaxpr
+from ._misc import tree_allfinite, unwrap_jaxpr, wrap_jaxpr
 from ._solution import RESULTS, Solution
 
 
@@ -213,6 +213,7 @@ def _iterate(inputs):
 
     def terminate_and_result(_y, _state):
         _terminate, _result = solver.terminate(fn, _y, args, options, _state, tags)
+        _result = RESULTS.where(tree_allfinite(_y), _result, RESULTS.nonfinite)
         return _terminate, _result
 
     init_terminate, init_result = terminate_and_result(y0, init_state)
