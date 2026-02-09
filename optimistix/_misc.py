@@ -237,13 +237,13 @@ class OutAsArray(eqx.Module):
         return out, aux
 
 
-def lin_to_grad(lin_fn, y_eval, autodiff_mode=None):
+def lin_to_grad(lin_fn, y_eval, autodiff_mode, dtype):
     # Only the shape and dtype of y_eval is evaluated, not the value itself. (lin_fn
     # was linearized at y_eval, and the values were stored.)
     # We convert to grad after linearising for efficiency:
     # https://github.com/patrick-kidger/optimistix/issues/89#issuecomment-2447669714
     if autodiff_mode == "bwd":
-        (grad,) = jax.linear_transpose(lin_fn, y_eval)(1.0)  # (1.0 is a scaling factor)
+        (grad,) = jax.linear_transpose(lin_fn, y_eval)(jnp.array(1.0, dtype=dtype))
         return grad
     if autodiff_mode == "fwd":
         return jax.jacfwd(lin_fn)(y_eval)
