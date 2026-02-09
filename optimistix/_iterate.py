@@ -210,37 +210,45 @@ def _iterate(inputs):
     aux_struct = jtu.tree_map(lambda x: x.value, aux_struct, is_leaf=static_leaf)
     init_aux = jtu.tree_map(_zero, aux_struct)
     init_state = solver.init(fn, y0, args, options, f_struct, aux_struct, tags)
+
+    def terminate_and_result(_y, _state):
+        _terminate, _result = solver.terminate(fn, _y, args, options, _state, tags)
+        return _terminate, _result
+
+    init_terminate, init_result = terminate_and_result(y0, init_state)
     dynamic_init_state, static_state = eqx.partition(init_state, eqx.is_array)
     init_carry = (
         y0,
         jnp.array(0),
         dynamic_init_state,
         init_aux,
+        init_terminate,
+        init_result,
     )
 
     def cond_fun(carry):
-        y, _, dynamic_state, _ = carry
-        state = eqx.combine(static_state, dynamic_state)
-        terminate, result = solver.terminate(fn, y, args, options, state, tags)
-        return jnp.invert(terminate) | (result != RESULTS.successful)
+        _, _, _, _, terminate, result = carry
+        return jnp.invert(terminate) & (result == RESULTS.successful)
 
     def body_fun(carry):
-        y, num_steps, dynamic_state, _ = carry
+        y, num_steps, dynamic_state, _, _, _ = carry
         state = eqx.combine(static_state, dynamic_state)
         new_y, new_state, aux = solver.step(fn, y, args, options, state, tags)
+        new_terminate, new_result = terminate_and_result(y, new_state)
         new_dynamic_state, new_static_state = eqx.partition(new_state, eqx.is_array)
-
         assert eqx.tree_equal(static_state, new_static_state) is True
-        return new_y, num_steps + 1, new_dynamic_state, aux
-
-    def buffers(carry):
-        _, _, state, _ = carry
-        return solver.buffers(state)
+        return new_y, num_steps + 1, new_dynamic_state, aux, new_terminate, new_result
 
     final_carry = while_loop(cond_fun, body_fun, init_carry, max_steps=max_steps)
-    final_y, num_steps, dynamic_final_state, final_aux = final_carry
+    (
+        final_y,
+        num_steps,
+        dynamic_final_state,
+        final_aux,
+        terminate,
+        result,
+    ) = final_carry
     final_state = eqx.combine(static_state, dynamic_final_state)
-    terminate, result = solver.terminate(fn, final_y, args, options, final_state, tags)
     result = RESULTS.where(
         (result == RESULTS.successful) & jnp.invert(terminate),
         RESULTS.nonlinear_max_steps_reached,
