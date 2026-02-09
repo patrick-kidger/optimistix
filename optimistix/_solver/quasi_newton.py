@@ -56,12 +56,15 @@ def _identity_pytree(pytree: PyTree[Array]) -> lx.PyTreeLinearOperator:
     eye_leaves = []
     for i1, l1 in enumerate(leaves):
         for i2, l2 in enumerate(leaves):
+            dtype = jnp.result_type(l1, l2)
             if i1 == i2:
                 eye_leaves.append(
-                    jnp.eye(jnp.size(l1)).reshape(jnp.shape(l1) + jnp.shape(l2))
+                    jnp.eye(jnp.size(l1), dtype=dtype).reshape(
+                        jnp.shape(l1) + jnp.shape(l2)
+                    )
                 )
             else:
-                eye_leaves.append(jnp.zeros(jnp.shape(l1) + jnp.shape(l2)))
+                eye_leaves.append(jnp.zeros(jnp.shape(l1) + jnp.shape(l2), dtype=dtype))
 
     # This has a Lineax positive_semidefinite tag. This is okay because the BFGS update
     # preserves positive-definiteness.
@@ -221,7 +224,7 @@ class AbstractQuasiNewton(
         )
 
         def accepted(descent_state):
-            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
+            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
 
             f_eval_info, hessian_update_state = self.update_hessian(
                 y,
