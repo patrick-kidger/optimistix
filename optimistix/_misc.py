@@ -82,6 +82,11 @@ def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = F
     return jtu.tree_map(fn, struct)
 
 
+def tree_allfinite(tree: PyTree[Array]) -> Bool[Array, ""]:
+    bools = jtu.tree_map(lambda x: jnp.all(jnp.isfinite(x)), tree)
+    return jtu.tree_reduce(jnp.logical_and, bools, jnp.array(True))
+
+
 def tree_where(
     pred: PyTree,
     true: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
