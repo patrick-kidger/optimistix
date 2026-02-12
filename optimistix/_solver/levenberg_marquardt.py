@@ -302,7 +302,7 @@ def max_diagonal_scaling_update(
     scaling_operator = cast(lx.DiagonalLinearOperator, scaling_operator)
     diagonal, unflatten_fn = jfu.ravel_pytree(scaling_operator.diagonal)
     return lx.DiagonalLinearOperator(
-        unflatten_fn(jnp.maximum(lx.diagonal(hessian), diagonal))
+        unflatten_fn(jnp.maximum(jnp.abs(lx.diagonal(hessian)), diagonal))
     )
 
 
@@ -350,7 +350,7 @@ class ScaledDampedNewtonDescent(
     ) -> _ScaledDampedNewtonDescentState:
         f_info_init = tree_full_like(f_info_struct, 0, allow_static=True)
         scaling_operator = lx.DiagonalLinearOperator(
-            tree_full_like(y, -jnp.inf, allow_static=True)
+            tree_full_like(y, 0.0, allow_static=True)
         )
         return _ScaledDampedNewtonDescentState(f_info_init, scaling_operator)
 
