@@ -82,6 +82,11 @@ def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = F
     return jtu.tree_map(fn, struct)
 
 
+def tree_allfinite(tree: PyTree[Array]) -> Bool[Array, ""]:
+    bools = jtu.tree_map(lambda x: jnp.all(jnp.isfinite(x)), tree)
+    return jtu.tree_reduce(jnp.logical_and, bools, jnp.array(True))
+
+
 def tree_where(
     pred: PyTree,
     true: PyTree[ArrayLike, " T"],  # pyright: ignore[reportUndefinedVariable]
@@ -141,6 +146,7 @@ def feasible_step_length(
     proposed step, as a value for each element of the PyTree.
     Where taking the full step does not result in a violation of the bounds, a value of
     1.0 is returned, which corresponds to a full step.
+    We're assuming that the step is to be added to the current value.
 
     If the proposed step has a positive sign, then it is limited by the distance to the
     upper bound. If the proposed step has a negative sign, then it is limited by the
@@ -236,13 +242,13 @@ class OutAsArray(eqx.Module):
         return out, aux
 
 
-def lin_to_grad(lin_fn, y_eval, autodiff_mode=None):
+def lin_to_grad(lin_fn, y_eval, autodiff_mode, dtype):
     # Only the shape and dtype of y_eval is evaluated, not the value itself. (lin_fn
     # was linearized at y_eval, and the values were stored.)
     # We convert to grad after linearising for efficiency:
     # https://github.com/patrick-kidger/optimistix/issues/89#issuecomment-2447669714
     if autodiff_mode == "bwd":
-        (grad,) = jax.linear_transpose(lin_fn, y_eval)(1.0)  # (1.0 is a scaling factor)
+        (grad,) = jax.linear_transpose(lin_fn, y_eval)(jnp.array(1.0, dtype=dtype))
         return grad
     if autodiff_mode == "fwd":
         return jax.jacfwd(lin_fn)(y_eval)
@@ -359,13 +365,33 @@ def filter_cond(pred, true_fun, false_fun, *operands):
     return eqx.combine(dynamic_out, static_out.value)
 
 
-def verbose_print(*args: tuple[bool, str, Any]) -> None:
+def default_verbose(verbose: bool | Callable[..., None]) -> Callable[..., None]:
+    if callable(verbose):
+        return verbose
+    elif verbose is True:
+        return _default_verbose
+    elif verbose is False:
+        return _default_no_verbose
+    else:
+        raise ValueError(
+            f"Unrecognized `verbose` of type {type(verbose)}. Accepted types are "
+            "either booleans or callables. Note that this changed in Optimistix "
+            "version 0.1.0, prior to which frozensets were expected instead. To "
+            "migrate, either simply set `verbose=True` to display everything, or pass "
+            "a custom callable `**kwargs -> None` to customise what is displayed."
+        )
+
+
+def _default_verbose(**kwargs: tuple[str, Any]) -> None:
     string_pieces = []
     arg_pieces = []
-    for display, name, value in args:
-        if display:
-            string_pieces.append(name + ": {}")
-            arg_pieces.append(value)
+    for name, value in kwargs.values():
+        string_pieces.append(name + ": {}")
+        arg_pieces.append(value)
     if len(string_pieces) > 0:
         string = ", ".join(string_pieces)
         jax.debug.print(string, *arg_pieces)
+
+
+def _default_no_verbose(**kwargs):
+    del kwargs

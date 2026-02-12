@@ -9,7 +9,7 @@ from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
-from .._misc import cauchy_termination, max_norm, verbose_print
+from .._misc import cauchy_termination, default_verbose, max_norm
 from .._solution import RESULTS
 
 
@@ -29,7 +29,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar]
-    verbose: frozenset[str]
+    verbose: Callable[..., None]
 
     def __init__(
         self,
@@ -37,7 +37,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         rtol: float,
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
-        verbose: frozenset[str] = frozenset(),
+        verbose: bool | Callable[..., None] = False,
     ):
         """**Arguments:**
 
@@ -50,9 +50,11 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
             [`optimistix.rms_norm`][], and [`optimistix.two_norm`][]. Keyword only
             argument.
         - `verbose`: Whether to print out extra information about how the solve is
-            proceeding. Should be a frozenset of strings, specifying what information to
-            print out. Valid entries are `step`, `loss`, `y`. For example
-            `verbose=frozenset({"step", "loss"})`.
+            proceeding. Can either be `False` to print out nothing, or `True` to print
+            out all information, or (for customisation) a callable `**kwargs -> None`.
+            If provided as a callable then each value will be a 2-tuple of
+            `(str, jax.Array)` providing a human-readable name and its corresponding
+            value.
         """
         # See https://github.com/deepmind/optax/issues/577: Optax has an issue in which
         # it doesn't use pytrees correctly.
@@ -60,7 +62,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
-        self.verbose = verbose
+        self.verbose = default_verbose(verbose)
 
     def init(
         self,
@@ -91,13 +93,11 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         del options
         (f, aux), grads = eqx.filter_value_and_grad(fn, has_aux=True)(y, args)
         f = cast(Array, f)
-        if len(self.verbose) > 0:
-            verbose_print(
-                ("step" in self.verbose, "Step", state.step),
-                ("loss" in self.verbose, "Loss", f),
-                ("y" in self.verbose, "y", y),
-            )
-
+        self.verbose(
+            num_steps=("Step", state.step),
+            loss_this_step=("Loss on this step", f),
+            y=("y", y),
+        )
         # fix args and discard aux
         _fn_for_optax = lambda y: fn(y, args)[0]
 
