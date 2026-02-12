@@ -36,18 +36,6 @@ class _AbstractBestSoFarSolver(AbstractIterativeSolver, Generic[Y, Out, Aux]):
     @abc.abstractmethod
     def _to_loss(self, y: Y, f: Out) -> Scalar: ...
 
-    @property
-    def rtol(self):
-        return self.solver.rtol
-
-    @property
-    def atol(self):
-        return self.solver.atol
-
-    @property
-    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        return self.solver.norm
-
     def init(
         self,
         fn: Fn[Y, Out, Aux],
@@ -132,20 +120,6 @@ class BestSoFarMinimiser(  # pyright: ignore
     def _to_loss(self, y: Y, f: Scalar) -> Scalar:
         return f
 
-    # Redeclare these three to work around the Equinox bug fixed here:
-    # https://github.com/patrick-kidger/equinox/pull/544
-    @property
-    def rtol(self):
-        return self.solver.rtol
-
-    @property
-    def atol(self):
-        return self.solver.atol
-
-    @property
-    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        return self.solver.norm
-
 
 BestSoFarMinimiser.__init__.__doc__ = """**Arguments:**
 
@@ -172,20 +146,6 @@ class BestSoFarLeastSquares(  # pyright: ignore
     def _to_loss(self, y: Y, f: Out) -> Scalar:
         return sum_squares(f)
 
-    # Redeclare these three to work around the Equinox bug fixed here:
-    # https://github.com/patrick-kidger/equinox/pull/544
-    @property
-    def rtol(self):
-        return self.solver.rtol
-
-    @property
-    def atol(self):
-        return self.solver.atol
-
-    @property
-    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        return self.solver.norm
-
 
 BestSoFarLeastSquares.__init__.__doc__ = """**Arguments:**
 
@@ -210,20 +170,6 @@ class BestSoFarRootFinder(  # pyright: ignore
     def _to_loss(self, y: Y, f: Out) -> Scalar:
         return sum_squares(f)
 
-    # Redeclare these three to work around the Equinox bug fixed here:
-    # https://github.com/patrick-kidger/equinox/pull/544
-    @property
-    def rtol(self):
-        return self.solver.rtol
-
-    @property
-    def atol(self):
-        return self.solver.atol
-
-    @property
-    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        return self.solver.norm
-
 
 BestSoFarRootFinder.__init__.__doc__ = """**Arguments:**
 
@@ -247,20 +193,6 @@ class BestSoFarFixedPoint(  # pyright: ignore
 
     def _to_loss(self, y: Y, f: Y) -> Scalar:
         return sum_squares((y**ω - f**ω).ω)
-
-    # Redeclare these three to work around the Equinox bug fixed here:
-    # https://github.com/patrick-kidger/equinox/pull/544
-    @property
-    def rtol(self):
-        return self.solver.rtol
-
-    @property
-    def atol(self):
-        return self.solver.atol
-
-    @property
-    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        return self.solver.norm
 
 
 BestSoFarFixedPoint.__init__.__doc__ = """**Arguments:**

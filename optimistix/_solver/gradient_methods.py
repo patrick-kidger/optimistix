@@ -11,7 +11,6 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 from .._custom_types import Aux, DescentState, Fn, Out, SearchState, Y
 from .._minimise import AbstractMinimiser
 from .._misc import (
-    cauchy_termination,
     filter_cond,
     lin_to_grad,
     max_norm,
@@ -23,6 +22,7 @@ from .._search import (
     FunctionInfo,
 )
 from .._solution import RESULTS
+from .._termination import AbstractTermination, CauchyTermination
 from .learning_rate import LearningRate
 
 
@@ -126,9 +126,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: AbstractVar[float]
-    atol: AbstractVar[float]
-    norm: AbstractVar[Callable[[PyTree], Scalar]]
+    termination: AbstractVar[AbstractTermination[Y]]
     descent: AbstractVar[AbstractDescent[Y, FunctionInfo.EvalGrad, Any]]
     search: AbstractVar[
         AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
@@ -186,9 +184,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
             y_diff = (state.y_eval**ω - y**ω).ω
             f_diff = (f_eval**ω - state.f_info.f**ω).ω
-            terminate = cauchy_termination(
-                self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff
-            )
+            terminate = self.termination(state.y_eval, y_diff, f_eval, f_diff)
             terminate = jnp.where(
                 state.first_step, jnp.array(False), terminate
             )  # Skip termination on first step
@@ -255,11 +251,9 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
     descent: SteepestDescent[Y]
     search: LearningRate[Y]
+    termination: CauchyTermination[Y]
 
     def __init__(
         self,
@@ -278,8 +272,6 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
             includes three built-in norms: [`optimistix.max_norm`][],
             [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
         """
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
         self.descent = SteepestDescent()
         self.search = LearningRate(learning_rate)
+        self.termination = CauchyTermination(rtol=rtol, atol=atol, norm=norm)

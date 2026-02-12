@@ -19,6 +19,7 @@ from .._misc import (
 from .._search import (
     FunctionInfo,
 )
+from .._termination import CauchyTermination
 from .backtracking import BacktrackingArmijo
 from .gauss_newton import NewtonDescent
 from .quasi_newton import AbstractQuasiNewton
@@ -562,12 +563,11 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
+    termination: CauchyTermination
     use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
+
     history_length: int
     verbose: frozenset[str]
 
@@ -580,9 +580,7 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         history_length: int = 10,
         verbose: frozenset[str] = frozenset(),
     ):
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
+        self.termination = CauchyTermination(rtol=rtol, atol=atol, norm=norm)
         self.use_inverse = use_inverse
         self.descent = NewtonDescent()
         self.search = BacktrackingArmijo()
