@@ -1,6 +1,6 @@
 import inspect
 from collections.abc import Callable
-from typing import Any, Literal, overload, TypeVar
+from typing import Any, Literal, overload
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -10,8 +10,7 @@ import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar, ScalarLike
+from jaxtyping import Array, ArrayLike, PyTree, Scalar, ScalarLike
 from lineax.internal import (
     default_floating_dtype as _default_floating_dtype,
     max_norm as _max_norm,
@@ -20,8 +19,6 @@ from lineax.internal import (
     tree_dot as _tree_dot,
     two_norm as _two_norm,
 )
-
-from ._custom_types import Y
 
 
 # Make the wrapped function a genuine member of this module.
@@ -74,10 +71,8 @@ def tree_full_like(struct: PyTree, fill_value: ArrayLike, allow_static: bool = F
             fn = lambda x: jnp.ones(x.shape, x.dtype)
     if allow_static:
         _fn = fn
-        fn = (
-            lambda x: _fn(x)
-            if eqx.is_array(x) or isinstance(x, jax.ShapeDtypeStruct)
-            else x
+        fn = lambda x: (
+            _fn(x) if eqx.is_array(x) or isinstance(x, jax.ShapeDtypeStruct) else x
         )
     return jtu.tree_map(fn, struct)
 
@@ -277,31 +272,6 @@ def inexact_asarray(x):
     if not jnp.issubdtype(jnp.result_type(x), jnp.inexact):
         dtype = default_floating_dtype()
     return _asarray(dtype, x)
-
-
-_F = TypeVar("_F")
-
-
-def cauchy_termination(
-    rtol: float,
-    atol: float,
-    norm: Callable[[PyTree], Scalar],
-    y: Y,
-    y_diff: Y,
-    f: _F,
-    f_diff: _F,
-) -> Bool[Array, ""]:
-    """Terminate if there is a small difference in both `y` space and `f` space, as
-    determined by `rtol` and `atol`.
-
-    Specifically, this checks that `y_diff < atol + rtol * y` and
-    `f_diff < atol + rtol * f_prev`, terminating if both of these are true.
-    """
-    y_scale = (atol + rtol * ω(y).call(jnp.abs)).ω
-    f_scale = (atol + rtol * ω(f).call(jnp.abs)).ω
-    y_converged = norm((ω(y_diff).call(jnp.abs) / y_scale**ω).ω) < 1
-    f_converged = norm((ω(f_diff).call(jnp.abs) / f_scale**ω).ω) < 1
-    return y_converged & f_converged
 
 
 class _JaxprEqual:

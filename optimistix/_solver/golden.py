@@ -1,6 +1,5 @@
 import math
-from collections.abc import Callable
-from typing import Any, ClassVar
+from typing import Any
 
 import equinox as eqx
 import jax
@@ -10,8 +9,9 @@ from jaxtyping import Array, Bool, Float, PyTree
 
 from .._custom_types import Aux, Fn
 from .._minimise import AbstractMinimiser
-from .._misc import cauchy_termination, tree_where
+from .._misc import tree_where
 from .._solution import RESULTS
+from .._termination import CauchyTermination
 
 
 class _GoldenSearchState(eqx.Module):
@@ -47,10 +47,11 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
     between interval segments is always maintained.
     """
 
-    rtol: float
-    atol: float
-    # All norms are the same for scalars.
-    norm: ClassVar[Callable[[PyTree], Float[Array, ""]]] = jnp.abs
+    termination: CauchyTermination
+
+    def __init__(self, rtol: float, atol: float):
+        # All norms are the same for scalars.
+        self.termination = CauchyTermination(rtol, atol, norm=jnp.abs)
 
     def init(
         self,
@@ -115,10 +116,7 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
         # since that is always the point closest to the current `y_`.
         y_diff = state.middle - y_
         f_diff = state.f_middle - f
-        terminate = cauchy_termination(
-            self.rtol,
-            self.atol,
-            jnp.abs,
+        terminate = self.termination(
             state.middle,
             y_diff,
             state.f_middle,
