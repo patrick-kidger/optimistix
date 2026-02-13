@@ -116,7 +116,7 @@ def _convert_to_pytree_op(tree, output_structure, i, batch_dimension):
 
 
 class _AndersonAccelerationState(eqx.Module, Generic[Y]):
-    first_step: Bool
+    first_step: Bool[Array, ""]
     index_start: Scalar
     history_length: int
     f_history: PyTree[Y]
@@ -135,11 +135,11 @@ class AndersonAcceleration(
     Anderson acceleration uses the `history_length` last iterates to improve the rate of
     convergence.
 
+
+
     Reference:
     D. G. Anderson. Iterative procedures for nonlinear integral equations. J. Assoc.
     Comput. Machinery, 12:547–560, 1965.
-
-
     """
 
     rtol: float
@@ -160,7 +160,7 @@ class AndersonAcceleration(
     ) -> _AndersonAccelerationState:
         del fn, args, options, f_struct, aux_struct
         state = _AndersonAccelerationState(
-            first_step=True,
+            first_step=jnp.array(True),
             index_start=jnp.array(0),
             history_length=self.history_length,
             f_history=_batched_tree_zeros_like(y, self.history_length),
@@ -253,7 +253,7 @@ class AndersonAcceleration(
             rel_err = self.norm((error**ω / scale**ω).ω)
 
         new_state = _AndersonAccelerationState(
-            first_step=False,
+            first_step=jnp.array(False),
             index_start=state.index_start + 1,
             history_length=self.history_length,
             f_history=f_history,
