@@ -227,21 +227,16 @@ class AndersonAcceleration(
 
             # Compute terms for update and include damping
             F_gamma = F_op.mv(gammas)
-            G_gamma = G_op.mv(gammas)
 
             y_undamped = jtu.tree_map(
                 lambda f_n, F_gamma: f_n - F_gamma, fn_y_n, F_gamma
             )
 
-            y_damped_update = jtu.tree_map(
-                lambda g_n, G_gamma: G_gamma - g_n, g_y_n, G_gamma
-            )
-
             new_y = jtu.tree_map(
-                lambda y_undamped, y_damped_update: y_undamped
+                lambda y_undamped, y_damped_update: (1 - self.damp) * y_undamped
                 + self.damp * y_damped_update,
                 y_undamped,
-                y_damped_update,
+                y,
             )
             return new_y
 

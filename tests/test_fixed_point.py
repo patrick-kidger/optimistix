@@ -20,9 +20,11 @@ from .helpers import (
 
 
 atol = rtol = 1e-6
+# To get meaningful finite difference jvp tests, needed to drop tols
+rtol_AA = atol_AA = 1e-15
 _fp_solvers = (
     optx.FixedPointIteration(rtol, atol),
-    optx.AndersonAcceleration(rtol, atol),
+    optx.AndersonAcceleration(rtol_AA, atol_AA),
 )
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
