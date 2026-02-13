@@ -128,14 +128,35 @@ class _AndersonAccelerationState(eqx.Module, Generic[Y]):
 class AndersonAcceleration(
     AbstractFixedPointSolver[Y, Aux, _AndersonAccelerationState]
 ):
-    """Repeatedly calls a function in search of a fixed point.
+    """
+    Solves the fixed-point equation
 
-    g(x') = f(x') - x' = 0
+        x = f(x)
 
-    Anderson acceleration uses the `history_length` last iterates to improve the rate of
-    convergence.
+    by applying Anderson acceleration to the fixed-point iteration.
 
+    Let
 
+        g_k = f(x_k) - x_k
+
+    denote the residual at iteration k. Using the last `m` residual and
+    iterate differences (with `m = history_length`), Anderson acceleration
+    computes coefficients γ_k by solving the least-squares problem
+
+        γ_k = argmin_γ || g_k - Δg_k γ ||_2,
+
+    where Δg_k contains differences of recent residuals.
+
+    The next iterate is then computed as
+
+        x_{k+1} = f(x_k) - Δf_k γ_k,
+
+    where Δf_k contains differences of recent mapped iterates f(x).
+
+    A damping factor `damp ∈ [0, 1]` optionally blends the accelerated
+    update with the previous iterate:
+
+        x_{k+1} ← (1 - damp) * x_{k+1} + damp * x_k.
 
     Reference:
     D. G. Anderson. Iterative procedures for nonlinear integral equations. J. Assoc.
