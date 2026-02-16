@@ -55,6 +55,8 @@ def test_fixed_point(solver, _fn, init, args):
 def test_fixed_point_jvp(getkey, solver, _fn, init, dtype, args):
     if dtype == jnp.complex128:
         context = pytest.warns(match="Complex support in Optimistix is a work in")
+        if isinstance(solver, optx.AndersonAcceleration):
+            pytest.skip("Anderson acceleration does not support complex")
     else:
         context = contextlib.nullcontext()
     with context:
