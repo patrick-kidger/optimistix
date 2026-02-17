@@ -41,6 +41,13 @@
 
 ---
 
+::: optimistix.NewtonBisection
+    options:
+        members:
+            - __init__
+
+---
+
 ::: optimistix.BestSoFarRootFinder
     options:
         members:
