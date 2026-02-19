@@ -48,7 +48,7 @@ def damped_newton_step(
     f_info: FunctionInfo.EvalGradHessian | FunctionInfo.ResidualJac,
     linear_solver: lx.AbstractLinearSolver,
     *,
-    scaling_update: _ScalingUpdate | None,
+    scaling_operator: lx.AbstractLinearOperator | None,
 ) -> tuple[PyTree[Array], RESULTS]:
     """Compute a damped Newton step.
 
@@ -73,16 +73,14 @@ def damped_newton_step(
     lm_param = jnp.where(pred, 1 / safe_step_size, jnp.finfo(step_size.dtype).max)
     lm_param = cast(Array, lm_param)
     if isinstance(f_info, FunctionInfo.EvalGradHessian):
-        if scaling_update is None:
+        if scaling_operator is None:
             scaling_operator = lx.IdentityLinearOperator(f_info.hessian.in_structure())
-        else:
-            scaling_operator = scaling_update(f_info.hessian)
         operator = f_info.hessian + lm_param * scaling_operator
         vector = f_info.grad
         if lx.is_positive_semidefinite(f_info.hessian):
             operator = lx.TaggedLinearOperator(operator, lx.positive_semidefinite_tag)
     elif isinstance(f_info, FunctionInfo.ResidualJac):
-        if scaling_update is None:
+        if scaling_operator is None:
             y_structure = f_info.jac.in_structure()
             operator = lx.FunctionLinearOperator(
                 _Damped(f_info.jac, lm_param), y_structure
@@ -90,7 +88,6 @@ def damped_newton_step(
             vector = (f_info.residual, tree_full_like(y_structure, 0))
         else:
             hessian = f_info.jac.T @ f_info.jac
-            scaling_operator = scaling_update(hessian)
             operator = lx.TaggedLinearOperator(
                 hessian + lm_param * scaling_operator, lx.positive_semidefinite_tag
             )
@@ -155,7 +152,7 @@ class DampedNewtonDescent(
         self, step_size: Scalar, state: _DampedNewtonDescentState
     ) -> tuple[Y, RESULTS]:
         sol_value, result = damped_newton_step(
-            step_size, state.f_info, self.linear_solver, scaling_update=None
+            step_size, state.f_info, self.linear_solver, scaling_operator=None
         )
         y_diff = (-(sol_value**ω)).ω
         return y_diff, result
@@ -242,7 +239,7 @@ class IndirectDampedNewtonDescent(
 
         def comparison_fn(lambda_i: Scalar, _):
             step, _ = damped_newton_step(
-                1 / lambda_i, state.f_info, self.linear_solver, scaling_update=None
+                1 / lambda_i, state.f_info, self.linear_solver, scaling_operator=None
             )
             return self.trust_region_norm(step) - scaled_step_size
 
@@ -257,7 +254,7 @@ class IndirectDampedNewtonDescent(
                 throw=False,
             ).value
             y_diff, result = damped_newton_step(
-                1 / lambda_out, state.f_info, self.linear_solver, scaling_update=None
+                1 / lambda_out, state.f_info, self.linear_solver, scaling_operator=None
             )
             return y_diff, result
 
@@ -361,14 +358,19 @@ class ScaledDampedNewtonDescent(
         state: _ScaledDampedNewtonDescentState,
     ):
         del y
-        return _ScaledDampedNewtonDescentState(f_info, state.scaling_operator)
+        scaling_operator = self.update_scaling_fn(
+            f_info.hessian, state.scaling_operator
+        )
+        return _ScaledDampedNewtonDescentState(f_info, scaling_operator)
 
     def step(
         self, step_size: Scalar, state: _ScaledDampedNewtonDescentState
     ) -> tuple[Y, RESULTS]:
-        scaling_update = _ScalingUpdate(self.update_scaling_fn, state.scaling_operator)
         sol_value, result = damped_newton_step(
-            step_size, state.f_info, self.linear_solver, scaling_update=scaling_update
+            step_size,
+            state.f_info,
+            self.linear_solver,
+            scaling_operator=state.scaling_operator,
         )
         y_diff = (-(sol_value**ω)).ω
         return y_diff, result
