@@ -25,7 +25,7 @@ from .levenberg_marquardt import (
     IndirectDampedNewtonDescent as IndirectDampedNewtonDescent,
     IndirectLevenbergMarquardt as IndirectLevenbergMarquardt,
     LevenbergMarquardt as LevenbergMarquardt,
-    max_diagonal_scaling_update as max_diagonal_scaling_update,
+    max_scaling_update as max_scaling_update,
     ScaledDampedNewtonDescent as ScaledDampedNewtonDescent,
     ScaledLevenbergMarquardt as ScaledLevenbergMarquardt,
 )

@@ -283,7 +283,7 @@ IndirectDampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 """
 
 
-def max_diagonal_scaling_update(
+def max_scaling_update(
     hessian: lx.AbstractLinearOperator, scaling_operator: lx.AbstractLinearOperator
 ) -> lx.AbstractLinearOperator:
     """Update the scaling matrix as the maximum value along the diagonal
@@ -341,7 +341,7 @@ class ScaledDampedNewtonDescent(
     update_scaling_fn: Callable[
         [lx.AbstractLinearOperator, lx.AbstractLinearOperator],
         lx.AbstractLinearOperator,
-    ] = max_diagonal_scaling_update
+    ] = max_scaling_update
 
     def init(
         self,
@@ -548,7 +548,7 @@ class ScaledLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         update_scaling_fn: Callable[
             [lx.AbstractLinearOperator, lx.AbstractLinearOperator],
             lx.AbstractLinearOperator,
-        ] = max_diagonal_scaling_update,
+        ] = max_scaling_update,
         linear_solver: lx.AbstractLinearSolver = lx.QR(),
         verbose: bool | Callable[..., None] = False,
     ):
@@ -571,7 +571,7 @@ ScaledLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `update_scaling_fn`: A function computing the scaling matrix. Defaults to
-    [`optimistix.max_diagonal_scaling_update`][].
+    [`optimistix.max_scaling_update`][].
     `ScaledLevenbergMarquardt` supports custom scaling updates - any function
     implementing such an update should pass a function with signature
     `fn(hessian, scaling_operator)`, where `hessian` is a

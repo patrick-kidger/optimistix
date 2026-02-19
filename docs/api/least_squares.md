@@ -55,7 +55,7 @@
 
 [`optimistix.ScaledLevenbergMarquardt`][] supports different methods for updating the scaling operator via `ScaledLevenbergMarquardt(..., update_scaling_fn=...)`.
 
-::: optimistix.max_diagonal_scaling_update
+::: optimistix.max_scaling_update
 
 ---
 
