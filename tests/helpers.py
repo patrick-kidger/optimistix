@@ -124,7 +124,7 @@ class LineSearchLM(optx.AbstractGaussNewton[Y, Out, Aux]):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.BacktrackingArmijo()
     descent: optx.AbstractDescent = optx.ScaledDampedNewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class BFGSDampedNewton(optx.AbstractBFGS):
@@ -148,7 +148,7 @@ class BFGSScaledDampedNewton(optx.AbstractBFGS):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.ScaledDampedNewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class BFGSIndirectDampedNewton(optx.AbstractBFGS):
@@ -232,7 +232,7 @@ class DFPScaledDampedNewton(optx.AbstractDFP):
     use_inverse: bool = False
     search: optx.AbstractSearch = optx.ClassicalTrustRegion()
     descent: optx.AbstractDescent = optx.ScaledDampedNewtonDescent()
-    verbose: frozenset[str] = frozenset()
+    verbose: Callable[..., None] = default_verbose(False)
 
 
 class DFPIndirectDampedNewton(optx.AbstractDFP):

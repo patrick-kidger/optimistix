@@ -538,7 +538,7 @@ class ScaledLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
     norm: Callable[[PyTree], Scalar]
     descent: ScaledDampedNewtonDescent[Y]
     search: ClassicalTrustRegion[Y]
-    verbose: frozenset[str]
+    verbose: Callable[..., None]
 
     def __init__(
         self,
@@ -550,7 +550,7 @@ class ScaledLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
             lx.AbstractLinearOperator,
         ] = max_diagonal_scaling_update,
         linear_solver: lx.AbstractLinearSolver = lx.QR(),
-        verbose: frozenset[str] = frozenset(),
+        verbose: bool | Callable[..., None] = False,
     ):
         self.rtol = rtol
         self.atol = atol
@@ -559,7 +559,7 @@ class ScaledLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
             update_scaling_fn=update_scaling_fn, linear_solver=linear_solver
         )
         self.search = ClassicalTrustRegion()
-        self.verbose = verbose
+        self.verbose = default_verbose(verbose)
 
 
 ScaledLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
@@ -583,7 +583,8 @@ ScaledLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 - `linear_solver`: The linear solver to use to solve the damped Newton step. Defaults to
     `lineax.QR`.
 - `verbose`: Whether to print out extra information about how the solve is proceeding.
-    Should be a frozenset of strings, specifying what information to print out. Valid
-    entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
-    `verbose=frozenset({"loss", "step_size"})`.
+    Can either be `False` to print out nothing, or `True` to print out all information,
+    or (for customisation) a callable `**kwargs -> None`. If provided as a callable then
+    each value will be a 2-tuple of `(str, jax.Array)` providing a human-readable name
+    and its corresponding value.
 """
