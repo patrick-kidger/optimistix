@@ -48,6 +48,17 @@
 
 ---
 
+::: optimistix.ScaledLevenbergMarquardt
+    options:
+        members:
+            - __init__
+
+[`optimistix.ScaledLevenbergMarquardt`][] supports different methods for updating the scaling operator via `ScaledLevenbergMarquardt(..., update_scaling_fn=...)`.
+
+::: optimistix.max_scaling_update
+
+---
+
 ::: optimistix.Dogleg
     options:
         members:
