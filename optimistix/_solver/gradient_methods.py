@@ -16,6 +16,7 @@ from .._misc import (
     lin_to_grad,
     max_norm,
     tree_full_like,
+    tree_where,
 )
 from .._search import (
     AbstractDescent,
@@ -180,7 +181,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         )
 
         def accepted(descent_state):
-            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode=autodiff_mode)
+            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
 
             f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
@@ -207,6 +208,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
             search_result == RESULTS.successful, descent_result, search_result
         )
 
+        prev_aux = tree_where(state.first_step, aux, state.aux)
         state = _GradientDescentState(
             first_step=jnp.array(False),
             y_eval=y_eval,
@@ -217,7 +219,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
             terminate=terminate,
             result=result,
         )
-        return y, state, aux
+        return y, state, prev_aux
 
     def terminate(
         self,

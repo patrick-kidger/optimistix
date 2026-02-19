@@ -12,6 +12,7 @@ from jaxtyping import Array, Float, PyTree, Scalar
 
 from .._custom_types import Aux, Y
 from .._misc import (
+    default_verbose,
     filter_cond,
     max_norm,
     tree_dot,
@@ -569,7 +570,7 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
     descent: NewtonDescent
     search: BacktrackingArmijo
     history_length: int
-    verbose: frozenset[str]
+    verbose: Callable[..., None]
 
     def __init__(
         self,
@@ -578,7 +579,7 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         norm: Callable[[PyTree], Scalar] = max_norm,
         use_inverse: bool = True,
         history_length: int = 10,
-        verbose: frozenset[str] = frozenset(),
+        verbose: bool | Callable[..., None] = False,
     ):
         self.rtol = rtol
         self.atol = atol
@@ -587,7 +588,7 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         self.descent = NewtonDescent()
         self.search = BacktrackingArmijo()
         self.history_length = history_length
-        self.verbose = verbose
+        self.verbose = default_verbose(verbose)
 
 
 LBFGS.__init__.__doc__ = """**Arguments:**
@@ -607,8 +608,9 @@ LBFGS.__init__.__doc__ = """**Arguments:**
     L-BFGS history. Larger values can improve accuracy of the inverse Hessian 
     approximation, while smaller values reduce memory and computation. 
     The default is 10.
-- `verbose`: Whether to print out extra information about how the solve is
-    proceeding. Should be a frozenset of strings, specifying what information to print.
-    Valid entries are `step_size`, `loss`, `y`. For example
-    `verbose=frozenset({"step_size", "loss"})`.
+- `verbose`: Whether to print out extra information about how the solve is proceeding.
+    Can either be `False` to print out nothing, or `True` to print out all information,
+    or (for customisation) a callable `**kwargs -> None`. If provided as a callable then
+    each value will be a 2-tuple of `(str, jax.Array)` providing a human-readable name
+    and its corresponding value.
 """

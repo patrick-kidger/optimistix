@@ -16,6 +16,7 @@ class RESULTS(lx.RESULTS):  # pyright: ignore
         "roots), or you may need to increase `max_steps`."
     )
     nonlinear_divergence = "Nonlinear solve diverged."
+    nonfinite = "Nonfinite (inf or nan) values detected during solve."
 
 
 class Solution(eqx.Module, Generic[Y, Aux]):

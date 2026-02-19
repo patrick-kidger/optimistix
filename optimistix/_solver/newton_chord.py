@@ -186,7 +186,7 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             converged = _converged(factor, self.kappa)
             terminate = at_least_two & (small | diverged | converged)
             terminate_result = RESULTS.where(
-                jnp.invert(small) & (diverged | jnp.invert(converged)),
+                at_least_two & jnp.invert(small) & (diverged | jnp.invert(converged)),
                 RESULTS.nonlinear_divergence,
                 RESULTS.successful,
             )

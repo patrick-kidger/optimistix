@@ -17,7 +17,7 @@ Features include:
 pip install optimistix
 ```
 
-Requires Python 3.10+ and JAX 0.4.38+ and [Equinox](https://github.com/patrick-kidger/equinox) 0.11.11+.
+Requires Python 3.11+.
 
 ## Documentation
 
@@ -80,4 +80,4 @@ If you found this library to be useful in academic work, then please cite: ([arX
 
 ## Credit
 
-Optimistix was primarily built by Jason Rader (@packquickly): [Twitter](https://twitter.com/packquickly); [GitHub](https://github.com/packquickly); [Website](https://www.packquickly.com/).
+Optimistix was primarily built by Jason Rader (@packquickly): [Twitter](https://twitter.com/packquickly); [GitHub](https://github.com/packquickly); [Website](https://www.packquickly.com/). It is being co-maintained by Johanna Haffner (@johannahaffner): [GitHub](https://github.com/johannahaffner); [Website](https://haffner.dev).

@@ -223,3 +223,12 @@ _golden = optx.GoldenSearch(rtol=1e-9, atol=1e-9)
 def test_golden_search(fn, y0, options, expected):
     sol = optx.minimise(fn, _golden, y0, options=options, max_steps=2**9)
     assert tree_allclose(sol.value, expected)
+
+
+# https://github.com/patrick-kidger/optimistix/issues/207
+def test_bfgs_float32():
+    def f(y, _):
+        return y**2
+
+    y0 = jnp.array(1.0, dtype=jnp.float32)
+    optx.root_find(f, optx.BFGS(rtol=1e-3, atol=1e-6), y0)

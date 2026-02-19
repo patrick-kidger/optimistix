@@ -5,7 +5,8 @@ requires = ["hatchling"]
 [project]
 authors = [
   {email = "raderjason@outlook.com", name = "Jason Rader"},
-  {email = "contact@kidger.site", name = "Patrick Kidger"}
+  {email = "contact@kidger.site", name = "Patrick Kidger"},
+  {email = "johanna.haffner@bsse.ethz.ch", name = "Johanna Haffner"}
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -35,9 +36,9 @@ keywords = [
 license = {file = "LICENSE"}
 name = "optimistix"
 readme = "README.md"
-requires-python = "~=3.10"
+requires-python = "~=3.11"
 urls = {repository = "https://github.com/patrick-kidger/optimistix"}
-version = "0.0.11"
+version = "0.1.0"
 
 [project.optional-dependencies]
 dev = [
@@ -59,7 +60,10 @@ tests = [
   "diffrax>=0.7.0",
   "optax>=0.2.4",
   "pytest>=8.3.5",
-  "jaxlib"
+  "jaxlib",
+  "sif2jax",
+  "fire",
+  "matplotlib"
 ]
 
 [tool.hatch.build]
@@ -72,7 +76,11 @@ reportIncompatibleVariableOverride = false # Incompatible with eqx.AbstractVar
 reportInvalidTypeForm = false # Incompatible with FunctionInfo.Foo
 
 [tool.pytest.ini_options]
-addopts = "-Werror --jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On))"
+addopts = "--jaxtyping-packages=optimistix,beartype.beartype(conf=beartype.BeartypeConf(strategy=beartype.BeartypeStrategy.On)) --benchmark-skip"
+filterwarnings = [
+  "error",
+  'ignore:Setting \`jax_pmap_shmap_merge:DeprecationWarning'
+]
 
 [tool.ruff]
 extend-include = ["*.ipynb"]
