@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from typing import ClassVar as AbstractClassVar
 else:
     from equinox import AbstractClassVar
-from equinox.internal import unvmap_all, ω
+from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Out, Y
@@ -85,7 +85,13 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             init_later_state = self.linear_solver.init(jac, options={})
             init_later_state = lax.stop_gradient(init_later_state)
             linear_state = (jac, init_later_state)
-        f_val = tree_full_like(f_struct, jnp.inf)
+        if self._is_newton and self.cauchy_termination:
+            # For Newton Cauchy convergence y usually bottleneck so no point syncing f
+            f_val = tree_full_like(f_struct, jnp.inf)
+        else:
+            # In all other cases syncing f can allow earlier exit
+            f_val, _ = fn(y, args)
+
         dtype = tree_dtype(f_struct)
         return _NewtonChordState(
             f=f_val,
@@ -109,35 +115,17 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         lower = options.get("lower")
         upper = options.get("upper")
         del options
-
-        if self._is_newton:
+        if self._is_newton and self.cauchy_termination:
             fx, lin_fn, aux = jax.linearize(lambda _y: fn(_y, args), y, has_aux=True)
-        else:
-            fx, aux = fn(y, args)
-
-        if self.cauchy_termination:
-            terminate_early = cauchy_termination(
-                self.rtol,
-                self.atol,
-                self.norm,
-                y,
-                state.diff,
-                jtu.tree_map(jnp.zeros_like, fx),
-                fx,
+            jac = lx.FunctionLinearOperator(
+                lin_fn, jax.eval_shape(lambda: y), tags=tags
             )
+            sol = lx.linear_solve(jac, fx, self.linear_solver, throw=False)
         else:
-            with jax.numpy_dtype_promotion("standard"):
-                terminate_early = self.norm((ω(fx).call(jnp.abs) / self.atol).ω) < 1
-
-        def skip(_):
-            # diff = 0 → new_y = y unchanged; result = successful
-            return jtu.tree_map(jnp.zeros_like, y), RESULTS.successful
-
-        def solve(_):
+            fx = state.f
             if self._is_newton:
-                jac = lx.FunctionLinearOperator(
-                    lin_fn, jax.eval_shape(lambda: y), tags=tags
-                )
+                # No need to use jax.linearize as we already have f from state
+                jac = lx.JacobianLinearOperator(_NoAux(fn), y, args, tags=tags)
                 sol = lx.linear_solve(jac, fx, self.linear_solver, throw=False)
             else:
                 jac, linear_state = state.linear_state  # pyright: ignore
@@ -145,10 +133,8 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
                 sol = lx.linear_solve(
                     jac, fx, self.linear_solver, state=linear_state, throw=False
                 )
-            return sol.value, RESULTS.promote(sol.result)
 
-        # Skip solve if already converged (unvmap ensures only one branch is eval'd on CPU)
-        diff, result = lax.cond(unvmap_all(terminate_early), skip, solve, None)
+        diff = sol.value
 
         new_y = (y**ω - diff**ω).ω
         if lower is not None:
@@ -161,13 +147,32 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         with jax.numpy_dtype_promotion("standard"):
             diffsize = self.norm((diff**ω / scale**ω).ω)
 
+        if self._is_newton and self.cauchy_termination:
+            # Cauchy Newton: store lagged f, syncing fx is unlikely to reduce iterations
+            f_val = fx
+        elif not self.cauchy_termination:
+            # Non-Cauchy (Newton or Chord): capped at 2 iterations, only cache after first step
+            _, aux_shape = jax.eval_shape(fn, new_y, args)
+
+            def _skip(y):
+                return fx, jtu.tree_map(
+                    lambda s: jnp.zeros(s.shape, s.dtype), aux_shape
+                )
+
+            f_val, aux = lax.cond(
+                state.step == 0, lambda new_y: fn(new_y, args), _skip, new_y
+            )
+        else:
+            # Cauchy Chord: sync fx
+            f_val, aux = fn(new_y, args)
+
         new_state = _NewtonChordState(
-            f=fx,
+            f=f_val,
             linear_state=state.linear_state,
             diff=diff,
             diffsize=jnp.asarray(diffsize, dtype=state.diffsize.dtype),
             diffsize_prev=state.diffsize,
-            result=result,
+            result=RESULTS.promote(sol.result),
             step=state.step + 1,
         )
         return new_y, new_state, aux
@@ -198,20 +203,25 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             )
             terminate_result = RESULTS.successful
         else:
-            at_least_two = state.step >= 2
+            two = state.step >= 2
             rate = state.diffsize / state.diffsize_prev
             factor = state.diffsize * rate / (1 - rate)
             small = _small(state.diffsize)
             diverged = _diverged(rate)
             converged = _converged(factor, self.kappa)
-            with jax.numpy_dtype_promotion("standard"):
-                f_small = self.norm((ω(state.f).call(jnp.abs) / self.atol).ω) < 1
-            terminate = f_small | (at_least_two & (small | diverged | converged))
+
+            # allow 1-step exit for linear problems
+            def _check_f_small(f):
+                with jax.numpy_dtype_promotion("standard"):
+                    return self.norm((ω(f).call(jnp.abs) / self.atol).ω) < 1
+
+            f_small = lax.cond(
+                state.step == 1, _check_f_small, lambda _: jnp.array(False), state.f
+            )
+
+            terminate = f_small | two
             terminate_result = RESULTS.where(
-                jnp.invert(f_small)
-                & at_least_two
-                & jnp.invert(small)
-                & (diverged | jnp.invert(converged)),
+                two & jnp.invert(small) & (diverged | jnp.invert(converged)),
                 RESULTS.nonlinear_divergence,
                 RESULTS.successful,
             )
