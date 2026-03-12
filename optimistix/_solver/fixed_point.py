@@ -121,7 +121,6 @@ class _AndersonAccelerationState(eqx.Module, Generic[Y]):
     history_length: int
     f_history: PyTree[Y]
     g_history: PyTree[Y]
-    output_structure: PyTree
     relative_error: Scalar
 
 
@@ -131,13 +130,13 @@ class AndersonAcceleration(
     """
     Solves the fixed-point equation
 
-        x = f(x)
+        y = f(y)
 
     by applying Anderson acceleration to the fixed-point iteration.
 
     Let
 
-        g_k = f(x_k) - x_k
+        g_k = f(y_k) - y_k
 
     denote the residual at iteration k. Using the last `m` residual and
     iterate differences (with `m = history_length`), Anderson acceleration
@@ -149,18 +148,29 @@ class AndersonAcceleration(
 
     The next iterate is then computed as
 
-        x_{k+1} = f(x_k) - Δf_k γ_k,
+        y_{k+1} = f(y_k) - Δf_k γ_k,
 
-    where Δf_k contains differences of recent mapped iterates f(x).
+    where Δf_k contains differences of recent mapped iterates f(y).
 
     A damping factor `damp ∈ [0, 1]` optionally blends the accelerated
     update with the previous iterate:
 
-        x_{k+1} ← (1 - damp) * x_{k+1} + damp * x_k.
+        y_{k+1} ← (1 - damp) * y_{k+1} + damp * y_k.
 
-    Reference:
-    D. G. Anderson. Iterative procedures for nonlinear integral equations. J. Assoc.
-    Comput. Machinery, 12:547–560, 1965.
+    ??? cite "References"
+
+        ```bibtex
+        @article{anderson1965iterative,
+            title={Iterative procedures for nonlinear integral equations},
+            author={Anderson, Donald G},
+            journal={Journal of the ACM (JACM)},
+            volume={12},
+            number={4},
+            pages={547--560},
+            year={1965},
+            publisher={ACM New York, NY, USA}
+        }
+        ```
     """
 
     rtol: float
@@ -186,7 +196,6 @@ class AndersonAcceleration(
             history_length=self.history_length,
             f_history=_batched_tree_zeros_like(y, self.history_length),
             g_history=_batched_tree_zeros_like(y, self.history_length),
-            output_structure=jax.eval_shape(lambda: y),
             relative_error=jnp.array(jnp.inf),
         )
         return state
@@ -219,25 +228,31 @@ class AndersonAcceleration(
         # Perform Anderson acceleration
         # First iterate must be treated differently
         def _first_iterate():
-            new_y = jtu.tree_map(
-                lambda y_old, y_next: self.damp * y_old + (1 - self.damp) * y_next,
-                y,
-                fn_y_n,
-            )
+            # damp known at compile time, so we can skip some computation if no damping
+            if isinstance(self.damp, (int, float)) and self.damp == 0:
+                new_y = fn_y_n
+            else:
+                new_y = jtu.tree_map(
+                    lambda y_old, y_next: self.damp * y_old + (1 - self.damp) * y_next,
+                    y,
+                    fn_y_n,
+                )
             return new_y
 
         def _find_new_y():
+            output_structure = jax.eval_shape(lambda: y)
+
             # Construct F operator
             F_op = _convert_to_pytree_op(
                 f_history,
-                state.output_structure,
+                output_structure,
                 state.index_start,
                 self.history_length,
             )
             # Construct G operator
             G_op = _convert_to_pytree_op(
                 g_history,
-                state.output_structure,
+                output_structure,
                 state.index_start,
                 self.history_length,
             )
@@ -249,17 +264,21 @@ class AndersonAcceleration(
             # Compute terms for update and include damping
             F_gamma = F_op.mv(gammas)
 
-            y_undamped = jtu.tree_map(
+            new_y_undamped = jtu.tree_map(
                 lambda f_n, F_gamma: f_n - F_gamma, fn_y_n, F_gamma
             )
 
-            new_y = jtu.tree_map(
-                lambda y_undamped, y_damped_update: (1 - self.damp) * y_undamped
-                + self.damp * y_damped_update,
-                y_undamped,
-                y,
-            )
-            return new_y
+            # damp known at compile time, so we can skip some computation if no damping
+            if isinstance(self.damp, (int, float)) and self.damp == 0:
+                return new_y_undamped
+            else:
+                new_y = jtu.tree_map(
+                    lambda y_undamped, y_damped_update: (1 - self.damp) * y_undamped
+                    + self.damp * y_damped_update,
+                    new_y_undamped,
+                    y,
+                )
+                return new_y
 
         new_y = jax.lax.cond(state.first_step, _first_iterate, _find_new_y)
 
@@ -274,7 +293,6 @@ class AndersonAcceleration(
             history_length=self.history_length,
             f_history=f_history,
             g_history=g_history,
-            output_structure=state.output_structure,
             relative_error=rel_err,
         )
 
