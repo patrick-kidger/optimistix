@@ -85,10 +85,13 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             init_later_state = self.linear_solver.init(jac, options={})
             init_later_state = lax.stop_gradient(init_later_state)
             linear_state = (jac, init_later_state)
-        if self.cauchy_termination:
+        if self._is_newton and self.cauchy_termination:
+            # For Newton Cauchy convergence y usually bottleneck so no point syncing f
             f_val = tree_full_like(f_struct, jnp.inf)
         else:
-            f_val = None
+            # In all other cases syncing f can allow earlier exit
+            f_val, _ = fn(y, args)
+
         dtype = tree_dtype(f_struct)
         return _NewtonChordState(
             f=f_val,
@@ -112,20 +115,27 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         lower = options.get("lower")
         upper = options.get("upper")
         del options
-        if self._is_newton:
+        if self._is_newton and self.cauchy_termination:
             fx, lin_fn, aux = jax.linearize(lambda _y: fn(_y, args), y, has_aux=True)
             jac = lx.FunctionLinearOperator(
                 lin_fn, jax.eval_shape(lambda: y), tags=tags
             )
             sol = lx.linear_solve(jac, fx, self.linear_solver, throw=False)
         else:
-            fx, aux = fn(y, args)
-            jac, linear_state = state.linear_state  # pyright: ignore
-            linear_state = lax.stop_gradient(linear_state)
-            sol = lx.linear_solve(
-                jac, fx, self.linear_solver, state=linear_state, throw=False
-            )
+            fx = state.f
+            if self._is_newton:
+                # No need to use jax.linearize as we already have f from state
+                jac = lx.JacobianLinearOperator(_NoAux(fn), y, args, tags=tags)
+                sol = lx.linear_solve(jac, fx, self.linear_solver, throw=False)
+            else:
+                jac, linear_state = state.linear_state  # pyright: ignore
+                linear_state = lax.stop_gradient(linear_state)
+                sol = lx.linear_solve(
+                    jac, fx, self.linear_solver, state=linear_state, throw=False
+                )
+
         diff = sol.value
+
         new_y = (y**ω - diff**ω).ω
         if lower is not None:
             new_y = jtu.tree_map(lambda a, b: jnp.clip(a, min=b), new_y, lower)
@@ -136,10 +146,26 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
         with jax.numpy_dtype_promotion("standard"):
             diffsize = self.norm((diff**ω / scale**ω).ω)
-        if self.cauchy_termination:
+
+        if self._is_newton and self.cauchy_termination:
+            # Cauchy Newton: store lagged f, syncing fx is unlikely to reduce iterations
             f_val = fx
+        elif not self.cauchy_termination:
+            # Non-Cauchy (Newton or Chord): capped at 2 iterations, only cache after first step
+            _, aux_shape = jax.eval_shape(fn, new_y, args)
+
+            def _skip(y):
+                return fx, jtu.tree_map(
+                    lambda s: jnp.zeros(s.shape, s.dtype), aux_shape
+                )
+
+            f_val, aux = lax.cond(
+                state.step == 0, lambda new_y: fn(new_y, args), _skip, new_y
+            )
         else:
-            f_val = None
+            # Cauchy Chord: sync fx
+            f_val, aux = fn(new_y, args)
+
         new_state = _NewtonChordState(
             f=f_val,
             linear_state=state.linear_state,
@@ -177,16 +203,25 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             )
             terminate_result = RESULTS.successful
         else:
-            # TODO(kidger): perform only one iteration when solving a linear system!
-            at_least_two = state.step >= 2
+            two = state.step >= 2
             rate = state.diffsize / state.diffsize_prev
             factor = state.diffsize * rate / (1 - rate)
             small = _small(state.diffsize)
             diverged = _diverged(rate)
             converged = _converged(factor, self.kappa)
-            terminate = at_least_two & (small | diverged | converged)
+
+            # allow 1-step exit for linear problems
+            def _check_f_small(f):
+                with jax.numpy_dtype_promotion("standard"):
+                    return self.norm((ω(f).call(jnp.abs) / self.atol).ω) < 1
+
+            f_small = lax.cond(
+                state.step == 1, _check_f_small, lambda _: jnp.array(False), state.f
+            )
+
+            terminate = f_small | two
             terminate_result = RESULTS.where(
-                at_least_two & jnp.invert(small) & (diverged | jnp.invert(converged)),
+                two & jnp.invert(small) & (diverged | jnp.invert(converged)),
                 RESULTS.nonlinear_divergence,
                 RESULTS.successful,
             )
