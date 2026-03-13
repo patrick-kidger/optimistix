@@ -20,7 +20,12 @@ from .helpers import (
 
 
 atol = rtol = 1e-6
-_fp_solvers = (optx.FixedPointIteration(rtol, atol),)
+# To get meaningful finite difference jvp tests, needed to drop tols
+rtol_AA = atol_AA = 1e-15
+_fp_solvers = (
+    optx.FixedPointIteration(rtol, atol),
+    optx.AndersonAcceleration(rtol_AA, atol_AA),
+)
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 
@@ -50,6 +55,8 @@ def test_fixed_point(solver, _fn, init, args):
 def test_fixed_point_jvp(getkey, solver, _fn, init, dtype, args):
     if dtype == jnp.complex128:
         context = pytest.warns(match="Complex support in Optimistix is a work in")
+        if isinstance(solver, optx.AndersonAcceleration):
+            pytest.skip("Anderson acceleration does not support complex")
     else:
         context = contextlib.nullcontext()
     with context:
