@@ -13,7 +13,6 @@ from jaxtyping import Array, Bool, PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint
 from ._custom_types import Aux, Fn, Out, SolverState, Y
-<<<<<<< HEAD
 from ._misc import tree_allfinite, unwrap_jaxpr, wrap_jaxpr
 from ._progress_meter import AbstractProgressMeter, NoProgressMeter
 from ._solution import RESULTS, Solution
@@ -251,7 +250,15 @@ def _iterate(inputs):
             progress = jnp.zeros(())
         new_progress_meter_state = progress_meter.step(progress_meter_state, progress)
 
-        return new_y, num_steps + 1, new_dynamic_state, aux, new_terminate, new_result, new_progress_meter_state
+        return (
+            new_y,
+            num_steps + 1,
+            new_dynamic_state,
+            aux,
+            new_terminate,
+            new_result,
+            new_progress_meter_state,
+        )
 
     final_carry = while_loop(cond_fun, body_fun, init_carry, max_steps=max_steps)
     (
