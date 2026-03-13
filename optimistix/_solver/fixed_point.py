@@ -60,9 +60,16 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
         tags: frozenset[object],
     ) -> tuple[Y, _FixedPointState, Aux]:
         fn_y_n, aux = fn(y, args)
-        new_y = jtu.tree_map(
-            lambda i_np1, i_n: (1 - self.damp) * i_np1 + self.damp * i_n, fn_y_n, y
-        )
+
+        # Bypass damping computation if no damping to save some time,
+        # since damp is known at compile time
+        if isinstance(self.damp, (int, float)) and self.damp == 0:
+            new_y = fn_y_n
+        else:
+            new_y = jtu.tree_map(
+                lambda i_np1, i_n: (1 - self.damp) * i_np1 + self.damp * i_n, fn_y_n, y
+            )
+
         error = (y**ω - new_y**ω).ω
         with jax.numpy_dtype_promotion("standard"):
             scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
@@ -157,6 +164,12 @@ class AndersonAcceleration(
 
         y_{k+1} ← (1 - damp) * y_{k+1} + damp * y_k.
 
+    With respect to the standard fixed-point iteration, Anderson acceleration
+    has been found to converge faster, and can avoid the divergence of the
+    fixed-point sequence. However, it does require additional memory to store
+    the history of iterates and residuals, and each iteration is more expensive
+    due to the least-squares solve.
+
     ??? cite "References"
 
         ```bibtex
@@ -211,6 +224,7 @@ class AndersonAcceleration(
     ) -> tuple[Y, _AndersonAccelerationState, Aux]:
         fn_y_n, aux = fn(y, args)
         g_y_n = jtu.tree_map(lambda a, b: a - b, fn_y_n, y)
+        output_structure = jax.eval_shape(lambda: y)
 
         # Add new results to history
         f_history = jtu.tree_map(
@@ -240,8 +254,6 @@ class AndersonAcceleration(
             return new_y
 
         def _find_new_y():
-            output_structure = jax.eval_shape(lambda: y)
-
             # Construct F operator
             F_op = _convert_to_pytree_op(
                 f_history,
