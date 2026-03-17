@@ -15,6 +15,7 @@ from .helpers import (
     finite_difference_jvp,
     least_squares_fn_minima_init_args,
     least_squares_optimisers,
+    _spd_minimisation_fns,
     rosenbrock,
     simple_nn,
     tree_allclose,
@@ -27,6 +28,10 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 @pytest.mark.parametrize("solver", least_squares_optimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", least_squares_fn_minima_init_args)
 def test_least_squares(solver, _fn, minimum, init, args):
+    if isinstance(getattr(solver.descent, "linear_solver", None), lx.CG) and _fn not in _spd_minimisation_fns:
+        return
+    tags = frozenset({lx.positive_semidefinite_tag}) if _fn in _spd_minimisation_fns else frozenset()
+
     atol = rtol = 1e-4
     has_aux = random.choice([True, False])
     if has_aux:
@@ -40,7 +45,14 @@ def test_least_squares(solver, _fn, minimum, init, args):
         context = contextlib.nullcontext()
     with context:
         optx_argmin = optx.least_squares(
-            fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
+            fn,
+            solver,
+            init,
+            has_aux=has_aux,
+            args=args,
+            max_steps=10_000,
+            throw=False,
+            tags=tags,
         ).value
     out = fn(optx_argmin, args)
     if has_aux:
@@ -59,6 +71,10 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
     if _fn in (simple_nn, diagonal_quadratic_bowl):
         # These are ridiculously finickity to get references values for the derivatives
         return
+    if isinstance(getattr(solver.descent, "linear_solver", None), lx.CG) and _fn not in _spd_minimisation_fns:
+        return
+    tags = frozenset({lx.positive_semidefinite_tag}) if _fn in _spd_minimisation_fns else frozenset()
+
     atol = rtol = 1e-2
     has_aux = random.choice([True, False])
     if has_aux:
@@ -86,6 +102,7 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
                 max_steps=10_000,
                 adjoint=adjoint,
                 throw=False,
+                tags=tags,
             ).value
 
     if _fn is simple_nn:

@@ -41,7 +41,6 @@ import diffrax as dfx  # pyright: ignore
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import jax.scipy as jsp
 import jaxopt  # pyright: ignore
 import lineax as lx
 import optimistix as optx
@@ -107,40 +106,6 @@ def residuals(parameters, y0s__values):
     return values - pred_values
 
 
-# Lineax deliberately doesn't offer this as a solver.
-# It's mostly just a worse version of QR. It runs at similar speed empirically (see the
-# benchmarks below), but is substantially less accurate.
-# Anyway, we have an implementation here to provide a fair comparison with JAXopt, which
-# uses it as its default solver.
-class NormalCholesky(lx.AbstractLinearSolver):
-    def init(self, operator, options):
-        del options
-        matrix = operator.as_matrix()
-        factor, lower = jsp.linalg.cho_factor(matrix.T @ matrix)
-        assert lower is False
-        packed_structures = lx.internal.pack_structures(operator)
-        return matrix, factor, packed_structures
-
-    def compute(self, state, vector, options):
-        matrix, factor, packed_structures = state
-        vector = lx.internal.ravel_vector(vector, packed_structures)
-        solution = jsp.linalg.cho_solve((factor, False), matrix.T @ vector)
-        return (
-            lx.internal.unravel_solution(solution, packed_structures),
-            lx.RESULTS.successful,
-            {},
-        )
-
-    def transpose(self, state, options):
-        assert False
-
-    def conj(self, state, options):
-        assert False
-
-    def assume_full_rank(self) -> bool:
-        return True
-
-
 # Default option for Optimistix. (QR linear solver.)
 @jax.jit
 def optx_qr(init_parameters, y0s, values):
@@ -161,7 +126,7 @@ def optx_qr(init_parameters, y0s, values):
 def optx_normal_cg(init_parameters, y0s, values):
     # Explicitly set the number of iterations, to be sure we have the same number of
     # iterations between Optimistix and JAXopt.
-    cg = lx.NormalCG(atol=0, rtol=0, max_steps=10)
+    cg = lx.Normal(lx.CG(atol=0, rtol=0, max_steps=10))
     optx_solver = optx.LevenbergMarquardt(rtol=1e-8, atol=1e-8, linear_solver=cg)
     sol = optx.least_squares(
         residuals,
@@ -179,7 +144,7 @@ def optx_normal_cg(init_parameters, y0s, values):
 @jax.jit
 def optx_normal_cholesky(init_parameters, y0s, values):
     optx_solver = optx.LevenbergMarquardt(
-        rtol=1e-8, atol=1e-8, linear_solver=NormalCholesky()
+        rtol=1e-8, atol=1e-8, linear_solver=lx.Normal(lx.Cholesky())
     )
     sol = optx.least_squares(
         residuals,

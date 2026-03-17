@@ -46,3 +46,11 @@
     options:
         members:
             - __init__
+
+---
+
+::: optimistix.SteihaugCGDescent
+    options:
+        members:
+            - __init__
+
