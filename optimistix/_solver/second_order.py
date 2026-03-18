@@ -69,12 +69,11 @@ def _grad_hessian(
     autodiff_mode: str = "bwd",
 ) -> tuple[Y, lx.FunctionLinearOperator]:
     """Return ``(grad, hessian_operator)`` at ``y``."""
-    fn_no_aux = _NoAux(fn)
     if autodiff_mode == "bwd":
-        grad_fn = lambda _y: jax.grad(fn_no_aux)(_y, args)
+        grad_fn = jax.grad(_NoAux(fn))
     else:
-        grad_fn = lambda _y: jax.jacfwd(lambda y2: fn_no_aux(y2, args))(_y)
-    grad, hvp_fn = jax.linearize(grad_fn, y)
+        grad_fn = jax.jacfwd(_NoAux(fn))
+    grad, hvp_fn = jax.linearize(lambda _y: grad_fn(_y, args), y)
     hessian = lx.FunctionLinearOperator(
         hvp_fn, jax.eval_shape(lambda: y), frozenset({lx.symmetric_tag}) | tags
     )
