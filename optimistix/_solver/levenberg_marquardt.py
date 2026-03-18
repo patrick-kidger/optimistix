@@ -101,7 +101,7 @@ class DampedNewtonDescent(
     a line search expects the step to be smaller as the step size decreases.
     """
 
-    # Will probably resolve to either Cholesky (for minimisation problems) or
+    # Will probably resolve to either LU (for minimisation problems) or
     # QR (for least-squares problems).
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
 

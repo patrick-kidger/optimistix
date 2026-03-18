@@ -7,15 +7,18 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import lineax as lx
 import optax
 import optimistix as optx
 import pytest
 
 from .helpers import (
+    _spd_minimisation_fns,
     beale,
     bowl,
     finite_difference_jvp,
     forward_only_fn_init_options_expected,
+    globally_convex,
     golden_search_fn_y0_options_expected,
     matyas,
     minimisation_fn_minima_init_args,
@@ -33,6 +36,18 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
 def test_minimise(solver, _fn, minimum, init, args, options):
+    descent = getattr(solver, "descent", None)
+    if (
+        isinstance(getattr(descent, "linear_solver", None), lx.CG)
+        and _fn not in _spd_minimisation_fns
+    ):
+        return
+    tags = (
+        frozenset({lx.positive_semidefinite_tag})
+        if _fn in _spd_minimisation_fns
+        else frozenset()
+    )
+
     if isinstance(solver, optx.GradientDescent):
         max_steps = 100_000
     else:
@@ -57,6 +72,7 @@ def test_minimise(solver, _fn, minimum, init, args, options):
             options=options,
             max_steps=max_steps,
             throw=False,
+            tags=tags,
         ).value
     optx_min = _fn(optx_argmin, args)
     assert tree_allclose(optx_min, minimum, atol=atol, rtol=rtol)
@@ -68,7 +84,19 @@ def test_minimise(solver, _fn, minimum, init, args, options):
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
 def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options):
-    if isinstance(solver, (optx.GradientDescent, optx.NonlinearCG)):
+    descent = getattr(solver, "descent", None)
+    if (
+        isinstance(getattr(descent, "linear_solver", None), lx.CG)
+        and _fn not in _spd_minimisation_fns
+    ):
+        return
+    tags = (
+        frozenset({lx.positive_semidefinite_tag})
+        if _fn in _spd_minimisation_fns
+        else frozenset()
+    )
+
+    if isinstance(solver, (optx.GradientDescent, optx.NonlinearCG, optx.NelderMead)):
         max_steps = 100_000
         atol = rtol = 1e-2
     else:
@@ -101,14 +129,16 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options):
                 max_steps=max_steps,
                 adjoint=adjoint,
                 throw=False,
+                tags=tags,
             ).value
 
     otd = optx.ImplicitAdjoint()
     out, t_out = eqx.filter_jit(ft.partial(eqx.filter_jvp, minimise))(
         (init, dynamic_args), (t_init, t_dynamic_args), adjoint=otd
     )
-    if _fn is bowl:
-        # Finite difference is very inaccurate on this problem.
+    if _fn in (bowl, globally_convex):
+        # The minimum y*=0 is independent of both init and args for these functions,
+        # so ImplicitAdjoint correctly gives zero tangent. FD is noisy here.
         expected_out = t_expected_out = jtu.tree_map(jnp.zeros_like, init)
     elif _fn in (beale, matyas):
         if isinstance(solver, optx.NonlinearCG):
@@ -207,9 +237,20 @@ def test_optax_recompilation():
 def test_forward_minimisation(fn, y0, options, expected, solver):
     if isinstance(solver, optx.OptaxMinimiser):  # No support for forward option
         return
+    descent = getattr(solver, "descent", None)
+    if (
+        isinstance(getattr(descent, "linear_solver", None), lx.CG)
+        and fn not in _spd_minimisation_fns
+    ):
+        return
     else:
+        tags = (
+            frozenset({lx.positive_semidefinite_tag})
+            if fn in _spd_minimisation_fns
+            else frozenset()
+        )
         # Many steps because gradient descent takes ridiculously long
-        sol = optx.minimise(fn, solver, y0, options=options, max_steps=2**10)
+        sol = optx.minimise(fn, solver, y0, options=options, max_steps=2**10, tags=tags)
         assert sol.result == optx.RESULTS.successful
         assert tree_allclose(sol.value, expected, atol=1e-4, rtol=1e-4)
 

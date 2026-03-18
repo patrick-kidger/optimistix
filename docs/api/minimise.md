@@ -31,6 +31,13 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
 
 ---
 
+??? abstract "`optimistix.AbstractNewtonBase`"
+
+    ::: optimistix.AbstractNewtonBase
+        options:
+            members:
+                - _prepare_step
+
 ??? abstract "`optimistix.AbstractQuasiNewton`"
 
     ::: optimistix.AbstractQuasiNewton
@@ -68,6 +75,26 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
             members: none
 
 ::: optimistix.LBFGS
+    options:
+        members:
+            - __init__
+
+---
+
+??? abstract "`optimistix.AbstractNewtonMinimiser`"
+
+    ::: optimistix.AbstractNewtonMinimiser
+        options:
+            members: none
+
+::: optimistix.LineSearchNewton
+    options:
+        members:
+            - __init__
+
+---
+
+::: optimistix.TrustNewton
     options:
         members:
             - __init__
