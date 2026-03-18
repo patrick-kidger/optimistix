@@ -262,7 +262,9 @@ _general_minimisers = (
     # TruncatedCG / use_steihaug=True handle indefinite Hessians without it.
     optx.LineSearchNewton(rtol, atol),
     optx.LineSearchNewton(rtol, atol, linear_solver=lx.CG(rtol=1e-6, atol=0.0)),
-    optx.LineSearchNewton(rtol, atol, linear_solver=optx.TruncatedCG(rtol=0.5, atol=0.0)),
+    optx.LineSearchNewton(
+        rtol, atol, linear_solver=optx.TruncatedCG(rtol=0.5, atol=0.0)
+    ),
     optx.TrustNewton(rtol, atol),
     optx.TrustNewton(rtol, atol, linear_solver=lx.CG(rtol=1e-6, atol=0.0)),
     optx.TrustNewton(rtol, atol, use_steihaug=True),
@@ -583,7 +585,6 @@ minimisation_fn_minima_init_args = (
 
 # Problems with a globally PSD Hessian; lx.CG-based Newton requires this.
 _spd_minimisation_fns = frozenset({bowl, matyas, square_minus_one, globally_convex})
-
 
 
 # ROOT FIND/FIXED POINT PROBLEMS

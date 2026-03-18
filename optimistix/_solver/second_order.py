@@ -39,7 +39,7 @@ import jax.tree_util as jtu
 import lineax as lx
 from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._linear_solver import TruncatedCG
@@ -60,29 +60,25 @@ from .quasi_newton import _QuasiNewtonState, AbstractNewtonBase
 from .trust_region import ClassicalTrustRegion
 
 
-def _grad_fn(fn: Fn[Y, Scalar, Aux], args: PyTree, autodiff_mode: str):
-    """Return a callable y -> gradient, honouring autodiff_mode."""
-    fn_no_aux = _NoAux(fn)
-    if autodiff_mode == "bwd":
-        return lambda _y: jax.grad(fn_no_aux)(_y, args)
-    else:
-        return lambda _y: jax.jacfwd(lambda y2: fn_no_aux(y2, args))(_y)
-
-
-def _make_hessian_f_info(
+def _grad_hessian(
     fn: Fn[Y, Scalar, Aux],
     y: Y,
     args: PyTree,
     tags: frozenset[object],
     *,
     autodiff_mode: str = "bwd",
-) -> tuple[FunctionInfo.EvalGradHessian, Aux]:
-    f_val, aux = fn(y, args)
-    grad, hess_mv_fn = jax.linearize(_grad_fn(fn, args, autodiff_mode), y)
+) -> tuple[Y, lx.FunctionLinearOperator]:
+    """Return ``(grad, hessian_operator)`` at ``y``."""
+    fn_no_aux = _NoAux(fn)
+    if autodiff_mode == "bwd":
+        grad_fn = lambda _y: jax.grad(fn_no_aux)(_y, args)
+    else:
+        grad_fn = lambda _y: jax.jacfwd(lambda y2: fn_no_aux(y2, args))(_y)
+    grad, hvp_fn = jax.linearize(grad_fn, y)
     hessian = lx.FunctionLinearOperator(
-        hess_mv_fn, jax.eval_shape(lambda: y), frozenset({lx.symmetric_tag}) | tags
+        hvp_fn, jax.eval_shape(lambda: y), frozenset({lx.symmetric_tag}) | tags
     )
-    return FunctionInfo.EvalGradHessian(f_val, grad, hessian), aux
+    return grad, hessian
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +195,7 @@ SteihaugCGDescent.__init__.__doc__ = """**Arguments:**
 
 
 class AbstractNewtonMinimiser(
-    AbstractNewtonBase[Y, Aux, _QuasiNewtonState],
+    AbstractNewtonBase[Y, Aux],
     Generic[Y, Aux],
 ):
     """Abstract base class for exact second-order Newton minimisers.
@@ -245,10 +241,14 @@ class AbstractNewtonMinimiser(
         tags: frozenset[object],
     ) -> _QuasiNewtonState:
         autodiff_mode = options.get("autodiff_mode", "bwd")
-        f_info_struct, _ = eqx.filter_eval_shape(
-            _make_hessian_f_info, fn, y, args, tags, autodiff_mode=autodiff_mode
+        f = tree_full_like(f_struct, 0)
+        grad = tree_full_like(y, 0)
+        hessian_struct = eqx.filter_eval_shape(
+            lambda: _grad_hessian(fn, y, args, tags, autodiff_mode=autodiff_mode)[1]
         )
-        f_info = tree_full_like(f_info_struct, 0, allow_static=True)
+        hessian = tree_full_like(hessian_struct, 0, allow_static=True)
+        f_info = FunctionInfo.EvalGradHessian(f, grad, hessian)
+        f_info_struct = eqx.filter_eval_shape(lambda: f_info)
         return _QuasiNewtonState(
             first_step=jnp.array(True),
             y_eval=y,
@@ -273,14 +273,10 @@ class AbstractNewtonMinimiser(
     ) -> tuple[Scalar, Aux, Callable[..., Any], None]:
         autodiff_mode = options.get("autodiff_mode", "bwd")
         f_eval, aux_eval = fn(state.y_eval, args)
-        _gfn = _grad_fn(fn, args, autodiff_mode)
 
         def accepted(descent_state):
-            grad, hess_mv_fn = jax.linearize(_gfn, state.y_eval)
-            hessian = lx.FunctionLinearOperator(
-                hess_mv_fn,
-                jax.eval_shape(lambda: state.y_eval),
-                frozenset({lx.symmetric_tag}) | tags,
+            grad, hessian = _grad_hessian(
+                fn, state.y_eval, args, tags, autodiff_mode=autodiff_mode
             )
             # Swap in residuals from this step while keeping the static jaxpr
             # from state, so filter_cond sees identical treedefs in both branches.
@@ -307,32 +303,6 @@ class AbstractNewtonMinimiser(
             )
 
         return f_eval, aux_eval, accepted, None
-
-    def _build_new_state(
-        self,
-        old_state: _QuasiNewtonState,
-        y_eval: Y,
-        search_state: Any,
-        f_info: FunctionInfo.EvalGradHessian,
-        aux: Aux,
-        descent_state: Any,
-        terminate: Bool[Array, ""],
-        result: RESULTS,
-        accept: Bool[Array, ""],
-        hessian_update_state: None,
-    ) -> _QuasiNewtonState:
-        return _QuasiNewtonState(
-            first_step=jnp.array(False),
-            y_eval=y_eval,
-            search_state=search_state,
-            f_info=f_info,
-            aux=aux,
-            descent_state=descent_state,
-            terminate=terminate,
-            result=result,
-            num_accepted_steps=old_state.num_accepted_steps + jnp.where(accept, 1, 0),
-            hessian_update_state=None,
-        )
 
 
 # ---------------------------------------------------------------------------

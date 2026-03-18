@@ -2,6 +2,7 @@
 
 import sys
 
+
 sys.path.insert(0, "/home/user/optimistix")
 
 import jax
@@ -11,6 +12,7 @@ import jax.random as jr
 import jax.tree_util as jtu
 import lineax as lx
 import optimistix as optx
+
 
 jax.config.update("jax_enable_x64", True)
 
@@ -59,13 +61,37 @@ matrix = jr.normal(key, (flat_bowl.size, flat_bowl.size))
 bowl_args = matrix.T @ matrix
 
 minimisation_problems = [
-    ("bowl",          bowl,          bowl_init,                    bowl_args,                         True),
-    ("matyas",        matyas,        [jnp.array(6.0), jnp.array(6.0)], (jnp.array(0.26), jnp.array(0.48)), True),
-    ("beale",         beale,         [jnp.array(2.0), jnp.array(0.0)], (jnp.array(1.5), jnp.array(2.25), jnp.array(2.625)), False),
-    ("himmelblau",    _himmelblau,   [jnp.array(2.0), jnp.array(2.5)], (jnp.array(11.0), jnp.array(7.0)),  False),
-    ("sq_minus_one",  square_minus_one, jnp.array(1.0),            None,                              True),
-    ("glob_convex",   globally_convex,  jnp.array([0.4, -0.3, 0.2]),  jnp.ones(3),                   True),
-    ("glob_convex_far", globally_convex, jnp.array([10.0, -8.0, 6.0]), jnp.ones(3),                  True),
+    ("bowl", bowl, bowl_init, bowl_args, True),
+    (
+        "matyas",
+        matyas,
+        [jnp.array(6.0), jnp.array(6.0)],
+        (jnp.array(0.26), jnp.array(0.48)),
+        True,
+    ),
+    (
+        "beale",
+        beale,
+        [jnp.array(2.0), jnp.array(0.0)],
+        (jnp.array(1.5), jnp.array(2.25), jnp.array(2.625)),
+        False,
+    ),
+    (
+        "himmelblau",
+        _himmelblau,
+        [jnp.array(2.0), jnp.array(2.5)],
+        (jnp.array(11.0), jnp.array(7.0)),
+        False,
+    ),
+    ("sq_minus_one", square_minus_one, jnp.array(1.0), None, True),
+    ("glob_convex", globally_convex, jnp.array([0.4, -0.3, 0.2]), jnp.ones(3), True),
+    (
+        "glob_convex_far",
+        globally_convex,
+        jnp.array([10.0, -8.0, 6.0]),
+        jnp.ones(3),
+        True,
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -94,9 +120,9 @@ rosenbrock_init1 = [jnp.array(0.5), jnp.array(0.4)]
 rosenbrock_init2 = [jnp.array(-0.5), jnp.array(0.1)]
 
 least_squares_problems = [
-    ("diag_bowl",    diagonal_quadratic_bowl, diagonal_bowl_init, diagonal_bowl_args),
-    ("rosenbrock_a", rosenbrock,              rosenbrock_init1,   jnp.array(1.0)),
-    ("rosenbrock_b", rosenbrock,              rosenbrock_init2,   jnp.array(1.0)),
+    ("diag_bowl", diagonal_quadratic_bowl, diagonal_bowl_init, diagonal_bowl_args),
+    ("rosenbrock_a", rosenbrock, rosenbrock_init1, jnp.array(1.0)),
+    ("rosenbrock_b", rosenbrock, rosenbrock_init2, jnp.array(1.0)),
 ]
 
 # ---------------------------------------------------------------------------
@@ -104,26 +130,42 @@ least_squares_problems = [
 # ---------------------------------------------------------------------------
 
 minimise_solvers = [
-    ("LineSearchNewton(Cholesky)",  optx.LineSearchNewton(rtol, atol)),
-    ("LineSearchNewton(CG)",        optx.LineSearchNewton(rtol, atol, linear_solver=lx.CG(rtol=1e-6, atol=0.0))),
-    ("LineSearchNewton(TruncCG)",   optx.LineSearchNewton(rtol, atol, linear_solver=optx.TruncatedCG(rtol=0.5, atol=0.0))),
-    ("TrustNewton(Cholesky)",       optx.TrustNewton(rtol, atol)),
-    ("TrustNewton(CG)",             optx.TrustNewton(rtol, atol, linear_solver=lx.CG(rtol=1e-6, atol=0.0))),
-    ("TrustNewton(Steihaug)",       optx.TrustNewton(rtol, atol, use_steihaug=True)),
-    ("BFGS",                        optx.BFGS(rtol, atol, use_inverse=False)),
-    ("LBFGS",                       optx.LBFGS(rtol, atol, use_inverse=False)),
-    ("GradientDescent",             optx.GradientDescent(1.5e-2, rtol, atol)),
+    ("LineSearchNewton(Cholesky)", optx.LineSearchNewton(rtol, atol)),
+    (
+        "LineSearchNewton(CG)",
+        optx.LineSearchNewton(rtol, atol, linear_solver=lx.CG(rtol=1e-6, atol=0.0)),
+    ),
+    (
+        "LineSearchNewton(TruncCG)",
+        optx.LineSearchNewton(
+            rtol, atol, linear_solver=optx.TruncatedCG(rtol=0.5, atol=0.0)
+        ),
+    ),
+    ("TrustNewton(Cholesky)", optx.TrustNewton(rtol, atol)),
+    (
+        "TrustNewton(CG)",
+        optx.TrustNewton(rtol, atol, linear_solver=lx.CG(rtol=1e-6, atol=0.0)),
+    ),
+    ("TrustNewton(Steihaug)", optx.TrustNewton(rtol, atol, use_steihaug=True)),
+    ("BFGS", optx.BFGS(rtol, atol, use_inverse=False)),
+    ("LBFGS", optx.LBFGS(rtol, atol, use_inverse=False)),
+    ("GradientDescent", optx.GradientDescent(1.5e-2, rtol, atol)),
 ]
 
 least_squares_solvers = [
-    ("LineSearchNewton(Cholesky)",  optx.LineSearchNewton(rtol, atol)),
-    ("TrustNewton(Cholesky)",       optx.TrustNewton(rtol, atol)),
-    ("TrustNewton(Steihaug)",       optx.TrustNewton(rtol, atol, use_steihaug=True)),
-    ("GaussNewton",                 optx.GaussNewton(rtol, atol, linear_solver=lx.AutoLinearSolver(well_posed=False))),
-    ("LevenbergMarquardt",          optx.LevenbergMarquardt(rtol, atol)),
-    ("IndirectLevenbergMarquardt",  optx.IndirectLevenbergMarquardt(rtol, atol)),
-    ("BFGS",                        optx.BFGS(rtol, atol, use_inverse=False)),
-    ("LBFGS",                       optx.LBFGS(rtol, atol, use_inverse=False)),
+    ("LineSearchNewton(Cholesky)", optx.LineSearchNewton(rtol, atol)),
+    ("TrustNewton(Cholesky)", optx.TrustNewton(rtol, atol)),
+    ("TrustNewton(Steihaug)", optx.TrustNewton(rtol, atol, use_steihaug=True)),
+    (
+        "GaussNewton",
+        optx.GaussNewton(
+            rtol, atol, linear_solver=lx.AutoLinearSolver(well_posed=False)
+        ),
+    ),
+    ("LevenbergMarquardt", optx.LevenbergMarquardt(rtol, atol)),
+    ("IndirectLevenbergMarquardt", optx.IndirectLevenbergMarquardt(rtol, atol)),
+    ("BFGS", optx.BFGS(rtol, atol, use_inverse=False)),
+    ("LBFGS", optx.LBFGS(rtol, atol, use_inverse=False)),
 ]
 
 # ---------------------------------------------------------------------------
@@ -136,8 +178,9 @@ SPD_FNS = {bowl, matyas, square_minus_one, globally_convex}
 def run_minimise(solver, fn, init, args, is_spd):
     tags = frozenset({lx.positive_semidefinite_tag}) if is_spd else frozenset()
     max_steps = 100_000 if isinstance(solver, optx.GradientDescent) else 10_000
-    sol = optx.minimise(fn, solver, init, args=args, max_steps=max_steps,
-                        throw=False, tags=tags)
+    sol = optx.minimise(
+        fn, solver, init, args=args, max_steps=max_steps, throw=False, tags=tags
+    )
     return int(sol.stats["num_steps"]), sol.result == optx.RESULTS.successful
 
 
@@ -158,7 +201,9 @@ def print_table(title, solvers, problems, runner):
     col_w = max(max(len(s) for s in solver_names), 6) + 2
     prob_w = [max(len(p), 6) + 2 for p in prob_names]
 
-    header = f"{'Solver':<{col_w}}" + "".join(f"{p:>{w}}" for p, w in zip(prob_names, prob_w))
+    header = f"{'Solver':<{col_w}}" + "".join(
+        f"{p:>{w}}" for p, w in zip(prob_names, prob_w)
+    )
     sep = "-" * len(header)
 
     print(f"\n{'=' * len(header)}")
@@ -174,11 +219,11 @@ def print_table(title, solvers, problems, runner):
             try:
                 n, ok = runner(solver, *prob_args)
                 row += f"{fmt(n, ok):>{prob_w_i}}"
-            except Exception as e:
+            except Exception:
                 row += f"{'ERR':>{prob_w_i}}"
         print(row)
 
-    print(f"\n  ! = did not converge (result != successful)")
+    print("\n  ! = did not converge (result != successful)")
 
 
 print_table(

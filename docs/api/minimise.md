@@ -37,7 +37,6 @@ In addition to the following, note that the [Optax](https://github.com/deepmind/
         options:
             members:
                 - _prepare_step
-                - _build_new_state
 
 ??? abstract "`optimistix.AbstractQuasiNewton`"
 
