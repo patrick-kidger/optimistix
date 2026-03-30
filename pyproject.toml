@@ -6,7 +6,7 @@ requires = ["hatchling"]
 authors = [
   {email = "raderjason@outlook.com", name = "Jason Rader"},
   {email = "contact@kidger.site", name = "Patrick Kidger"},
-  {email = "johanna.haffner@bsse.ethz.ch", name = "Johanna Haffner"}
+  {email = "johanna@haffner.dev", name = "Johanna Haffner"}
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
