@@ -187,7 +187,7 @@ class AndersonAcceleration(
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm
-    history_length: int = 10
+    history_length: int = 5
     damp: float = 0.0
 
     def init(
@@ -339,6 +339,8 @@ AndersonAcceleration.__init__.__doc__ = """**Arguments:**
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
-- `history_length`: Number of previous iterations used in residuals matrix.
-- `damp`: The damping factor used in iteration update.
+- `history_length`: Number of previous iterations used in residuals matrix. Default 
+    is 5.
+- `damp`: The damping factor used in iteration update. Default is 0, which corresponds 
+    to no damping.
 """
