@@ -20,12 +20,9 @@ from .helpers import (
 
 
 atol = rtol = 1e-6
-# To get meaningful finite difference jvp tests, needed to drop tols
-rtol_AA = 1e-16
-atol_AA = 1e-17
 _fp_solvers = (
     optx.FixedPointIteration(rtol, atol),
-    optx.AndersonAcceleration(rtol_AA, atol_AA),
+    optx.AndersonAcceleration(rtol, atol),
 )
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
@@ -89,12 +86,21 @@ def test_fixed_point_jvp(getkey, solver, _fn, init, dtype, args):
                 throw=False,
             ).value
 
+        if isinstance(solver, optx.AndersonAcceleration):
+            # finite difference does a bad job with Anderson acceleration
+            # so we use a larger eps and tols
+            atol = rtol = 1e-2
+            eps = 1e-3
+        else:
+            eps = None
+
         otd = optx.ImplicitAdjoint()
         expected_out, t_expected_out = finite_difference_jvp(
             fixed_point,
             (init, dynamic_args),
             (t_init, t_dynamic_args),
             adjoint=otd,
+            eps=eps,
         )
         out, t_out = eqx.filter_jvp(
             fixed_point,
@@ -108,6 +114,7 @@ def test_fixed_point_jvp(getkey, solver, _fn, init, dtype, args):
             (init, dynamic_args),
             (t_init, t_dynamic_args),
             adjoint=dto,
+            eps=eps,
         )
         out2, t_out2 = eqx.filter_jvp(
             fixed_point,
