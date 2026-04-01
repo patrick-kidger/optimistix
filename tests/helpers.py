@@ -258,6 +258,16 @@ _general_minimisers = (
     optx.OptaxMinimiser(optax.adam(learning_rate=3e-3), rtol=rtol, atol=atol),
     # optax.lbfgs includes their linesearch by default
     optx.OptaxMinimiser(optax.lbfgs(), rtol=rtol, atol=atol),
+    # Exact-Hessian Newton solvers; Cholesky/CG require positive_semidefinite_tag,
+    # TruncatedCG / use_steihaug=True handle indefinite Hessians without it.
+    optx.LineSearchNewton(rtol, atol),
+    optx.LineSearchNewton(rtol, atol, linear_solver=lx.CG(rtol=1e-6, atol=0.0)),
+    optx.LineSearchNewton(
+        rtol, atol, linear_solver=optx.TruncatedCG(rtol=0.5, atol=0.0)
+    ),
+    optx.TrustNewton(rtol, atol),
+    optx.TrustNewton(rtol, atol, linear_solver=lx.CG(rtol=1e-6, atol=0.0)),
+    optx.TrustNewton(rtol, atol, use_steihaug=True),
 )
 
 _minim_only = (
@@ -416,6 +426,16 @@ def square_minus_one(x: Array, args: PyTree):
     return jnp.sum(jnp.square(x)) - 1.0
 
 
+def globally_convex(y: Array, scale: Array) -> Scalar:
+    """Non-quadratic globally convex function: f(y) = Σ cosh(scale_i * y_i) − 1.
+
+    Hessian H = diag(scale^2 * cosh(scale*y)) > 0 everywhere for any scale > 0.
+    Unique minimum at y = 0, f* = 0, regardless of scale.
+    Passing scale as args gives a non-trivial (but still SPD) Hessian for testing.
+    """
+    return jnp.sum(jnp.cosh(scale * y) - 1)
+
+
 #
 # The MLP can be difficult for some of the solvers to optimise. Rather than set
 # max_steps to a higher value and iterate for longer, we initialise the MLP
@@ -559,7 +579,13 @@ minimisation_fn_minima_init_args = (
     ),
     # Problems with initial value of 0
     (square_minus_one, jnp.array(-1.0), jnp.array(1.0), None),
+    # Globally convex (PSD Hessian everywhere); used for Newton+Cholesky/CG tests.
+    (globally_convex, jnp.array(0.0), jnp.array([0.4, -0.3, 0.2]), jnp.ones(3)),
 )
+
+# Problems with a globally PSD Hessian; lx.CG-based Newton requires this.
+_spd_minimisation_fns = frozenset({bowl, matyas, square_minus_one, globally_convex})
+
 
 # ROOT FIND/FIXED POINT PROBLEMS
 #

@@ -17,8 +17,10 @@ from .._misc import (
     filter_cond,
     max_norm,
     sum_squares,
+    tree_dot,
     tree_full_like,
     tree_where,
+    two_norm,
 )
 from .._search import (
     AbstractDescent,
@@ -34,6 +36,7 @@ def newton_step(
     | FunctionInfo.EvalGradHessianInv
     | FunctionInfo.ResidualJac,
     linear_solver: lx.AbstractLinearSolver,
+    options: dict[str, Any] | None = None,
 ) -> tuple[PyTree[Array], RESULTS]:
     """Compute a Newton step.
 
@@ -72,7 +75,9 @@ def newton_step(
                 "Cannot use a Newton descent with a solver that only evaluates the "
                 "gradient, or only the function itself."
             )
-        out = lx.linear_solve(operator, vector, linear_solver, throw=False)
+        out = lx.linear_solve(
+            operator, vector, linear_solver, options=options, throw=False
+        )
         newton = out.value
         result = RESULTS.promote(out.result)
     return newton, result
@@ -118,7 +123,29 @@ class NewtonDescent(
         state: _NewtonDescentState,
     ) -> _NewtonDescentState:
         del state
-        newton, result = newton_step(f_info, self.linear_solver)
+        # Eisenstat-Walker: pass an adaptive rtol to iterative linear solvers
+        # (e.g. TruncatedCG).  Direct solvers silently ignore options["rtol"].
+        # For EvalGradHessian the gradient is available; for other f_info types
+        # we leave options empty so callers are unaffected.
+        if isinstance(f_info, FunctionInfo.EvalGradHessian):
+            ew_rtol = jnp.minimum(0.5, jnp.sqrt(two_norm(f_info.grad)))
+            options: dict[str, Any] = {"rtol": ew_rtol}
+        else:
+            options = {}
+        newton, result = newton_step(f_info, self.linear_solver, options)
+        # Steepest-descent fallback: when the Newton direction is not a descent
+        # direction, fall back to the gradient so the Armijo line search can still
+        # make progress.  This mirrors scipy's newton-cg behaviour on the first CG
+        # step with negative curvature.
+        #
+        # Two cases trigger the fallback:
+        #   (a) the linear solve failed outright (e.g. Cholesky on indefinite H), or
+        #   (b) the solve "succeeded" but gᵀ(H⁻¹g) ≤ 0, which happens when H is
+        #       indefinite and the solver returns a direction that ascends rather
+        #       than descends (e.g. LU on a negative-definite Hessian).
+        if isinstance(f_info, FunctionInfo.EvalGradHessian):
+            is_descent = tree_dot(f_info.grad, newton) > 0
+            newton = tree_where(~is_descent, f_info.grad, newton)
         if self.norm is not None:
             newton = (newton**ω / self.norm(newton)).ω
         return _NewtonDescentState(newton, result)

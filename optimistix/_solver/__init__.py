@@ -1,3 +1,4 @@
+from .._linear_solver import TruncatedCG as TruncatedCG
 from .backtracking import BacktrackingArmijo as BacktrackingArmijo
 from .best_so_far import (
     BestSoFarFixedPoint as BestSoFarFixedPoint,
@@ -41,9 +42,16 @@ from .optax import OptaxMinimiser as OptaxMinimiser
 from .quasi_newton import (
     AbstractBFGS as AbstractBFGS,
     AbstractDFP as AbstractDFP,
+    AbstractNewtonBase as AbstractNewtonBase,
     AbstractQuasiNewton as AbstractQuasiNewton,
     BFGS as BFGS,
     DFP as DFP,
+)
+from .second_order import (
+    AbstractNewtonMinimiser as AbstractNewtonMinimiser,
+    LineSearchNewton as LineSearchNewton,
+    SteihaugCGDescent as SteihaugCGDescent,
+    TrustNewton as TrustNewton,
 )
 from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,
