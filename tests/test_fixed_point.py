@@ -21,7 +21,8 @@ from .helpers import (
 
 atol = rtol = 1e-6
 # To get meaningful finite difference jvp tests, needed to drop tols
-rtol_AA = atol_AA = 1e-15
+rtol_AA = 1e-16
+atol_AA = 1e-17
 _fp_solvers = (
     optx.FixedPointIteration(rtol, atol),
     optx.AndersonAcceleration(rtol_AA, atol_AA),
