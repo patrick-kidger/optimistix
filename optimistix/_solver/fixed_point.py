@@ -1,10 +1,11 @@
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Generic
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
@@ -59,9 +60,16 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
         tags: frozenset[object],
     ) -> tuple[Y, _FixedPointState, Aux]:
         fn_y_n, aux = fn(y, args)
-        new_y = jtu.tree_map(
-            lambda i_np1, i_n: (1 - self.damp) * i_np1 + self.damp * i_n, fn_y_n, y
-        )
+
+        # Bypass damping computation if no damping to save some time,
+        # since damp is known at compile time
+        if isinstance(self.damp, (int, float)) and self.damp == 0:
+            new_y = fn_y_n
+        else:
+            new_y = jtu.tree_map(
+                lambda i_np1, i_n: (1 - self.damp) * i_np1 + self.damp * i_n, fn_y_n, y
+            )
+
         error = (y**ω - new_y**ω).ω
         with jax.numpy_dtype_promotion("standard"):
             scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
@@ -93,6 +101,225 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
         return y, aux, {}
 
 
+def _batched_tree_zeros_like(y, batch_dimension):
+    return jtu.tree_map(lambda y: jnp.zeros((*y.shape, batch_dimension)), y)
+
+
+def _convert_to_pytree_op(tree, output_structure, i, batch_dimension):
+    """
+    Take rolling buffer tree and compute diff between iterations, and create operator
+    """
+
+    indices = jnp.maximum(i - jnp.arange(0, batch_dimension - 1), 0) % batch_dimension
+    shift_indices = jnp.maximum(i - jnp.arange(1, batch_dimension), 0) % batch_dimension
+    diff_tree = jtu.tree_map(
+        lambda x: x[..., indices] - x[..., shift_indices],
+        tree,
+    )
+
+    pytree_op = lx.PyTreeLinearOperator(diff_tree, output_structure)
+    return pytree_op
+
+
+class _AndersonAccelerationState(eqx.Module, Generic[Y]):
+    first_step: Bool[Array, ""]
+    index: Scalar
+    f_history: PyTree[Y]
+    g_history: PyTree[Y]
+    relative_error: Scalar
+
+
+class AndersonAcceleration(
+    AbstractFixedPointSolver[Y, Aux, _AndersonAccelerationState]
+):
+    """
+    Solves the fixed-point equation
+
+        y = f(y)
+
+    by applying Anderson acceleration to the fixed-point iteration.
+
+    Let
+
+        g_k = f(y_k) - y_k
+
+    denote the residual at iteration k. Using the last `m` residual and
+    iterate differences (with `m = history_length`), Anderson acceleration
+    computes coefficients γ_k by solving the least-squares problem
+
+        γ_k = argmin_γ || g_k - Δg_k γ ||_2,
+
+    where Δg_k contains differences of recent residuals.
+
+    The next iterate is then computed as
+
+        y_{k+1} = f(y_k) - Δf_k γ_k,
+
+    where Δf_k contains differences of recent mapped iterates f(y).
+
+    A damping factor `damp ∈ [0, 1]` optionally blends the accelerated
+    update with the previous iterate:
+
+        y_{k+1} ← (1 - damp) * y_{k+1} + damp * y_k.
+
+    With respect to the standard fixed-point iteration, Anderson acceleration
+    has been found to converge faster, and can avoid the divergence of the
+    fixed-point sequence. However, it does require additional memory to store
+    the history of iterates and residuals, and each iteration is more expensive
+    due to the least-squares solve.
+
+    ??? cite "References"
+
+        ```bibtex
+        @article{anderson1965iterative,
+            title={Iterative procedures for nonlinear integral equations},
+            author={Anderson, Donald G},
+            journal={Journal of the ACM (JACM)},
+            volume={12},
+            number={4},
+            pages={547--560},
+            year={1965},
+            publisher={ACM New York, NY, USA}
+        }
+        ```
+    """
+
+    rtol: float
+    atol: float
+    norm: Callable[[PyTree], Scalar] = max_norm
+    history_length: int = 5
+    damp: float = 0.0
+
+    def init(
+        self,
+        fn: Fn[Y, Y, Aux],
+        y: Y,
+        args: PyTree,
+        options: dict[str, Any],
+        f_struct: PyTree[jax.ShapeDtypeStruct],
+        aux_struct: PyTree[jax.ShapeDtypeStruct],
+        tags: frozenset[object],
+    ) -> _AndersonAccelerationState:
+        del fn, args, options, f_struct, aux_struct
+        state = _AndersonAccelerationState(
+            first_step=jnp.array(True),
+            index=jnp.array(0),
+            f_history=_batched_tree_zeros_like(y, self.history_length),
+            g_history=_batched_tree_zeros_like(y, self.history_length),
+            relative_error=jnp.array(jnp.inf),
+        )
+        return state
+
+    def step(
+        self,
+        fn: Fn[Y, Y, Aux],
+        y: Y,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _AndersonAccelerationState,
+        tags: frozenset[object],
+    ) -> tuple[Y, _AndersonAccelerationState, Aux]:
+        fn_y_n, aux = fn(y, args)
+        g_y_n = jtu.tree_map(lambda a, b: a - b, fn_y_n, y)
+        output_structure = jax.eval_shape(lambda: y)
+
+        # Add new results to history
+        f_history = jtu.tree_map(
+            lambda x, z: x.at[..., state.index % self.history_length].set(z),
+            state.f_history,
+            fn_y_n,
+        )
+
+        g_history = jtu.tree_map(
+            lambda x, z: x.at[..., state.index % self.history_length].set(z),
+            state.g_history,
+            g_y_n,
+        )
+
+        # Perform Anderson acceleration
+        # First iterate must be treated differently
+        def _first_iterate():
+            # damp known at compile time, so we can skip some computation if no damping
+            if isinstance(self.damp, (int, float)) and self.damp == 0:
+                new_y = fn_y_n
+            else:
+                new_y = (self.damp * y**ω + (1 - self.damp) * fn_y_n**ω).ω
+            return new_y
+
+        def _find_new_y():
+            # Construct F operator
+            F_op = _convert_to_pytree_op(
+                f_history,
+                output_structure,
+                state.index,
+                self.history_length,
+            )
+            # Construct G operator
+            G_op = _convert_to_pytree_op(
+                g_history,
+                output_structure,
+                state.index,
+                self.history_length,
+            )
+
+            # Compute gammas
+            # Use SVD - for initial iterations, F has columns of zeros
+            gammas = lx.linear_solve(G_op, g_y_n, solver=lx.SVD()).value
+
+            # Compute terms for update and include damping
+            F_gamma = F_op.mv(gammas)
+
+            new_y_undamped = (fn_y_n**ω - F_gamma**ω).ω
+
+            # damp known at compile time, so we can skip some computation if no damping
+            if isinstance(self.damp, (int, float)) and self.damp == 0:
+                return new_y_undamped
+            else:
+                new_y = ((1 - self.damp) * new_y_undamped**ω + self.damp * y**ω).ω
+                return new_y
+
+        new_y = jax.lax.cond(state.first_step, _first_iterate, _find_new_y)
+
+        error = (y**ω - new_y**ω).ω
+        with jax.numpy_dtype_promotion("standard"):
+            scale = (self.atol + self.rtol * ω(new_y).call(jnp.abs)).ω
+            rel_err = self.norm((error**ω / scale**ω).ω)
+
+        new_state = _AndersonAccelerationState(
+            first_step=jnp.array(False),
+            index=state.index + 1,
+            f_history=f_history,
+            g_history=g_history,
+            relative_error=rel_err,
+        )
+
+        return new_y, new_state, aux
+
+    def terminate(
+        self,
+        fn: Fn[Y, Y, Aux],
+        y: Y,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _AndersonAccelerationState,
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
+        return state.relative_error < 1, RESULTS.successful
+
+    def postprocess(
+        self,
+        fn: Fn[Y, Y, Aux],
+        y: Y,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _AndersonAccelerationState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Y, Aux, dict[str, Any]]:
+        return y, aux, {}
+
+
 FixedPointIteration.__init__.__doc__ = """**Arguments:**
 
 - `rtol`: Relative tolerance for terminating the solve.
@@ -102,4 +329,18 @@ FixedPointIteration.__init__.__doc__ = """**Arguments:**
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `damp`: The damping factor used in iteration update.
+"""
+
+AndersonAcceleration.__init__.__doc__ = """**Arguments:**
+
+- `rtol`: Relative tolerance for terminating the solve.
+- `atol`: Absolute tolerance for terminating the solve.
+- `norm`: The norm used to determine the difference between two iterates in the 
+    convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
+    includes three built-in norms: [`optimistix.max_norm`][],
+    [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
+- `history_length`: Number of previous iterations used in residuals matrix. Default 
+    is 5.
+- `damp`: The damping factor used in iteration update. Default is 0, which corresponds 
+    to no damping.
 """
