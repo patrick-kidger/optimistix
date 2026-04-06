@@ -62,6 +62,7 @@ tests = [
   "optax>=0.2.4",
   "pytest>=8.3.5",
   "jaxlib",
+  "jaxopt",
   "sif2jax",
   "fire",
   "matplotlib"

@@ -99,15 +99,149 @@ class _QuasiNewtonState(
     result: RESULTS
     # Used in compat.py
     num_accepted_steps: Int[Array, ""]
-    # update state
+    # Hessian approximation update state (None for exact-Newton)
     hessian_update_state: HessianUpdateState
 
 
-class AbstractQuasiNewton(
+class AbstractNewtonBase(
     AbstractMinimiser[Y, Aux, _QuasiNewtonState],
+):
+    """Abstract base class shared by exact-Newton and quasi-Newton minimisers.
+
+    Provides the common `AbstractVar` declarations and concrete `step`,
+    `terminate`, and `postprocess` implementations used by both exact-Newton
+    and quasi-Newton minimisers. Subclasses must implement `init` and the
+    abstract hook `_prepare_step`.
+    """
+
+    rtol: AbstractVar[float]
+    atol: AbstractVar[float]
+    norm: AbstractVar[Callable[[PyTree], Scalar]]
+    descent: AbstractVar[AbstractDescent[Y, Any, Any]]
+    search: AbstractVar[AbstractSearch[Y, Any, FunctionInfo.Eval, Any]]
+    verbose: AbstractVar[Callable[..., None]]
+
+    @abc.abstractmethod
+    def _prepare_step(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _QuasiNewtonState,
+        tags: frozenset[object],
+    ) -> tuple[Scalar, Aux, Callable[..., Any], Any]:
+        """Evaluate fn at ``state.y_eval`` and prepare the accepted branch.
+
+        Returns ``(f_eval, aux_eval, accepted_fn, hus_for_rejected)`` where:
+
+        - ``f_eval``: function value at ``state.y_eval``, passed to the line
+          search / trust region.
+        - ``aux_eval``: auxiliary output from ``fn``.
+        - ``accepted_fn``: closure ``accepted(descent_state) ->
+          (y, f_info, aux, descent_state, terminate, hessian_update_state)``
+          that builds the updated function-info and termination flag when the
+          search accepts the step.
+        - ``hus_for_rejected``: the ``hessian_update_state`` to carry through
+          unchanged when the step is rejected (``None`` for exact-Newton).
+        """
+
+    def step(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _QuasiNewtonState,
+        tags: frozenset[object],
+    ) -> tuple[Y, _QuasiNewtonState, Aux]:
+        f_eval, aux_eval, accepted, hus_for_rejected = self._prepare_step(
+            fn, y, args, options, state, tags
+        )
+        step_size, accept, search_result, search_state = self.search.step(
+            state.first_step,
+            y,
+            state.y_eval,
+            state.f_info,
+            FunctionInfo.Eval(f_eval),
+            state.search_state,
+        )
+
+        def rejected(descent_state):
+            return (
+                y,
+                state.f_info,
+                state.aux,
+                descent_state,
+                jnp.array(False),
+                hus_for_rejected,
+            )
+
+        y, f_info, aux, descent_state, terminate, hessian_update_state = filter_cond(
+            accept, accepted, rejected, state.descent_state
+        )
+
+        self.verbose(
+            loss_this_step=("Loss on this step", f_eval),
+            loss_last_accepted_step=("Loss on the last accepted step", state.f_info.f),
+            step_size=("Step size", step_size),
+            y=("y", state.y_eval),
+            y_last_accepted_step=("y on the last accepted step", y),
+        )
+
+        y_descent, descent_result = self.descent.step(step_size, descent_state)
+        y_eval = (y**ω + y_descent**ω).ω
+        result = RESULTS.where(
+            search_result == RESULTS.successful, descent_result, search_result
+        )
+
+        prev_aux = tree_where(state.first_step, aux, state.aux)
+        state = _QuasiNewtonState(
+            first_step=jnp.array(False),
+            y_eval=y_eval,
+            search_state=search_state,
+            f_info=f_info,
+            aux=aux,
+            descent_state=descent_state,
+            terminate=terminate,
+            result=result,
+            num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
+            hessian_update_state=hessian_update_state,
+        )
+        return y, state, prev_aux
+
+    def terminate(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _QuasiNewtonState,
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
+        return state.terminate, state.result
+
+    def postprocess(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        aux: Aux,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _QuasiNewtonState,
+        tags: frozenset[object],
+        result: RESULTS,
+    ) -> tuple[Y, Aux, dict[str, Any]]:
+        return y, aux, {}
+
+
+class AbstractQuasiNewton(
+    AbstractNewtonBase[Y, Aux],
     Generic[Y, Aux, _Hessian, HessianUpdateState],
 ):
     """Abstract quasi-Newton minimisation algorithm.
+
+    Subclasses [`optimistix.AbstractNewtonBase`][].
 
     Base class for quasi-Newton solvers, which create approximations to the Hessian or
     the inverse Hessian by accumulating gradient information over multiple iterations.
@@ -134,13 +268,9 @@ class AbstractQuasiNewton(
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: AbstractVar[float]
-    atol: AbstractVar[float]
-    norm: AbstractVar[Callable[[PyTree], Scalar]]
     use_inverse: AbstractVar[bool]
     descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
     search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
-    verbose: AbstractVar[Callable[..., None]]
 
     @abc.abstractmethod
     def init_hessian(
@@ -201,7 +331,7 @@ class AbstractQuasiNewton(
             hessian_update_state=hessian_update_state,
         )
 
-    def step(
+    def _prepare_step(
         self,
         fn: Fn[Y, Scalar, Aux],
         y: Y,
@@ -209,18 +339,10 @@ class AbstractQuasiNewton(
         options: dict[str, Any],
         state: _QuasiNewtonState,
         tags: frozenset[object],
-    ) -> tuple[Y, _QuasiNewtonState, Aux]:
+    ) -> tuple[Scalar, Aux, Callable[..., Any], HessianUpdateState]:
         autodiff_mode = options.get("autodiff_mode", "bwd")
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
-        )
-        step_size, accept, search_result, search_state = self.search.step(
-            state.first_step,
-            y,
-            state.y_eval,
-            state.f_info,
-            FunctionInfo.Eval(f_eval),
-            state.search_state,
         )
 
         def accepted(descent_state):
@@ -256,72 +378,7 @@ class AbstractQuasiNewton(
                 hessian_update_state,
             )
 
-        def rejected(descent_state):
-            return (
-                y,
-                state.f_info,
-                state.aux,
-                descent_state,
-                jnp.array(False),
-                state.hessian_update_state,
-            )
-
-        y, f_info, aux, descent_state, terminate, hessian_update_state = filter_cond(
-            accept, accepted, rejected, state.descent_state
-        )
-
-        self.verbose(
-            loss_this_step=("Loss on this step", f_eval),
-            loss_last_accepted_step=("Loss on the last accepted step", state.f_info.f),
-            step_size=("Step size", step_size),
-            y=("y", state.y_eval),
-            y_last_accepted_step=("y on the last accepted step", y),
-        )
-
-        y_descent, descent_result = self.descent.step(step_size, descent_state)
-        y_eval = (y**ω + y_descent**ω).ω
-        result = RESULTS.where(
-            search_result == RESULTS.successful, descent_result, search_result
-        )
-
-        prev_aux = tree_where(state.first_step, aux, state.aux)
-        state = _QuasiNewtonState(
-            first_step=jnp.array(False),
-            y_eval=y_eval,
-            search_state=search_state,
-            f_info=f_info,
-            aux=aux,
-            descent_state=descent_state,
-            terminate=terminate,
-            result=result,
-            num_accepted_steps=state.num_accepted_steps + jnp.where(accept, 1, 0),
-            hessian_update_state=hessian_update_state,
-        )
-        return y, state, prev_aux
-
-    def terminate(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        args: PyTree,
-        options: dict[str, Any],
-        state: _QuasiNewtonState,
-        tags: frozenset[object],
-    ) -> tuple[Bool[Array, ""], RESULTS]:
-        return state.terminate, state.result
-
-    def postprocess(
-        self,
-        fn: Fn[Y, Scalar, Aux],
-        y: Y,
-        aux: Aux,
-        args: PyTree,
-        options: dict[str, Any],
-        state: _QuasiNewtonState,
-        tags: frozenset[object],
-        result: RESULTS,
-    ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return f_eval, aux_eval, accepted, state.hessian_update_state
 
 
 class AbstractBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, None]):

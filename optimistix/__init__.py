@@ -42,6 +42,8 @@ from ._solver import (
     AbstractGaussNewton as AbstractGaussNewton,
     AbstractGradientDescent as AbstractGradientDescent,
     AbstractLBFGS as AbstractLBFGS,
+    AbstractNewtonBase as AbstractNewtonBase,
+    AbstractNewtonMinimiser as AbstractNewtonMinimiser,
     AbstractQuasiNewton as AbstractQuasiNewton,
     BacktrackingArmijo as BacktrackingArmijo,
     BestSoFarFixedPoint as BestSoFarFixedPoint,
@@ -69,6 +71,7 @@ from ._solver import (
     LearningRate as LearningRate,
     LevenbergMarquardt as LevenbergMarquardt,
     LinearTrustRegion as LinearTrustRegion,
+    LineSearchNewton as LineSearchNewton,
     NelderMead as NelderMead,
     Newton as Newton,
     NewtonDescent as NewtonDescent,
@@ -77,6 +80,9 @@ from ._solver import (
     OptaxMinimiser as OptaxMinimiser,
     polak_ribiere as polak_ribiere,
     SteepestDescent as SteepestDescent,
+    SteihaugCGDescent as SteihaugCGDescent,
+    TruncatedCG as TruncatedCG,
+    TrustNewton as TrustNewton,
 )
 
 
