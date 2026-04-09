@@ -18,7 +18,6 @@ from .._misc import (
     max_norm,
     sum_squares,
     tree_full_like,
-    tree_where,
 )
 from .._search import (
     AbstractDescent,
@@ -140,7 +139,7 @@ NewtonDescent.__init__.__doc__ = """**Arguments:**
 class _GaussNewtonState(eqx.Module, Generic[Y, Out, Aux, SearchState, DescentState]):
     # Updated every search step
     first_step: Bool[Array, ""]
-    y_eval: Y
+    y_accepted: Y
     search_state: SearchState
     # Updated after each descent step
     f_info: FunctionInfo.ResidualJac
@@ -228,7 +227,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         f_info = tree_full_like(f_info_struct, 0, allow_static=True)
         return _GaussNewtonState(
             first_step=jnp.array(True),
-            y_eval=y,
+            y_accepted=y,
             search_state=self.search.init(y, f_info_struct),
             f_info=f_info,
             aux=tree_full_like(aux_struct, 0),
@@ -250,7 +249,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         tags: frozenset[object],
     ) -> tuple[Y, _GaussNewtonState, Aux]:
         jac = options.get("jac", "fwd")
-        f_eval_info, aux_eval = _make_f_info(fn, state.y_eval, args, tags, jac)
+        f_eval_info, aux_eval = _make_f_info(fn, y, args, tags, jac)
         # We have a jaxpr in `f_info.jac`, which are compared by identity. Here we
         # arrange to use the same one so that downstream equality checks (e.g. in the
         # `filter_cond` below)
@@ -261,8 +260,8 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
 
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
+            state.y_accepted,
             y,
-            state.y_eval,
             state.f_info,
             f_eval_info,
             state.search_state,
@@ -274,24 +273,24 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         )
 
         def accepted(descent_state):
-            descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
-            y_diff = (state.y_eval**ω - y**ω).ω
+            descent_state = self.descent.query(y, f_eval_info, descent_state)
+            y_diff = (y**ω - state.y_accepted**ω).ω
             f_diff = (f_eval_info.residual**ω - state.f_info.residual**ω).ω
             terminate = cauchy_termination(
                 self.rtol,
                 self.atol,
                 self.norm,
-                state.y_eval,
+                y,
                 y_diff,
                 f_eval_info.residual,
                 f_diff,
             )
-            return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
+            return y, f_eval_info, aux_eval, descent_state, terminate
 
         def rejected(descent_state):
-            return y, state.f_info, state.aux, descent_state, jnp.array(False)
+            return state.y_accepted, state.f_info, state.aux, descent_state, jnp.array(False)
 
-        y, f_info, aux, descent_state, terminate = filter_cond(
+        accepted_y, f_info, aux, descent_state, terminate = filter_cond(
             accept, accepted, rejected, state.descent_state
         )
 
@@ -307,20 +306,19 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             loss_this_step=("Loss on this step", loss_eval),
             loss_last_accepted_step=("Loss on the last accepted step", loss),
             step_size=("Step size", step_size),
-            y=("y", state.y_eval),
-            y_last_accepted_step=("y on the last accepted step", y),
+            y=("y", y),
+            y_last_accepted_step=("y on the last accepted step", state.y_accepted),
         )
 
         y_descent, descent_result = self.descent.step(step_size, descent_state)
-        y_eval = (y**ω + y_descent**ω).ω
+        y_eval = (accepted_y**ω + y_descent**ω).ω
         result = RESULTS.where(
             search_result == RESULTS.successful, descent_result, search_result
         )
 
-        prev_aux = tree_where(state.first_step, aux, state.aux)
         state = _GaussNewtonState(
             first_step=jnp.array(False),
-            y_eval=y_eval,
+            y_accepted=accepted_y,
             search_state=search_state,
             f_info=f_info,
             aux=aux,
@@ -331,7 +329,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             num_accepted_steps=num_accepted_steps,
             num_steps_since_acceptance=num_steps_since_acceptance,
         )
-        return y, state, prev_aux
+        return y_eval, state, aux_eval
 
     def terminate(
         self,
@@ -355,7 +353,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return state.y_accepted, state.aux, {}
 
 
 class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):

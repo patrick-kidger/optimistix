@@ -16,7 +16,6 @@ from .._misc import (
     lin_to_grad,
     max_norm,
     tree_full_like,
-    tree_where,
 )
 from .._search import (
     AbstractDescent,
@@ -93,7 +92,7 @@ class _GradientDescentState(
 ):
     # Updated every search step
     first_step: Bool[Array, ""]
-    y_eval: Y
+    y_accepted: Y
     search_state: SearchState
     # Updated after each descent step
     f_info: FunctionInfo.EvalGrad
@@ -149,7 +148,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         f_info_struct = jax.eval_shape(lambda: f_info)
         return _GradientDescentState(
             first_step=jnp.array(True),
-            y_eval=y,
+            y_accepted=y,
             search_state=self.search.init(y, f_info_struct),
             f_info=f_info,
             aux=tree_full_like(aux_struct, 0),
@@ -169,49 +168,48 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
     ) -> tuple[Y, _GradientDescentState, Aux]:
         autodiff_mode = options.get("autodiff_mode", "bwd")
         f_eval, lin_fn, aux_eval = jax.linearize(
-            lambda _y: fn(_y, args), state.y_eval, has_aux=True
+            lambda _y: fn(_y, args), y, has_aux=True
         )
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
+            state.y_accepted,
             y,
-            state.y_eval,
             state.f_info,
             FunctionInfo.Eval(f_eval),
             state.search_state,
         )
 
         def accepted(descent_state):
-            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
+            grad = lin_to_grad(lin_fn, y, autodiff_mode, f_eval.dtype)
 
             f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
-            descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
-            y_diff = (state.y_eval**ω - y**ω).ω
+            descent_state = self.descent.query(y, f_eval_info, descent_state)
+            y_diff = (y**ω - state.y_accepted**ω).ω
             f_diff = (f_eval**ω - state.f_info.f**ω).ω
             terminate = cauchy_termination(
-                self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff
+                self.rtol, self.atol, self.norm, y, y_diff, f_eval, f_diff
             )
             terminate = jnp.where(
                 state.first_step, jnp.array(False), terminate
             )  # Skip termination on first step
-            return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
+            return y, f_eval_info, aux_eval, descent_state, terminate
 
         def rejected(descent_state):
-            return y, state.f_info, state.aux, descent_state, jnp.array(False)
+            return state.y_accepted, state.f_info, state.aux, descent_state, jnp.array(False)
 
-        y, f_info, aux, descent_state, terminate = filter_cond(
+        accepted_y, f_info, aux, descent_state, terminate = filter_cond(
             accept, accepted, rejected, state.descent_state
         )
 
         y_descent, descent_result = self.descent.step(step_size, descent_state)
-        y_eval = (y**ω + y_descent**ω).ω
+        y_eval = (accepted_y**ω + y_descent**ω).ω
         result = RESULTS.where(
             search_result == RESULTS.successful, descent_result, search_result
         )
 
-        prev_aux = tree_where(state.first_step, aux, state.aux)
         state = _GradientDescentState(
             first_step=jnp.array(False),
-            y_eval=y_eval,
+            y_accepted=accepted_y,
             search_state=search_state,
             f_info=f_info,
             aux=aux,
@@ -219,7 +217,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
             terminate=terminate,
             result=result,
         )
-        return y, state, prev_aux
+        return y_eval, state, aux_eval
 
     def terminate(
         self,
@@ -243,7 +241,7 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         tags: frozenset[object],
         result: RESULTS,
     ) -> tuple[Y, Aux, dict[str, Any]]:
-        return y, aux, {}
+        return state.y_accepted, state.aux, {}
 
 
 class GradientDescent(AbstractGradientDescent[Y, Aux]):
