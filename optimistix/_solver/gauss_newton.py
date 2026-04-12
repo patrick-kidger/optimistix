@@ -288,7 +288,13 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             return y, f_eval_info, aux_eval, descent_state, terminate
 
         def rejected(descent_state):
-            return state.y_accepted, state.f_info, state.aux, descent_state, jnp.array(False)
+            return (
+                state.y_accepted,
+                state.f_info,
+                state.aux,
+                descent_state,
+                jnp.array(False),
+            )
 
         accepted_y, f_info, aux, descent_state, terminate = filter_cond(
             accept, accepted, rejected, state.descent_state
