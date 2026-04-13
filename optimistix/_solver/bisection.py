@@ -94,8 +94,8 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
     the interval is sufficiently small.
 
     If `expand_if_necessary` and `detect` are true, the initial interval will be
-    expanded if it doesn't contain the the root.  This expansion assumes that the
-    function is monotonic.
+    expanded if it doesn't contain the root.  This expansion assumes that the function
+    is monotonic.
     """
 
     rtol: float
@@ -246,8 +246,8 @@ class NewtonBisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
     sufficiently small.
 
     If `expand_if_necessary` and `detect` are true, the initial interval will be
-    expanded if it doesn't contain the the root.  This expansion assumes that the
-    function is monotonic.
+    expanded if it doesn't contain the root.  This expansion assumes that the function
+    is monotonic.
     """
 
     rtol: float
