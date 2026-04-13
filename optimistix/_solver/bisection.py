@@ -308,11 +308,12 @@ class NewtonBisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
                 )
         else:
             raise ValueError("`flip` may only be True, False, or 'detect'.")
+        error, _ = fn(y, args)
         return _BisectionState(
             lower=lower,
             upper=upper,
             flip=flip,
-            error=jnp.array(jnp.inf, f_struct.dtype),
+            error=error,
         )
 
     def step(
@@ -325,7 +326,8 @@ class NewtonBisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
         tags: frozenset[object],
     ) -> tuple[Scalar, _BisectionState, Aux]:
         del options
-        (error, aux), deriv = jax.value_and_grad(fn, has_aux=True)(y, args)
+        error = state.error
+        deriv, _ = jax.grad(fn, has_aux=True)(y, args)
         negative = state.flip ^ (error < 0)
         new_lower = jnp.where(negative, y, state.lower)
         new_upper = jnp.where(negative, state.upper, y)
@@ -336,8 +338,9 @@ class NewtonBisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
             new_y_newton,
             new_y_bisection,
         )
+        new_error, aux = fn(new_y, args)
         new_state = _BisectionState(
-            lower=new_lower, upper=new_upper, flip=state.flip, error=error
+            lower=new_lower, upper=new_upper, flip=state.flip, error=new_error
         )
         return new_y, new_state, aux
 
