@@ -779,6 +779,14 @@ def trivial(y: Array, args: PyTree):
     return y - 1
 
 
+def _quadratic(y: Array, args: PyTree):
+    """Quadratic function with zero derivative at y=1, roots at y=0 and y=2.
+    
+    Used to test that NewtonBisection handles critical points properly.
+    """
+    return (y - 1) ** 2 - 1
+
+
 # ARGS FOR BISECTION AND FIXED POINT
 ones_pytree = ({"a": 0.5 * jnp.ones((3, 2, 4))}, 0.5 * jnp.ones(4))
 flat_ones, _ = jfu.ravel_pytree(ones_pytree)
@@ -834,6 +842,12 @@ bisection_fn_init_options_args = (
         single,
         {"upper": jnp.array(1.0), "lower": jnp.array(0.0)},
         jnp.array([-0.137]),
+    ),
+    (
+        _quadratic,
+        jnp.array(1.0),  # Purposely start where derivative is 0
+        {"upper": jnp.array(3.0), "lower": jnp.array(0.5)},
+        None,
     ),
 )
 
