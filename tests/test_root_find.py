@@ -22,6 +22,10 @@ _root_finders = (
     optx.Newton(rtol, atol),
     optx.Chord(rtol, atol),
 )
+_solvers = (
+    *_root_finders,
+    optx.LevenbergMarquardt(rtol, atol),
+)
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 
@@ -51,7 +55,7 @@ def test_root_find(solver, _fn, init, args):
     assert tree_allclose(fn_val, zeros, atol=atol, rtol=rtol)
 
 
-@pytest.mark.parametrize("solver", _root_finders)
+@pytest.mark.parametrize("solver", _solvers)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
 @pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
 def test_root_find_jvp(getkey, solver, _fn, init, dtype, args):
@@ -207,6 +211,28 @@ def test_bad_root_via_min():
     y0 = jnp.array(0.5), jnp.array([-0.3, 0.7])
     sol = optx.root_find(f, optx.BFGS(rtol=1e-8, atol=1e-8), y0, throw=False)
     assert sol.result == optx.RESULTS.nonlinear_max_steps_reached
+
+
+def test_root_via_lstsq_uses_root_rewrite(monkeypatch):
+    """lstsq solvers should not use the lstsq rewrite_fn when used for root-finding"""
+
+    def _bad_rewrite(*args, **kwargs):
+        raise AssertionError(
+            "least_squares rewrite should not be used for the adjoint when root-"
+            "finding, because _root_find.rewrite_fn is more efficient."
+        )
+
+    monkeypatch.setattr(optx._least_squares, "_rewrite_fn", _bad_rewrite)
+
+    solver = optx.Dogleg(rtol=1e-8, atol=1e-8)
+
+    @eqx.filter_grad
+    def run(target):
+        sol = optx.root_find(lambda y, a: y - a, solver, y0=jnp.array(0.5), args=target)
+        return sol.value**2
+
+    grad = run(jnp.array(1.0))
+    assert jnp.allclose(grad, jnp.array(2.0), atol=1e-6, rtol=1e-6)
 
 
 @pytest.mark.parametrize("solver_cls", (optx.Newton, optx.Chord))

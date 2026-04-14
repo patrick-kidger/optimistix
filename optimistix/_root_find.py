@@ -9,7 +9,7 @@ from jaxtyping import PyTree
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
-from ._least_squares import AbstractLeastSquaresSolver, least_squares
+from ._least_squares import AbstractLeastSquaresSolver
 from ._minimise import AbstractMinimiser, minimise
 from ._misc import inexact_asarray, NoneAux, OutAsArray, tree_full_like
 from ._solution import Solution
@@ -193,19 +193,29 @@ def root_find(
         sol = eqx.tree_at(lambda s: s.aux, sol, aux)
         return sol
     elif isinstance(solver, AbstractLeastSquaresSolver):
-        del tags
-        sol = least_squares(
-            eqx.Partial(_to_lstsq_fn, fn),
+        y0 = jtu.tree_map(inexact_asarray, y0)
+        lstsq_fn = eqx.Partial(_to_lstsq_fn, fn)
+        lstsq_fn = eqx.filter_closure_convert(lstsq_fn, y0, args)  # pyright: ignore
+        lstsq_fn = cast(Fn[Y, Out, Aux], lstsq_fn)
+        f_struct, aux_struct = lstsq_fn.out_struct  # pyright: ignore[reportFunctionMemberAccess]
+        if options is None:
+            options = {}
+
+        sol = iterative_solve(
+            lstsq_fn,
             _LstsqToRoot(solver),  # pyright: ignore
             y0,
             args,
             options,
-            has_aux=True,
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
+            tags=tags,
+            f_struct=f_struct,
+            aux_struct=aux_struct,
+            rewrite_fn=_rewrite_fn,
         )
-        _, aux = sol.aux
+        _, aux = sol.aux  # pyright: ignore[reportGeneralTypeIssues]
         sol = eqx.tree_at(lambda s: s.aux, sol, aux)
         return sol
     else:

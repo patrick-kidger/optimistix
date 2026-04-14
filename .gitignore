@@ -12,3 +12,5 @@ examples/data
 .DS_Store
 .devcontainer
 .benchmarks
+uv.lock
+.python-version

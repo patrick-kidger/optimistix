@@ -1,5 +1,6 @@
 import jax.numpy as jnp
 import optimistix as optx
+import pytest
 
 
 def test_fixed_point():
@@ -41,3 +42,25 @@ def test_minimise():
     solver = optx.BestSoFarMinimiser(solver)
     sol = optx.minimise(fn, solver, jnp.array(0.0))
     assert jnp.allclose(sol.value, 0.96118069, rtol=1e-5, atol=1e-5)
+
+
+# https://github.com/patrick-kidger/optimistix/issues/33
+@pytest.mark.parametrize(
+    "solver", (optx.BFGS(rtol=1e-5, atol=1e-5), optx.NonlinearCG(atol=1e-5, rtol=1e-5))
+)
+def test_checks_last_point_minimiser(solver):
+    def fn(y, _):
+        return (y - 3.0) ** 2
+
+    solver = optx.BestSoFarMinimiser(solver)
+    sol = optx.minimise(fn, solver, jnp.array(0.0))
+    assert sol.value == 3.0
+
+
+def test_checks_last_point_least_squares():
+    def fn(y, _):
+        return y - 3.0
+
+    solver = optx.BestSoFarLeastSquares(optx.GaussNewton(rtol=1e-5, atol=1e-5))
+    sol = optx.least_squares(fn, solver, jnp.array(0.0))
+    assert sol.value == 3.0

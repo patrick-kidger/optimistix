@@ -73,3 +73,12 @@ def test_mixed_dtype():
     y0 = jax.numpy.ones(10, dtype=jax.numpy.float32)
     solver = optx.Newton(rtol=1e-3, atol=1e-3)
     optx.root_find(fn, solver, y0, max_steps=1, throw=False)
+
+
+def test_nonfinite_input():
+    def fn(x, _):
+        return x**2
+
+    solver = optx.GradientDescent(learning_rate=0.1, rtol=0.1, atol=0.1)
+    sol = optx.minimise(fn, solver, float("nan"), throw=False)
+    assert sol.result == optx.RESULTS.nonfinite

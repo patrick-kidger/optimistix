@@ -10,6 +10,7 @@ from jaxtyping import Array, PyTree, Scalar
 
 from .._custom_types import Aux, Out, Y
 from .._misc import (
+    default_verbose,
     max_norm,
     sum_squares,
     tree_dot,
@@ -238,7 +239,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
     descent: DoglegDescent[Y]
     search: ClassicalTrustRegion[Y]
     termination: CauchyTermination[Y]
-    verbose: frozenset[str]
+    verbose: Callable[..., None]
 
     def __init__(
         self,
@@ -246,7 +247,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         atol: float,
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
-        verbose: frozenset[str] = frozenset(),
+        verbose: bool | Callable[..., None] = False,
     ):
         # We don't expose root_finder to the default API for Dogleg because
         # we assume the `trust_region_norm` norm is `two_norm`, which has
@@ -254,7 +255,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         self.termination = CauchyTermination(rtol=rtol, atol=atol, norm=norm)
         self.descent = DoglegDescent(linear_solver=linear_solver)
         self.search = ClassicalTrustRegion()
-        self.verbose = verbose
+        self.verbose = default_verbose(verbose)
 
 
 Dogleg.__init__.__doc__ = """**Arguments:**
@@ -267,7 +268,8 @@ Dogleg.__init__.__doc__ = """**Arguments:**
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
 - `linear_solver`: The linear solver used to compute the Newton part of the dogleg step.
 - `verbose`: Whether to print out extra information about how the solve is proceeding.
-    Should be a frozenset of strings, specifying what information to print out. Valid
-    entries are `step`, `loss`, `accepted`, `step_size`, `y`. For example
-    `verbose=frozenset({"loss", "step_size"})`.
+    Can either be `False` to print out nothing, or `True` to print out all information,
+    or (for customisation) a callable `**kwargs -> None`. If provided as a callable then
+    each value will be a 2-tuple of `(str, jax.Array)` providing a human-readable name
+    and its corresponding value.
 """
