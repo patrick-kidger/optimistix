@@ -16,6 +16,7 @@ from .._misc import (
 )
 from .._search import AbstractDescent, AbstractSearch, FunctionInfo
 from .._solution import RESULTS
+from .._termination import CauchyTermination
 from .backtracking import BacktrackingArmijo
 from .gradient_methods import AbstractGradientDescent
 
@@ -92,10 +93,12 @@ class NonlinearCGDescent(
     def init(
         self,
         y: Y,
-        f_info_struct: FunctionInfo.EvalGrad
-        | FunctionInfo.EvalGradHessian
-        | FunctionInfo.EvalGradHessianInv
-        | FunctionInfo.ResidualJac,
+        f_info_struct: (
+            FunctionInfo.EvalGrad
+            | FunctionInfo.EvalGradHessian
+            | FunctionInfo.EvalGradHessianInv
+            | FunctionInfo.ResidualJac
+        ),
     ) -> _NonlinearCGDescentState:
         del f_info_struct
         return _NonlinearCGDescentState(
@@ -106,10 +109,12 @@ class NonlinearCGDescent(
     def query(
         self,
         y: Y,
-        f_info: FunctionInfo.EvalGrad
-        | FunctionInfo.EvalGradHessian
-        | FunctionInfo.EvalGradHessianInv
-        | FunctionInfo.ResidualJac,
+        f_info: (
+            FunctionInfo.EvalGrad
+            | FunctionInfo.EvalGradHessian
+            | FunctionInfo.EvalGradHessianInv
+            | FunctionInfo.ResidualJac
+        ),
         state: _NonlinearCGDescentState,
     ) -> _NonlinearCGDescentState:
         del y
@@ -179,9 +184,7 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
+    termination: CauchyTermination[Y]
     descent: NonlinearCGDescent[Y]
     search: AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
 
@@ -211,8 +214,6 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
             function `(Y, Y, Y) -> Scalar` will work.
         - `search`: The (line) search to use at each step.
         """
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
+        self.termination = CauchyTermination(rtol=rtol, atol=atol, norm=norm)
         self.descent = NonlinearCGDescent(method=method)
         self.search = search

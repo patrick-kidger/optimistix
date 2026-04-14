@@ -78,6 +78,10 @@ from ._solver import (
     polak_ribiere as polak_ribiere,
     SteepestDescent as SteepestDescent,
 )
+from ._termination import (
+    AbstractTermination as AbstractTermination,
+    CauchyTermination as CauchyTermination,
+)
 
 
 __version__ = importlib.metadata.version("optimistix")
