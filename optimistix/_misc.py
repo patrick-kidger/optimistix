@@ -10,7 +10,7 @@ import jax.flatten_util as jfu
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jaxtyping import Array, ArrayLike, PyTree, Scalar, ScalarLike
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar, ScalarLike
 from lineax.internal import (
     default_floating_dtype as _default_floating_dtype,
     max_norm as _max_norm,
