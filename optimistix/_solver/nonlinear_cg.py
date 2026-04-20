@@ -158,7 +158,7 @@ NonlinearCGDescent.__init__.__doc__ = """**Arguments:**
 
 - `method`: A callable `method(vector, vector_prev, diff_prev)` describing how to
     calculate the beta parameter of nonlinear CG. Nonlinear CG uses the previous search
-    direction, scaled by beta, and subtracts the gradient to find the next search 
+    direction, scaled by beta, and subtracts the gradient to find the next search
     direction. This parameter, in the nonlinear case, is the same as the parameter β_n
     described e.g. [on Wikipedia](https://en.wikipedia.org/wiki/Nonlinear_conjugate_gradient_method)
     for the linear case.

@@ -6,34 +6,28 @@ Contributions (pull requests) are very welcome! Here's how to get started.
 
 ## Getting started
 
-First fork the library on GitHub.
-
-Then clone and install the library:
+[We assume that you have `uv` installed.](https://docs.astral.sh/uv/) Now fork the library on GitHub. Then clone and install the library:
 
 ```bash
 git clone https://github.com/your-username-here/optimistix.git
 cd optimistix
-pip install -e '.[dev]'
-pre-commit install  # `pre-commit` is installed by `pip` on the previous line
+uv run prek install  # Creates a local venv + installs dependencies + installs pre-commit hooks.
 ```
 
 ---
 
-### If you're making changes to the code:**
+### If you're making changes to the code
 
-Now make your changes. Make sure to include additional tests if necessary.
-
-Next verify the tests all pass:
+Now make your changes. Make sure to include additional tests if necessary. Next verify the tests all pass:
 
 ```bash
-pip install -e '.[tests]'
-pytest  # `pytest` is installed by `pip` on the previous line.
+uv run pytest
 ```
 
-If your changes could affect solver (or compilation) performance, please run the benchmark tests with 
+If your changes could affect solver (or compilation) performance, please run the benchmark tests with
 
 ```bash
-pytest benchmarks/ --benchmark-only
+uv run pytest benchmarks/ --benchmark-only
 ```
 
 You can run benchmarks before or after your change, and also save more extensive results for analysis. For more on this, skip to the "Benchmarking" section below. 
@@ -47,13 +41,12 @@ Finally, open a pull request on GitHub!
 
 ---
 
-### If you're making changes to the documentation:
+### If you're making changes to the documentation
 
 Make your changes. You can then build the documentation by doing
 
 ```bash
-pip install -e '.[docs]'
-mkdocs serve
+uv run mkdocs serve
 ```
 
 You can then see your local copy of the documentation by navigating to `localhost:8000` in a web browser.
@@ -66,10 +59,10 @@ If you're interested in more extensive benchmarking - for instance when contribu
 You can save benchmark results with
 
 ```
-pytest benchmarks/ --benchmark-save=<benchmark_name> --benchmark-only
+uv run pytest benchmarks/ --benchmark-save=<benchmark_name> --benchmark-only
 ```
 
-and compare against previous runs with `pytest --benchmark-compare`, which will automatically pull in the last saved commit, but also takes run iDs as arguments. See the `pytest-benchmark` [documentation](https://pytest-benchmark.readthedocs.io/en/latest/usage.html#commandline-options) for more command line options. 
+and compare against previous runs with `uv run pytest --benchmark-compare`, which will automatically pull in the last saved commit, but also takes run iDs as arguments. See the `pytest-benchmark` [documentation](https://pytest-benchmark.readthedocs.io/en/latest/usage.html#commandline-options) for more command line options. 
 The `benchmark-autosave` option will specify the commit iD, instead of a user-defined name.
 Make sure that you are running benchmarks with a clean working tree, so you can trace how changes affect performance!
 

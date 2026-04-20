@@ -474,7 +474,7 @@ BFGS.__init__.__doc__ = """**Arguments:**
     sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
     dense Hessians (as matrix-vector products are cheaper than linear solves). The
     default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
-    searches like [`optimistix.ClassicalTrustRegion`][], which use the Hessian 
+    searches like [`optimistix.ClassicalTrustRegion`][], which use the Hessian
     approximation `B` as part of their computations.
 - `verbose`: Whether to print out extra information about how the solve is proceeding.
     Can either be `False` to print out nothing, or `True` to print out all information,
@@ -635,7 +635,7 @@ DFP.__init__.__doc__ = """**Arguments:**
     sparse Hessians (as the inverse may be dense). Option (b) is generally cheaper for
     dense Hessians (as matrix-vector products are cheaper than linear solves). The
     default is (b), denoted via `use_inverse=True`. Note that this is incompatible with
-    searches like [`optimistix.ClassicalTrustRegion`][], which use the Hessian 
+    searches like [`optimistix.ClassicalTrustRegion`][], which use the Hessian
     approximation `B` as part of their computations.
 - `verbose`: Whether to print out extra information about how the solve is proceeding.
     Can either be `False` to print out nothing, or `True` to print out all information,
