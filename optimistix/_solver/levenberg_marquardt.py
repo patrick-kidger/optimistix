@@ -241,7 +241,7 @@ class IndirectDampedNewtonDescent(
         return (-(neg_y_diff**ω)).ω, new_result
 
 
-IndirectDampedNewtonDescent.__init__.__doc__ = """**Arguments:**    
+IndirectDampedNewtonDescent.__init__.__doc__ = """**Arguments:**
 
 - `lambda_0`: The initial value of the Levenberg--Marquardt parameter used in the root-
     find to hit the trust-region radius. If `IndirectDampedNewtonDescent` is failing,
@@ -298,7 +298,7 @@ LevenbergMarquardt.__init__.__doc__ = """**Arguments:**
 
 - `rtol`: Relative tolerance for terminating the solve.
 - `atol`: Absolute tolerance for terminating the solve.
-- `norm`: The norm used to determine the difference between two iterates in the 
+- `norm`: The norm used to determine the difference between two iterates in the
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
@@ -361,10 +361,10 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
 
 
 IndirectLevenbergMarquardt.__init__.__doc__ = """**Arguments:**
-    
+
 - `rtol`: Relative tolerance for terminating the solve.
 - `atol`: Absolute tolerance for terminating the solve.
-- `norm`: The norm used to determine the difference between two iterates in the 
+- `norm`: The norm used to determine the difference between two iterates in the
     convergence criteria. Should be any function `PyTree -> Scalar`. Optimistix
     includes three built-in norms: [`optimistix.max_norm`][],
     [`optimistix.rms_norm`][], and [`optimistix.two_norm`][].
