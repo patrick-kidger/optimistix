@@ -781,7 +781,7 @@ def trivial(y: Array, args: PyTree):
 
 def _quadratic(y: Array, args: PyTree):
     """Quadratic function with zero derivative at y=1, roots at y=0 and y=2.
-    
+
     Used to test that NewtonBisection handles critical points properly.
     """
     return (y - 1) ** 2 - 1

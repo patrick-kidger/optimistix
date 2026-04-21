@@ -18,7 +18,6 @@ _fp_solvers = (optx.FixedPointIteration(rtol, atol),)
 smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 
-
 @pytest.mark.parametrize(
     "_fn, init, bisection_options, args", bisection_fn_init_options_args
 )
