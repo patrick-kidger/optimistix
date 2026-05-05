@@ -280,9 +280,9 @@ and increase the step-size on the next iteration.
 - `low_cutoff`: the cutoff such that `ratio < low_cutoff` will reject the step
 and decrease the step-size on the next iteration.
 - `high_constant`: when `ratio > high_cutoff`, multiply the previous step-size by
-high_constant`.
+`high_constant`.
 - `low_constant`: when `ratio < low_cutoff`, multiply the previous step-size by
-low_constant`.
+`low_constant`.
 """
 
 LinearTrustRegion.__init__.__doc__ = _init_doc
