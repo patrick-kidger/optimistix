@@ -71,6 +71,7 @@ from ._solver import (
     LinearTrustRegion as LinearTrustRegion,
     NelderMead as NelderMead,
     Newton as Newton,
+    NewtonBisection as NewtonBisection,
     NewtonDescent as NewtonDescent,
     NonlinearCG as NonlinearCG,
     NonlinearCGDescent as NonlinearCGDescent,
