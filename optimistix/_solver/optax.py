@@ -9,8 +9,9 @@ from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
-from .._misc import cauchy_termination, default_verbose, max_norm
+from .._misc import default_verbose, max_norm
 from .._solution import RESULTS
+from .._termination import CauchyTermination
 
 
 class _OptaxState(eqx.Module):
@@ -26,9 +27,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
     """
 
     optim: "optax.GradientTransformation"  # pyright: ignore  # noqa: F821
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
+    termination: CauchyTermination
     verbose: Callable[..., None]
 
     def __init__(
@@ -59,9 +58,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
         # See https://github.com/deepmind/optax/issues/577: Optax has an issue in which
         # it doesn't use pytrees correctly.
         self.optim = eqxi.closure_to_pytree(optim)
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
+        self.termination = CauchyTermination(rtol=rtol, atol=atol, norm=norm)
         self.verbose = default_verbose(verbose)
 
     def init(
@@ -105,15 +102,7 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
             grads, state.opt_state, y, value=f, grad=grads, value_fn=_fn_for_optax
         )
         new_y = eqx.apply_updates(y, updates)
-        terminate = cauchy_termination(
-            self.rtol,
-            self.atol,
-            self.norm,
-            y,
-            updates,
-            f,
-            f - state.f,
-        )
+        terminate = self.termination(y, updates, f, f - state.f)
         new_state = _OptaxState(
             step=state.step + 1, f=f, opt_state=new_opt_state, terminate=terminate
         )

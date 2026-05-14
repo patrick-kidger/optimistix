@@ -17,9 +17,10 @@ from equinox.internal import ω
 from jaxtyping import Array, Bool, PyTree, Scalar
 
 from .._custom_types import Aux, Fn, Out, Y
-from .._misc import cauchy_termination, max_norm, tree_dtype, tree_full_like
+from .._misc import max_norm, tree_dtype, tree_full_like
 from .._root_find import AbstractRootFinder
 from .._solution import RESULTS
+from .._termination import CauchyTermination
 
 
 def _small(diffsize: Scalar) -> Bool[Array, " "]:
@@ -166,10 +167,8 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
             # we're doing a root-find and know that we're aiming to get close to zero.
             # Note that this does mean that the `rtol` is ignored in f-space, and only
             # `atol` matters.
-            terminate = cauchy_termination(
-                self.rtol,
-                self.atol,
-                self.norm,
+            termination = CauchyTermination(self.rtol, self.atol, self.norm)
+            terminate = termination(
                 y,
                 state.diff,
                 jtu.tree_map(jnp.zeros_like, state.f),
