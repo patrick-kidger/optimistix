@@ -7,7 +7,10 @@ from .best_so_far import (
 )
 from .bisection import Bisection as Bisection
 from .dogleg import Dogleg as Dogleg, DoglegDescent as DoglegDescent
-from .fixed_point import FixedPointIteration as FixedPointIteration
+from .fixed_point import (
+    AndersonAcceleration as AndersonAcceleration,
+    FixedPointIteration as FixedPointIteration,
+)
 from .gauss_newton import (
     AbstractGaussNewton as AbstractGaussNewton,
     GaussNewton as GaussNewton,
