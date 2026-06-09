@@ -21,6 +21,13 @@
 
 ---
 
+::: optimistix.WolfeSearch
+    options:
+        members:
+            - __init__
+
+---
+
 ::: optimistix.ClassicalTrustRegion
     options:
         members:

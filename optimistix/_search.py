@@ -320,6 +320,15 @@ class AbstractSearch(eqx.Module, Generic[Y, _FnInfo, _FnEvalInfo, SearchState]):
     See [this documentation](./introduction.md) for more information.
     """
 
+    requires_grad_eval: ClassVar[bool] = False
+    """Whether [`optimistix.AbstractSearch.step`][] needs gradient information at the
+    trial point `y_eval`, i.e. whether `f_eval_info` must carry a gradient. Searches
+    that test a curvature condition (e.g. [`optimistix.WolfeSearch`][]) set this to
+    `True`, and the calling solver then evaluates the trial-point gradient eagerly.
+    Defaults to `False`, so that searches needing only function values (e.g.
+    [`optimistix.BacktrackingArmijo`][]) incur no extra work on rejected steps.
+    """
+
     @abc.abstractmethod
     def init(self, y: Y, f_info_struct: _FnInfo) -> SearchState:
         """Is called just once, at the very start of the entire optimisation problem.

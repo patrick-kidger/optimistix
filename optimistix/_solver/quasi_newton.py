@@ -214,17 +214,29 @@ class AbstractQuasiNewton(
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
+        # Some searches (e.g. `WolfeSearch`) need the gradient at the trial point to
+        # check a curvature condition. Compute it eagerly only when required, and reuse
+        # it on acceptance; otherwise defer it to the `accepted` branch as usual.
+        if self.search.requires_grad_eval:
+            grad_eval = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
+            f_eval_info_for_search = FunctionInfo.EvalGrad(f_eval, grad_eval)
+        else:
+            grad_eval = None
+            f_eval_info_for_search = FunctionInfo.Eval(f_eval)
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
             y,
             state.y_eval,
             state.f_info,
-            FunctionInfo.Eval(f_eval),
+            f_eval_info_for_search,
             state.search_state,
         )
 
         def accepted(descent_state):
-            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
+            if grad_eval is None:
+                grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
+            else:
+                grad = grad_eval
 
             f_eval_info, hessian_update_state = self.update_hessian(
                 y,
@@ -437,7 +449,7 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
     norm: Callable[[PyTree], Scalar]
     use_inverse: bool
     descent: NewtonDescent
-    search: BacktrackingArmijo
+    search: AbstractSearch
     verbose: Callable[..., None]
 
     def __init__(
@@ -447,14 +459,14 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
         norm: Callable[[PyTree], Scalar] = max_norm,
         use_inverse: bool = True,
         verbose: bool | Callable[..., None] = False,
+        search: AbstractSearch | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
-        # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
-        self.search = BacktrackingArmijo()
+        self.search = BacktrackingArmijo() if search is None else search
         self.verbose = default_verbose(verbose)
 
 
@@ -481,6 +493,11 @@ BFGS.__init__.__doc__ = """**Arguments:**
     or (for customisation) a callable `**kwargs -> None`. If provided as a callable then
     each value will be a 2-tuple of `(str, jax.Array)` providing a human-readable name
     and its corresponding value.
+- `search`: The line search to use. Defaults to [`optimistix.BacktrackingArmijo`][].
+    Pass [`optimistix.WolfeSearch`][] for a strong-Wolfe line search, which often
+    converges in fewer iterations for quasi-Newton methods. Note that searches using
+    the Hessian approximation `B` (e.g. [`optimistix.ClassicalTrustRegion`][]) are
+    incompatible with `use_inverse=True`.
 """
 
 
@@ -598,7 +615,7 @@ class DFP(AbstractDFP[Y, Aux, _Hessian]):
     norm: Callable[[PyTree], Scalar]
     use_inverse: bool
     descent: NewtonDescent
-    search: BacktrackingArmijo
+    search: AbstractSearch
     verbose: Callable[..., None]
 
     def __init__(
@@ -608,14 +625,14 @@ class DFP(AbstractDFP[Y, Aux, _Hessian]):
         norm: Callable[[PyTree], Scalar] = max_norm,
         use_inverse: bool = True,
         verbose: bool | Callable[..., None] = False,
+        search: AbstractSearch | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
-        # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
-        self.search = BacktrackingArmijo()
+        self.search = BacktrackingArmijo() if search is None else search
         self.verbose = default_verbose(verbose)
 
 
@@ -642,4 +659,9 @@ DFP.__init__.__doc__ = """**Arguments:**
     or (for customisation) a callable `**kwargs -> None`. If provided as a callable then
     each value will be a 2-tuple of `(str, jax.Array)` providing a human-readable name
     and its corresponding value.
+- `search`: The line search to use. Defaults to [`optimistix.BacktrackingArmijo`][].
+    Pass [`optimistix.WolfeSearch`][] for a strong-Wolfe line search, which often
+    converges in fewer iterations for quasi-Newton methods. Note that searches using
+    the Hessian approximation `B` (e.g. [`optimistix.ClassicalTrustRegion`][]) are
+    incompatible with `use_inverse=True`.
 """

@@ -49,3 +49,4 @@ from .trust_region import (
     ClassicalTrustRegion as ClassicalTrustRegion,
     LinearTrustRegion as LinearTrustRegion,
 )
+from .wolfe import WolfeSearch as WolfeSearch
