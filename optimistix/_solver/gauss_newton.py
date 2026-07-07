@@ -224,8 +224,20 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         tags: frozenset[object],
     ) -> _GaussNewtonState:
         jac = options.get("jac", "fwd")
-        f_info_struct, _ = eqx.filter_eval_shape(_make_f_info, fn, y, args, tags, jac)
-        f_info = tree_full_like(f_info_struct, 0, allow_static=True)
+        # Evaluate `f_info` for real at the initial `y`, rather than filling a
+        # same-shaped placeholder with zeros. `step`'s very first call reads this
+        # placeholder unconditionally: `predict_reduction` (e.g. in
+        # `ClassicalTrustRegion`) calls `f_info.jac.mv(...)` regardless of
+        # `first_step`, even though the decision it feeds into is later forced by
+        # `accept | first_step`. Zero-filling silently zeroes any values closed
+        # over inside `f_info.jac` (e.g. `jax.linearize`'s captured linearization
+        # point), so any nan-sensitive operation in the user's own residual (e.g.
+        # a division) produces a genuine nan here -- which then contaminates the
+        # JVP even though the decision itself is unaffected. This costs one extra
+        # linearization at init, in exchange for never fabricating ill-defined
+        # closure data.
+        f_info, _ = _make_f_info(fn, y, args, tags, jac)
+        f_info_struct = jax.eval_shape(lambda: f_info)
         return _GaussNewtonState(
             first_step=jnp.array(True),
             y_eval=y,
