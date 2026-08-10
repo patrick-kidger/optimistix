@@ -936,6 +936,18 @@ golden_search_fn_y0_options_expected = (
         dict(lower=0, upper=3),
         jnp.array(0.0),
     ),
+    # Regression test: bracket does not straddle zero. The initial `middle` used
+    # to be computed as `(upper - lower) / (golden_ratio + 1)`, missing a `lower +`
+    # offset. That value happens to still land inside brackets containing zero
+    # (since it coincides with the correct middle when `lower == 0`), which is why
+    # this bug went unnoticed -- but for a bracket like this one, the erroneous
+    # `middle` falls far outside `[lower, upper]` and the solver diverges.
+    (
+        lambda y, args: (y - 100) ** 2,
+        jnp.array(100),
+        dict(lower=99, upper=101),
+        jnp.array(100.0),
+    ),
 )
 
 # Define a bounded MLP (to check if clipping/projections works on complicated pytrees).

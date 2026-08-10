@@ -81,7 +81,7 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
         # length a and b, respectively. The ratio of their lengths, b / a, is equal
         # to the golden ratio.
         golden_ratio = (1 + math.sqrt(5)) / 2
-        middle = (upper - lower) / (golden_ratio + 1)
+        middle = lower + (upper - lower) / (golden_ratio + 1)
 
         f_middle, _ = fn(middle, args)
 
