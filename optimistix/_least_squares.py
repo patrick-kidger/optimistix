@@ -6,6 +6,12 @@ import jax.tree_util as jtu
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
+from ._complex import (
+    _complex_to_real,
+    _FromRealFn,
+    _has_complex,
+    _restore_solution,
+)
 from ._custom_types import Args, Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._minimise import AbstractMinimiser, minimise
@@ -38,7 +44,10 @@ class _ToMinimiseFn(eqx.Module, Generic[Y, Out, Aux]):
 
     def __call__(self, y: Y, args: Args) -> tuple[Scalar, Aux]:
         residual, aux = self.residual_fn(y, args)
-        return 0.5 * sum_squares(residual), aux
+        # A residual pytree may mix real and complex leaves. Their squared norms are
+        # all real, but reducing them can still encounter mixed dtypes before `.real`.
+        with jax.numpy_dtype_promotion("standard"):
+            return 0.5 * sum_squares(residual), aux
 
 
 @eqx.filter_jit
@@ -60,6 +69,9 @@ def least_squares(
 
     Given a nonlinear function `fn(y, args)` which returns a pytree of residuals,
     this returns the solution to $\min_y \sum_i \textrm{fn}(y, \textrm{args})_i^2$.
+    When the inputs are complex-valued, complex inputs and residuals are represented
+    internally by their real and imaginary parts. Thus the Jacobian and linear solves
+    are performed over the reals.
 
     **Arguments:**
 
@@ -114,12 +126,16 @@ def least_squares(
         )
     else:
         y0 = jtu.tree_map(inexact_asarray, y0)
+        complex_to_real = _has_complex(y0)
+        if complex_to_real:
+            y0 = _complex_to_real(y0)
+            fn = _FromRealFn(fn, convert_output=True)
         fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
         fn = cast(Fn[Y, Out, Aux], fn)
         f_struct, aux_struct = fn.out_struct  # pyright: ignore[reportFunctionMemberAccess]
         if options is None:
             options = {}
-        return iterative_solve(
+        solution = iterative_solve(
             fn,
             solver,
             y0,
@@ -133,3 +149,6 @@ def least_squares(
             aux_struct=aux_struct,
             rewrite_fn=_rewrite_fn,
         )
+        if complex_to_real:
+            solution = _restore_solution(solution)
+        return solution

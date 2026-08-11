@@ -2,30 +2,39 @@ import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 import optimistix as optx
+import pytest
+
+from .helpers import make_nonreal, norm_sq
 
 
-def test_minimise():
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_minimise(dtype):
     @jax.grad
     def f(offset):
         def fn(x, _):
-            return x**2 + offset
+            with jax.numpy_dtype_promotion("standard"):
+                return norm_sq(x) + offset
 
         solver = optx.GradientDescent(learning_rate=0.1, rtol=0.1, atol=0.1)
-        return optx.minimise(fn, solver, 0.0).value
+        y0 = make_nonreal(jnp.array(0.0, dtype=dtype))
+        return norm_sq(optx.minimise(fn, solver, y0).value)
 
-    f(0.0)
+    f(jnp.array(0.0))
 
 
-def test_least_squares():
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_least_squares(dtype):
     @jax.grad
     def f(offset):
         def fn(x, _):
-            return x + offset
+            with jax.numpy_dtype_promotion("standard"):
+                return jnp.conj(x) + offset
 
         solver = optx.Dogleg(rtol=0.1, atol=0.1)
-        return optx.least_squares(fn, solver, 0.0).value
+        y0 = make_nonreal(jnp.array(0.0, dtype=dtype))
+        return norm_sq(optx.least_squares(fn, solver, y0).value)
 
-    f(0.0)
+    f(jnp.array(0.0))
 
 
 def test_root_find():
@@ -52,14 +61,15 @@ def test_fixed_point():
     f(0.0)
 
 
-def test_forward_mode():
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_forward_mode(dtype):
     def f(y, _):
         return eqxi.nondifferentiable_backward(y)
 
     optx.least_squares(
         f,
         optx.LevenbergMarquardt(rtol=1e-4, atol=1e-4),
-        jnp.arange(3.0),
+        make_nonreal(jnp.arange(3.0, dtype=dtype)),
         options=dict(jac="fwd"),
     )
 

@@ -28,6 +28,33 @@ def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
     return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
 
 
+def tree_as_dtype(tree, dtype):
+    def _cast(x):
+        if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.inexact):
+            if jnp.issubdtype(dtype, jnp.floating) and jnp.issubdtype(
+                x.dtype, jnp.complexfloating
+            ):
+                x = x.real
+            return x.astype(dtype)
+        return x
+
+    return jtu.tree_map(_cast, tree)
+
+
+def make_nonreal(tree):
+    def _add_imaginary_part(x):
+        if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.complexfloating):
+            return x + jnp.asarray(0.01j, dtype=x.dtype)
+        return x
+
+    return jtu.tree_map(_add_imaginary_part, tree)
+
+
+def norm_sq(x):
+    """Pointwise squared norm, for both real and complex arrays."""
+    return jnp.real(x * jnp.conj(x))
+
+
 def finite_difference_jvp(fn, primals, tangents, eps=None, **kwargs):
     assert jax.config.jax_enable_x64  # pyright: ignore
     out = fn(*primals, **kwargs)
@@ -50,6 +77,52 @@ def finite_difference_jvp(fn, primals, tangents, eps=None, **kwargs):
     # This should still be within all tolerance checks, and means that we have aceesss
     # to both the true primal and the perturbed primal when debugging.
     return out_ε, tangents_out
+
+
+def implicit_minimise_jvp(fn, y, args, t_args):
+    """Compute an argmin JVP from the objective's stationarity equation.
+
+    At a local minimiser ``y(args)``, the gradient satisfies
+    ``grad_y fn(y, args) = 0``. Differentiating this identity gives
+    ``Hessian_y(fn) @ dy = -d_args(grad_y(fn))``; this helper constructs both
+    sides with JAX and solves that linear system for ``dy``.
+
+    Complex PyTrees are first flattened into an explicit R² representation by
+    concatenating their real and imaginary components. Thus the Hessian is an
+    ordinary real matrix and the reference does not rely on JAX's convention for
+    complex gradients or on any complex-to-real Lineax operator. This also makes
+    the reference independent of the particular iterative minimiser under test.
+    """
+    flat_y, unravel_y = jfu.ravel_pytree(y)
+    if jnp.issubdtype(flat_y.dtype, jnp.complexfloating):
+        size = flat_y.size
+        real_y = jnp.concatenate((flat_y.real, flat_y.imag))
+
+        def from_real(flat_real_y):
+            flat_complex_y = jax.lax.complex(flat_real_y[:size], flat_real_y[size:])
+            return unravel_y(flat_complex_y)
+
+    else:
+        real_y = flat_y
+
+        def from_real(flat_real_y):
+            return unravel_y(flat_real_y)
+
+    def objective(flat_real_y, objective_args):
+        return fn(from_real(flat_real_y), objective_args)
+
+    grad_fn = jax.grad(objective)
+    hessian = jax.jacfwd(grad_fn)(real_y, args)
+    if jtu.tree_leaves(t_args):
+        _, rhs = jax.jvp(
+            lambda objective_args: grad_fn(real_y, objective_args),
+            (args,),
+            (t_args,),
+        )
+        tangent = jnp.linalg.solve(hessian, -rhs)
+    else:
+        tangent = jnp.zeros_like(real_y)
+    return from_real(tangent)
 
 
 #
@@ -317,13 +390,14 @@ def bowl(tree: PyTree[Array], args: Array):
     # Trivial quadratic bowl smoke test for convergence.
     (y, _) = jfu.ravel_pytree(tree)
     matrix = args
-    return y.T @ matrix @ y
+    return jnp.real(y.T.conj() @ matrix @ y)
 
 
 def diagonal_quadratic_bowl(tree: PyTree[Array], args: PyTree[Array]):
     # A diagonal quadratic bowl smoke test for convergence.
-    weight_vector = args
-    return (ω(tree).call(jnp.square) * (0.1 + weight_vector**ω)).ω
+    weight_vector = jtu.tree_map(jnp.abs, args)
+    squared_norm = ω(tree).call(norm_sq)
+    return (squared_norm * (0.1 + weight_vector**ω)).ω
 
 
 def rosenbrock(tree: PyTree[Array], args: Scalar):
@@ -338,8 +412,10 @@ def _himmelblau(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     const1, const2 = args
-    term1 = ((ω(y).call(jnp.square) + z**ω - const1) ** 2).ω
-    term2 = ((y**ω + ω(z).call(jnp.square) - const2) ** 2).ω
+    term1 = (ω(y).call(jnp.square) + z**ω - const1).ω
+    term1 = ω(term1).call(norm_sq).ω
+    term2 = (y**ω + ω(z).call(jnp.square) - const2).ω
+    term2 = ω(term2).call(norm_sq).ω
     return (term1**ω + term2**ω).ω
 
 
@@ -347,8 +423,10 @@ def matyas(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     const1, const2 = args
-    term1 = (const1 * (ω(y).call(jnp.square) + ω(z).call(jnp.square))).ω
-    term2 = (const2 * y**ω * z**ω).ω
+    const1 = jnp.abs(const1)
+    const2 = jnp.abs(const2)
+    term1 = (const1 * (ω(y).call(norm_sq) + ω(z).call(norm_sq))).ω
+    term2 = (const2 * (ω(y).call(jnp.conj) * z**ω).call(jnp.real)).ω
     return (term1**ω - term2**ω).ω
 
 
@@ -366,9 +444,9 @@ def beale(tree: PyTree[Array], args: PyTree):
     # Wiki
     (y, z) = tree
     const1, const2, const3 = args
-    term1 = ((const1 - y**ω + y**ω * z**ω) ** 2).ω
-    term2 = ((const2 - y**ω + y**ω * ω(z).call(jnp.square)) ** 2).ω
-    term3 = ((const3 - y**ω + y**ω * ω(z).call(lambda x: x**3)) ** 2).ω
+    term1 = (const1 - y**ω + y**ω * z**ω).call(norm_sq).ω
+    term2 = (const2 - y**ω + y**ω * ω(z).call(jnp.square)).call(norm_sq).ω
+    term3 = (const3 - y**ω + y**ω * ω(z).call(lambda x: x**3)).call(norm_sq).ω
     return (term1**ω + term2**ω + term3**ω).ω
 
 
@@ -401,7 +479,7 @@ def simple_nn(model_dynamic: PyTree[Array], args: PyTree):
     model = eqx.combine(model_dynamic, model_static)
     key = jr.PRNGKey(17)
     model_key, data_key = jr.split(key, 2)
-    x = jnp.linspace(0, 1, 100)[..., None]
+    x = jnp.linspace(0, 1, 100, dtype=data.dtype)[..., None]
     y = data**2
 
     def loss(model, x, y):
@@ -413,7 +491,35 @@ def simple_nn(model_dynamic: PyTree[Array], args: PyTree):
 
 def square_minus_one(x: Array, args: PyTree):
     """A simple ||x||^2 - 1 function."""
-    return jnp.sum(jnp.square(x)) - 1.0
+    return jnp.sum(norm_sq(x)) - 1.0
+
+
+def complex_quadratic(x: Array, target: Array):
+    """A smooth C->R quadratic with an argument-dependent minimum."""
+    diff = x - target
+    return jnp.sum(norm_sq(diff))
+
+
+def complex_to_real_residual(x: Array, target: Array):
+    """A C->R^2 residual with an argument-dependent root."""
+    diff = x - target
+    return jnp.stack((diff.real, diff.imag))
+
+
+def holomorphic_residual(x: Array, target: Array):
+    """A holomorphic C->C residual."""
+    return x - target
+
+
+def antiholomorphic_residual(x: Array, target: Array):
+    """An anti-holomorphic C->C residual."""
+    return jnp.conj(x) - target
+
+
+def nonholomorphic_residual(x: Array, target: Array):
+    """A non-holomorphic C->(C, R) residual with mixed output dtypes."""
+    diff = x - target
+    return diff + 0.25 * jnp.conj(diff), diff.real
 
 
 #
@@ -428,7 +534,21 @@ def get_weights(model):
     return layer1.weight, layer1.bias, layer2.weight, layer2.bias
 
 
-ffn_init = eqx.nn.MLP(in_size=1, out_size=1, width_size=8, depth=1, key=jr.PRNGKey(17))
+def complex_relu(x):
+    """ReLU on R, extended componentwise to C."""
+    if jnp.issubdtype(x.dtype, jnp.complexfloating):
+        return jax.lax.complex(jax.nn.relu(x.real), jax.nn.relu(x.imag))
+    return jax.nn.relu(x)
+
+
+ffn_init = eqx.nn.MLP(
+    in_size=1,
+    out_size=1,
+    width_size=8,
+    depth=1,
+    activation=complex_relu,
+    key=jr.PRNGKey(17),
+)
 weight1 = jnp.array(
     [
         [3.39958394],
@@ -479,6 +599,16 @@ diagonal_bowl_args = treedef.unflatten(
     [jr.normal(key, leaf.shape, leaf.dtype) ** 2 for leaf in leaves]
 )
 
+diagonal_bowl_init_complex = (
+    {"a": (0.05 + 0.01j) * jnp.ones((2, 3, 3), dtype=jnp.complex128)},
+    ((0.01 + 0.05j) * jnp.ones(2, dtype=jnp.complex128)),
+)
+leaves_complex, treedef_complex = jtu.tree_flatten(diagonal_bowl_init_complex)
+key = jr.PRNGKey(17)
+diagonal_bowl_args_complex = treedef.unflatten(
+    [jr.normal(key, leaf.shape, leaf.real.dtype) ** 2 for leaf in leaves_complex]
+)
+
 # neural net args
 ffn_data = jnp.linspace(0, 1, 100)[..., None]
 ffn_args = (ffn_static, ffn_data)
@@ -489,6 +619,36 @@ least_squares_fn_minima_init_args = (
         jnp.array(0.0),
         diagonal_bowl_init,
         diagonal_bowl_args,
+    ),
+    (
+        diagonal_quadratic_bowl,
+        jnp.array(0.0),
+        diagonal_bowl_init_complex,
+        diagonal_bowl_args_complex,
+    ),
+    (
+        complex_to_real_residual,
+        jnp.array(0.0),
+        jnp.array(1.0 + 1.1j, dtype=jnp.complex128),
+        jnp.array(-0.5 + 0.25j, dtype=jnp.complex128),
+    ),
+    (
+        holomorphic_residual,
+        jnp.array(0.0),
+        jnp.array(1.0 + 1.1j, dtype=jnp.complex128),
+        jnp.array(-0.5 + 0.25j, dtype=jnp.complex128),
+    ),
+    (
+        antiholomorphic_residual,
+        jnp.array(0.0),
+        jnp.array(1.0 + 1.1j, dtype=jnp.complex128),
+        jnp.array(-0.5 + 0.25j, dtype=jnp.complex128),
+    ),
+    (
+        nonholomorphic_residual,
+        jnp.array(0.0),
+        jnp.array(1.0 + 1.1j, dtype=jnp.complex128),
+        jnp.array(-0.5 + 0.25j, dtype=jnp.complex128),
     ),
     (
         rosenbrock,
@@ -559,6 +719,18 @@ minimisation_fn_minima_init_args = (
     ),
     # Problems with initial value of 0
     (square_minus_one, jnp.array(-1.0), jnp.array(1.0), None),
+    (
+        square_minus_one,
+        jnp.array(-1.0),
+        jnp.array(1.0 + 1.1j, dtype=jnp.complex128),
+        None,
+    ),
+    (
+        complex_quadratic,
+        jnp.array(0.0),
+        jnp.array(1.0 + 1.1j, dtype=jnp.complex128),
+        jnp.array(-0.5 + 0.25j, dtype=jnp.complex128),
+    ),
 )
 
 # ROOT FIND/FIXED POINT PROBLEMS
@@ -887,20 +1059,23 @@ def forward_only_ode(k, args):
     dy = lambda t, y, k: -k * y
 
     def solve(_k):
-        return dfx.diffeqsolve(
-            dfx.ODETerm(dy),
-            dfx.Tsit5(),
-            0.0,
-            10.0,
-            0.1,
-            10.0,
-            args=_k,
-            adjoint=dfx.ForwardMode(),
-        )
+        with jax.numpy_dtype_promotion("standard"):
+            return dfx.diffeqsolve(
+                dfx.ODETerm(dy),
+                dfx.Tsit5(),
+                0.0,
+                10.0,
+                0.1,
+                jnp.asarray(10.0, dtype=_k.dtype),
+                args=_k,
+                adjoint=dfx.ForwardMode(),
+            )
 
-    data = jnp.asarray(solve(jnp.array(0.5)).ys)  # seems to make type checkers happy
+    reference_k = jnp.asarray(0.5, dtype=k.dtype)
+    data = jnp.asarray(solve(reference_k).ys)  # seems to make type checkers happy
     fit = jnp.asarray(solve(k).ys)
-    return jnp.sum((data - fit) ** 2)
+    diff = data - fit
+    return jnp.sum(norm_sq(diff))
 
 
 forward_only_fn_init_options_expected = (

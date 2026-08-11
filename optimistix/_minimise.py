@@ -7,6 +7,12 @@ import jax.tree_util as jtu
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
+from ._complex import (
+    _complex_to_real,
+    _FromRealFn,
+    _has_complex,
+    _restore_solution,
+)
 from ._custom_types import Aux, Fn, MaybeAuxFn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._misc import inexact_asarray, NoneAux, OutAsArray
@@ -52,6 +58,8 @@ def minimise(
     """Minimise a function.
 
     This minimises a nonlinear function `fn(y, args)` which returns a scalar value.
+    Complex-valued inputs are represented internally by their real and imaginary
+    parts, so that differentiation and linear solves are performed over the reals.
 
     **Arguments:**
 
@@ -88,6 +96,10 @@ def minimise(
     if not has_aux:
         fn = NoneAux(fn)  # pyright: ignore
     fn = OutAsArray(fn)
+    complex_to_real = _has_complex(y0)
+    if complex_to_real:
+        y0 = _complex_to_real(y0)
+        fn = _FromRealFn(fn, convert_output=False)
     fn = eqx.filter_closure_convert(fn, y0, args)  # pyright: ignore
     fn = cast(Fn[Y, Scalar, Aux], fn)
     f_struct, aux_struct = fn.out_struct  # pyright: ignore[reportFunctionMemberAccess]
@@ -103,7 +115,7 @@ def minimise(
             "minimisation function must output a single floating-point scalar."
         )
 
-    return iterative_solve(
+    solution = iterative_solve(
         fn,
         solver,
         y0,
@@ -117,3 +129,6 @@ def minimise(
         f_struct=f_struct,
         rewrite_fn=_rewrite_fn,
     )
+    if complex_to_real:
+        solution = _restore_solution(solution)
+    return solution

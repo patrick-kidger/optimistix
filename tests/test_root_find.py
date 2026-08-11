@@ -12,8 +12,10 @@ from equinox.internal import ω
 from .helpers import (
     finite_difference_jvp,
     fixed_point_fn_init_args,
+    make_nonreal,
     PiggybackAdjoint,
     tree_allclose,
+    tree_as_dtype,
 )
 
 
@@ -31,7 +33,10 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 @pytest.mark.parametrize("solver", _root_finders)
 @pytest.mark.parametrize("_fn, init, args", fixed_point_fn_init_args)
-def test_root_find(solver, _fn, init, args):
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_root_find(solver, _fn, init, args, dtype):
+    init = make_nonreal(tree_as_dtype(init, dtype))
+    args = tree_as_dtype(args, dtype)
     atol = rtol = 1e-5
     has_aux = random.choice([True, False])
 
@@ -43,9 +48,14 @@ def test_root_find(solver, _fn, init, args):
         fn = lambda x, args: (root_find_problem(x, args), smoke_aux)
     else:
         fn = root_find_problem
-    optx_root = optx.root_find(
-        fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
-    ).value
+    if dtype == jnp.complex128:
+        context = pytest.warns(match="Complex support in Optimistix is a work in")
+    else:
+        context = contextlib.nullcontext()
+    with context:
+        optx_root = optx.root_find(
+            fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
+        ).value
     out = fn(optx_root, args)
     if has_aux:
         fn_val, _ = out

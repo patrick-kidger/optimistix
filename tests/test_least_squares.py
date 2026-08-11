@@ -11,13 +11,20 @@ import optimistix as optx
 import pytest
 
 from .helpers import (
+    antiholomorphic_residual,
+    complex_to_real_residual,
     diagonal_quadratic_bowl,
     finite_difference_jvp,
+    holomorphic_residual,
     least_squares_fn_minima_init_args,
     least_squares_optimisers,
+    make_nonreal,
+    nonholomorphic_residual,
+    norm_sq,
     rosenbrock,
     simple_nn,
     tree_allclose,
+    tree_as_dtype,
 )
 
 
@@ -26,8 +33,17 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 
 @pytest.mark.parametrize("solver", least_squares_optimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", least_squares_fn_minima_init_args)
-def test_least_squares(solver, _fn, minimum, init, args):
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_least_squares(solver, _fn, minimum, init, args, dtype):
+    init = make_nonreal(tree_as_dtype(init, dtype))
+    args = tree_as_dtype(args, dtype)
     atol = rtol = 1e-4
+    if dtype == jnp.complex128 and isinstance(solver, optx.NelderMead):
+        atol = rtol = 1e-3
+    if dtype == jnp.complex128 and isinstance(solver, optx.OptaxMinimiser):
+        max_steps = 100_000
+    else:
+        max_steps = 10_000
     has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
@@ -40,7 +56,13 @@ def test_least_squares(solver, _fn, minimum, init, args):
         context = contextlib.nullcontext()
     with context:
         optx_argmin = optx.least_squares(
-            fn, solver, init, has_aux=has_aux, args=args, max_steps=10_000, throw=False
+            fn,
+            solver,
+            init,
+            has_aux=has_aux,
+            args=args,
+            max_steps=max_steps,
+            throw=False,
         ).value
     out = fn(optx_argmin, args)
     if has_aux:
@@ -48,14 +70,17 @@ def test_least_squares(solver, _fn, minimum, init, args):
     else:
         residual = out
     optx_min = jtu.tree_reduce(
-        lambda x, y: x + y, jtu.tree_map(lambda x: jnp.sum(x**2), residual)
+        lambda x, y: x + y, jtu.tree_map(lambda x: jnp.sum(norm_sq(x)), residual)
     )
     assert tree_allclose(optx_min, minimum, atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize("solver", least_squares_optimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", least_squares_fn_minima_init_args)
-def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args, dtype):
+    init = make_nonreal(tree_as_dtype(init, dtype))
+    args = tree_as_dtype(args, dtype)
     if _fn in (simple_nn, diagonal_quadratic_bowl):
         # These are ridiculously finickity to get references values for the derivatives
         return
@@ -67,8 +92,10 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
         fn = _fn
 
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
-    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
-    t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
+    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape, dtype=x.dtype), init)
+    t_dynamic_args = jtu.tree_map(
+        lambda x: jr.normal(getkey(), x.shape, dtype=x.dtype), dynamic_args
+    )
 
     def least_squares(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
@@ -98,12 +125,22 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
         (t_init, t_dynamic_args),
         adjoint=otd,
     )
-    if _fn is rosenbrock:
+    if _fn in (
+        complex_to_real_residual,
+        holomorphic_residual,
+        nonholomorphic_residual,
+        rosenbrock,
+    ):
         # Finite difference does a bad job on this one, but we can figure it out
         # analytically.
         assert isinstance(args, jax.Array)
         expected_out = jtu.tree_map(lambda x: jnp.full_like(x, args), init)
         t_expected_out = jtu.tree_map(lambda x: jnp.full_like(x, t_dynamic_args), init)
+    elif _fn is antiholomorphic_residual:
+        expected_out = jtu.tree_map(lambda x: jnp.full_like(x, jnp.conj(args)), init)
+        t_expected_out = jtu.tree_map(
+            lambda x: jnp.full_like(x, jnp.conj(t_dynamic_args)), init
+        )
     else:
         expected_out, t_expected_out = finite_difference_jvp(
             least_squares,
@@ -129,7 +166,8 @@ def test_least_squares_jvp(getkey, solver, _fn, minimum, init, args):
     # assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)
 
 
-def test_gauss_newton_jacrev():
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_gauss_newton_jacrev(dtype):
     @jax.custom_vjp
     def f(y, _):
         return dict(bar=y["foo"] ** 2)
@@ -143,9 +181,11 @@ def test_gauss_newton_jacrev():
     f.defvjp(f_fwd, f_bwd)
 
     solver = optx.LevenbergMarquardt(rtol=1e-8, atol=1e-8)
-    y0 = dict(foo=jnp.arange(3.0))
+    y0 = dict(foo=make_nonreal(tree_as_dtype(jnp.arange(3.0), dtype)))
     out = optx.least_squares(f, solver, y0, options=dict(jac="bwd"), max_steps=512)
-    assert tree_allclose(out.value, dict(foo=jnp.zeros(3)), rtol=1e-3, atol=1e-2)
+    assert tree_allclose(
+        out.value, dict(foo=jnp.zeros(3, dtype=dtype)), rtol=1e-3, atol=1e-2
+    )
 
     with pytest.raises(TypeError, match="forward-mode autodiff"):
         optx.least_squares(f, solver, y0, options=dict(jac="fwd"), max_steps=512)
@@ -253,13 +293,11 @@ def test_residual_jac():
 
     assert tree_allclose(grad_dot2, true_grad_dot2)
 
-    # TODO: figure out what is going on here, complex numbers don't seem to be behaving.
-    pytest.skip()
     assert tree_allclose(grad_dot1, true_grad_dot1)
     # For context, the complex dot product between two scalars is
     # `(a + bi)^bar . (c + di) = ac + bd + i(ad - bc)`
     # The real dot product is
     # `(a, b) . (c, d) = ac + bd`
-    # In general we expect the real part of the complex dot product to agree with the
-    # real dot product.
-    assert tree_allclose(grad_dot1.real, grad_dot2)
+    # JAX represents the real gradient `(a, b)` as the complex number `a - bi`, so its
+    # R^2 directional derivative is instead the real part of the bilinear product.
+    assert tree_allclose(jnp.sum(grad1 * z).real, grad_dot2)

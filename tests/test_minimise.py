@@ -12,15 +12,14 @@ import optimistix as optx
 import pytest
 
 from .helpers import (
-    beale,
-    bowl,
-    finite_difference_jvp,
     forward_only_fn_init_options_expected,
     golden_search_fn_y0_options_expected,
-    matyas,
+    implicit_minimise_jvp,
+    make_nonreal,
     minimisation_fn_minima_init_args,
     minimisers,
     tree_allclose,
+    tree_as_dtype,
 )
 
 
@@ -32,12 +31,19 @@ smoke_aux = (jnp.ones((2, 3)), {"smoke_aux": jnp.ones(2)})
 )
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
-def test_minimise(solver, _fn, minimum, init, args, options):
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_minimise(solver, _fn, minimum, init, args, options, dtype):
+    init = make_nonreal(tree_as_dtype(init, dtype))
+    args = tree_as_dtype(args, dtype)
     if isinstance(solver, optx.GradientDescent):
         max_steps = 100_000
     else:
         max_steps = 10_000
     atol = rtol = 1e-4
+    if dtype == jnp.complex128 and isinstance(solver, optx.NelderMead):
+        # The R² representation doubles the dimension of the simplex problem.
+        # Nelder--Mead is particularly inaccurate in these larger dimensions.
+        atol = rtol = 1e-2
     has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
@@ -67,13 +73,18 @@ def test_minimise(solver, _fn, minimum, init, args, options):
 )
 @pytest.mark.parametrize("solver", minimisers)
 @pytest.mark.parametrize("_fn, minimum, init, args", minimisation_fn_minima_init_args)
-def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options):
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options, dtype):
+    init = make_nonreal(tree_as_dtype(init, dtype))
+    args = tree_as_dtype(args, dtype)
     if isinstance(solver, (optx.GradientDescent, optx.NonlinearCG)):
         max_steps = 100_000
         atol = rtol = 1e-2
     else:
         max_steps = 10_000
         atol = rtol = 1e-3
+    if dtype == jnp.complex128 and isinstance(solver, optx.NelderMead):
+        atol = rtol = 1e-2
     has_aux = random.choice([True, False])
     if has_aux:
         fn = lambda x, args: (_fn(x, args), smoke_aux)
@@ -81,8 +92,10 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options):
         fn = _fn
 
     dynamic_args, static_args = eqx.partition(args, eqx.is_array)
-    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), init)
-    t_dynamic_args = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape), dynamic_args)
+    t_init = jtu.tree_map(lambda x: jr.normal(getkey(), x.shape, dtype=x.dtype), init)
+    t_dynamic_args = jtu.tree_map(
+        lambda x: jr.normal(getkey(), x.shape, dtype=x.dtype), dynamic_args
+    )
 
     def minimise(x, dynamic_args, *, adjoint):
         args = eqx.combine(dynamic_args, static_args)
@@ -107,26 +120,6 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options):
     out, t_out = eqx.filter_jit(ft.partial(eqx.filter_jvp, minimise))(
         (init, dynamic_args), (t_init, t_dynamic_args), adjoint=otd
     )
-    if _fn is bowl:
-        # Finite difference is very inaccurate on this problem.
-        expected_out = t_expected_out = jtu.tree_map(jnp.zeros_like, init)
-    elif _fn in (beale, matyas):
-        if isinstance(solver, optx.NonlinearCG):
-            eps = 1e-3
-            atol = rtol = 1e-2  # finite difference does a really bad job on this one
-        else:
-            eps = 1e-4
-        expected_out, t_expected_out = finite_difference_jvp(
-            minimise,
-            (init, dynamic_args),
-            (t_init, t_dynamic_args),
-            adjoint=otd,
-            eps=eps,
-        )
-    else:
-        expected_out, t_expected_out = finite_difference_jvp(
-            minimise, (init, dynamic_args), (t_init, t_dynamic_args), adjoint=otd
-        )
     # TODO(kidger): reinstate once we can do jvp-of-custom_vjp. Right now this errors
     #     because of the line searches used internally.
     #
@@ -137,10 +130,15 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options):
     # out2, t_out2 = eqx.filter_jvp(
     #     minimise, (init, dynamic_args), (t_init, t_dynamic_args), adjoint=dto,
     # )
-    assert tree_allclose(out, expected_out, atol=atol, rtol=rtol)
-    if not isinstance(solver, optx.NelderMead):
+    if isinstance(solver, optx.NelderMead):
         # Nelder-Mead does such a bad job that the finite-difference gradients are
         # noticeably different.
+        assert tree_allclose(_fn(out, args), minimum, atol=atol, rtol=rtol)
+    else:
+        t_expected_out = implicit_minimise_jvp(
+            _fn, out, args, eqx.combine(t_dynamic_args, static_args)
+        )
+        assert tree_allclose(_fn(out, args), minimum, atol=atol, rtol=rtol)
         assert tree_allclose(t_out, t_expected_out, atol=atol, rtol=rtol)
     # assert tree_allclose(expected_out2, expected_out, atol=atol, rtol=rtol)
     # assert tree_allclose(out2, expected_out, atol=atol, rtol=rtol)
@@ -148,18 +146,21 @@ def test_minimise_jvp(getkey, solver, _fn, minimum, init, args, options):
     # assert tree_allclose(t_out2, t_expected_out, atol=atol, rtol=rtol)
 
 
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
 @pytest.mark.parametrize(
     "method",
     [optx.polak_ribiere, optx.fletcher_reeves, optx.hestenes_stiefel, optx.dai_yuan],
 )
-def test_nonlinear_cg_methods(method):
+def test_nonlinear_cg_methods(method, dtype):
     solver = optx.NonlinearCG(rtol=1e-10, atol=1e-10, method=method)
 
     def f(y, _):
-        A = jnp.array([[2.0, -1.0], [-1.0, 3.0]])
-        b = jnp.array([-100.0, 5.0])
-        c = jnp.array(100.0)
-        return jnp.einsum("ij,i,j", A, y, y) + jnp.dot(b, y) + c
+        A = jnp.array([[2.0, -1.0], [-1.0, 3.0]], dtype=dtype)
+        b = jnp.array([-100.0, 5.0], dtype=dtype)
+        c = jnp.array(100.0, dtype=dtype)
+        quadratic = jnp.einsum("ij,i,j", A, jnp.conj(y), y).real
+        linear = jnp.vdot(b, y).real
+        return quadratic + linear + c.real
 
     # Analytic minimum:
     # 0 = df/dyk
@@ -168,9 +169,11 @@ def test_nonlinear_cg_methods(method):
     # => y = -0.5 A^{-1} b
     #      = [[-0.3, 0.1], [0.1, 0.2]] [-100, 5]
     #      = [29.5, 9]
-    y0 = jnp.array([2.0, 3.0])
+    y0 = make_nonreal(jnp.array([2.0, 3.0], dtype=dtype))
     sol = optx.minimise(f, solver, y0, max_steps=500)
-    assert tree_allclose(sol.value, jnp.array([29.5, 9.0]), rtol=1e-5, atol=1e-5)
+    assert tree_allclose(
+        sol.value, jnp.array([29.5, 9.0], dtype=dtype), rtol=1e-5, atol=1e-5
+    )
 
 
 def test_optax_recompilation():
@@ -204,12 +207,20 @@ def test_optax_recompilation():
 @pytest.mark.parametrize(
     "fn, y0, options, expected", forward_only_fn_init_options_expected
 )
-def test_forward_minimisation(fn, y0, options, expected, solver):
+@pytest.mark.parametrize("dtype", [jnp.float64, jnp.complex128])
+def test_forward_minimisation(fn, y0, options, expected, solver, dtype):
+    y0 = make_nonreal(tree_as_dtype(y0, dtype))
+    expected = tree_as_dtype(expected, dtype)
     if isinstance(solver, optx.OptaxMinimiser):  # No support for forward option
         return
     else:
-        # Many steps because gradient descent takes ridiculously long
-        sol = optx.minimise(fn, solver, y0, options=options, max_steps=2**10)
+        if dtype == jnp.complex128:
+            context = pytest.warns(match="Complex dtype support in Diffrax")
+        else:
+            context = contextlib.nullcontext()
+        with context:
+            # Many steps because gradient descent takes ridiculously long
+            sol = optx.minimise(fn, solver, y0, options=options, max_steps=2**10)
         assert sol.result == optx.RESULTS.successful
         assert tree_allclose(sol.value, expected, atol=1e-4, rtol=1e-4)
 
