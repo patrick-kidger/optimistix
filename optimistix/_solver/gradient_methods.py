@@ -171,17 +171,29 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
+        # Some searches (e.g. `WolfeSearch`) need the gradient at the trial point to
+        # check a curvature condition. Compute it eagerly only when required, and reuse
+        # it on acceptance; otherwise defer it to the `accepted` branch as usual.
+        if self.search.requires_grad_eval:
+            grad_eval = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
+            f_eval_info_for_search = FunctionInfo.EvalGrad(f_eval, grad_eval)
+        else:
+            grad_eval = None
+            f_eval_info_for_search = FunctionInfo.Eval(f_eval)
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
             y,
             state.y_eval,
             state.f_info,
-            FunctionInfo.Eval(f_eval),
+            f_eval_info_for_search,
             state.search_state,
         )
 
         def accepted(descent_state):
-            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
+            if grad_eval is None:
+                grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
+            else:
+                grad = grad_eval
 
             f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)

@@ -18,6 +18,7 @@ from .._misc import (
     tree_dot,
 )
 from .._search import (
+    AbstractSearch,
     FunctionInfo,
 )
 from .backtracking import BacktrackingArmijo
@@ -288,8 +289,9 @@ def _lbfgs_hessian_operator_fn(
             lambda x: jnp.einsum("h,h...->...", descent[: state.history_length], x)
         )
         - ω(state.y_diff_history).call(
-            lambda x: gamma_k
-            * jnp.einsum("h,h...->...", descent[state.history_length :], x),
+            lambda x: (
+                gamma_k * jnp.einsum("h,h...->...", descent[state.history_length :], x)
+            ),
         )
     ).ω
     return descent_step
@@ -568,7 +570,7 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
     norm: Callable[[PyTree], Scalar]
     use_inverse: bool
     descent: NewtonDescent
-    search: BacktrackingArmijo
+    search: AbstractSearch
     history_length: int
     verbose: Callable[..., None]
 
@@ -580,13 +582,14 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         use_inverse: bool = True,
         history_length: int = 10,
         verbose: bool | Callable[..., None] = False,
+        search: AbstractSearch | None = None,
     ):
         self.rtol = rtol
         self.atol = atol
         self.norm = norm
         self.use_inverse = use_inverse
         self.descent = NewtonDescent()
-        self.search = BacktrackingArmijo()
+        self.search = BacktrackingArmijo() if search is None else search
         self.history_length = history_length
         self.verbose = default_verbose(verbose)
 
@@ -613,4 +616,7 @@ LBFGS.__init__.__doc__ = """**Arguments:**
     or (for customisation) a callable `**kwargs -> None`. If provided as a callable then
     each value will be a 2-tuple of `(str, jax.Array)` providing a human-readable name
     and its corresponding value.
+- `search`: The line search to use. Defaults to [`optimistix.BacktrackingArmijo`][].
+    Pass [`optimistix.WolfeSearch`][] for a strong-Wolfe line search, which often
+    converges in fewer iterations.
 """
