@@ -2,6 +2,7 @@ import contextlib
 import random
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
@@ -243,3 +244,41 @@ def test_newton_chord_small_diff(solver_cls):
     solver = solver_cls(rtol=1e-5, atol=1e-5, cauchy_termination=False)
     sol = optx.root_find(f, solver, 0.0, throw=False)
     assert sol.result == optx.RESULTS.successful
+
+
+def test_levenberg_marquardt_no_nan_jvp_on_first_step():
+    # Regression test for https://github.com/patrick-kidger/optimistix/issues/229
+    #
+    # `AbstractGaussNewton.init` used to fill `state.f_info` with a same-shaped
+    # placeholder of zeros (via `tree_full_like(f_info_struct, 0, ...)`), rather
+    # than a real evaluation of `_make_f_info`. This silently zeroed out any
+    # values closed over inside `f_info.jac` too -- in particular, the point at
+    # which `jax.linearize` captured its linearization inside `_make_f_info`.
+    #
+    # `ClassicalTrustRegion.predict_reduction` calls `f_info.jac.mv(y_diff)`
+    # unconditionally on every call to `step` -- including the very first, where
+    # `f_info` is still this placeholder -- even though the *decision* it feeds
+    # into (`accept`) is separately forced to `True` via `accept | first_step`.
+    # If the residual function involves an operation that is nan-sensitive at
+    # zero (e.g. a division), the corrupted placeholder produces a genuine nan
+    # in `predicted_reduction`'s value, which then contaminates the JVP even
+    # though the *decision* itself is unaffected by it.
+    #
+    # `GaussNewton` (no trust region) does not hit this, which is why the
+    # original report singles out `LevenbergMarquardt`/
+    # `InverseLevenbergMarquardt` specifically.
+    divisor = jnp.array([5.0, 2.5])
+
+    def residual(y, _):
+        return jnp.array([0.5, 0.5]) - y / divisor
+
+    solver = optx.LevenbergMarquardt(rtol=1e-5, atol=1e-5)
+    y0 = jnp.array([0.9, 0.1])
+
+    def solve(y0):
+        return optx.root_find(residual, solver, y0=y0, args=()).value
+
+    with jax.numpy_dtype_promotion("standard"):
+        out, tangent = jax.jvp(solve, (y0,), (jnp.ones_like(y0),))
+    assert jnp.all(jnp.isfinite(out))
+    assert jnp.all(jnp.isfinite(tangent))
