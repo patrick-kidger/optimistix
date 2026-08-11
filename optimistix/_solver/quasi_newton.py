@@ -17,7 +17,6 @@ from .._misc import (
     cauchy_termination,
     default_verbose,
     filter_cond,
-    lin_to_grad,
     max_norm,
     tree_dot,
     tree_full_like,
@@ -29,6 +28,7 @@ from .._search import (
     FunctionInfo,
 )
 from .._solution import RESULTS
+from ._f_eval_info_helpers import make_eval_info_for_search, promote_to_eval_grad
 from .backtracking import BacktrackingArmijo
 from .gauss_newton import NewtonDescent
 
@@ -139,7 +139,9 @@ class AbstractQuasiNewton(
     norm: AbstractVar[Callable[[PyTree], Scalar]]
     use_inverse: AbstractVar[bool]
     descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
-    search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
+    search: AbstractVar[
+        AbstractSearch[Y, _Hessian, FunctionInfo.Eval | FunctionInfo.EvalGrad, Any]
+    ]
     verbose: AbstractVar[Callable[..., None]]
 
     @abc.abstractmethod
@@ -214,29 +216,39 @@ class AbstractQuasiNewton(
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
+        f_eval_info = make_eval_info_for_search(
+            self.search.info_needed_at_y_eval,
+            state.y_eval,
+            f_eval,
+            lin_fn,
+            autodiff_mode,
+        )
+
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
             y,
             state.y_eval,
             state.f_info,
-            FunctionInfo.Eval(f_eval),
+            f_eval_info,
             state.search_state,
         )
 
         def accepted(descent_state):
-            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
+            accepted_f_eval_info = promote_to_eval_grad(
+                f_eval_info, state.y_eval, f_eval, lin_fn, autodiff_mode
+            )
 
-            f_eval_info, hessian_update_state = self.update_hessian(
+            updated_f_eval_info, hessian_update_state = self.update_hessian(
                 y,
                 state.y_eval,
                 state.f_info,
-                FunctionInfo.EvalGrad(f_eval, grad),
+                accepted_f_eval_info,
                 state.hessian_update_state,
             )
 
             descent_state = self.descent.query(
                 state.y_eval,
-                f_eval_info,  # pyright: ignore
+                updated_f_eval_info,
                 descent_state,
             )
             y_diff = (state.y_eval**ω - y**ω).ω
@@ -249,7 +261,7 @@ class AbstractQuasiNewton(
             )  # Skip termination on first step
             return (
                 state.y_eval,
-                f_eval_info,
+                updated_f_eval_info,
                 aux_eval,
                 descent_state,
                 terminate,

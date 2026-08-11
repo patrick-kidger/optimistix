@@ -29,6 +29,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax as lx
+from equinox import AbstractClassVar
 from jaxtyping import Array, Bool, Scalar
 
 from ._custom_types import (
@@ -79,55 +80,38 @@ class Eval(FunctionInfo):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGrad(FunctionInfo, Generic[Y]):
+class EvalGrad(Eval, Generic[Y]):
     """Has a `.f` attribute as with [`optimistix.FunctionInfo.Eval`][]. Also has a
     `.grad` attribute describing `d(fn)/dy`. Used with first-order solvers for
     minimisation problems. (E.g. gradient descent; nonlinear CG.)
     """
 
-    f: Scalar
     grad: Y
 
-    def as_min(self):
-        return self.f
+    def compute_grad(self):
+        return self.grad
 
     def compute_grad_dot(self, y: Y):
         return tree_dot(self.grad, y)
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGradHessian(FunctionInfo, Generic[Y]):
+class EvalGradHessian(EvalGrad[Y], Generic[Y]):
     """Has `.f` and `.grad` attributes as with [`optimistix.FunctionInfo.EvalGrad`][].
     Also has a `.hessian` attribute describing (an approximation to) the Hessian of
     `fn` at `y`. Used with quasi-Newton minimisation algorithms, like BFGS.
     """
 
-    f: Scalar
-    grad: Y
     hessian: lx.AbstractLinearOperator
-
-    def as_min(self):
-        return self.f
-
-    def compute_grad_dot(self, y: Y):
-        return tree_dot(self.grad, y)
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class EvalGradHessianInv(FunctionInfo, Generic[Y]):
+class EvalGradHessianInv(EvalGrad[Y], Generic[Y]):
     """As [`optimistix.FunctionInfo.EvalGradHessian`][], but records the (approximate)
     inverse-Hessian instead. Has `.f` and `.grad` and `.hessian_inv` attributes.
     """
 
-    f: Scalar
-    grad: Y
     hessian_inv: lx.AbstractLinearOperator
-
-    def as_min(self):
-        return self.f
-
-    def compute_grad_dot(self, y: Y):
-        return tree_dot(self.grad, y)
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
@@ -143,17 +127,13 @@ class Residual(FunctionInfo, Generic[Out]):
 
 
 # NOT PUBLIC, despite lacking an underscore. This is so pyright gets the name right.
-class ResidualJac(FunctionInfo, Generic[Y, Out]):
+class ResidualJac(Residual[Out], Generic[Y, Out]):
     """Records the Jacobian `d(fn)/dy` as a linear operator. Used for least squares
     problems, for which `fn` returns residuals. Has `.residual` and `.jac` attributes,
     where `residual = fn(y)`, `jac = d(fn)/dy`.
     """
 
-    residual: Out
     jac: lx.AbstractLinearOperator
-
-    def as_min(self):
-        return 0.5 * sum_squares(self.residual)
 
     def compute_grad(self):
         conj_residual = jtu.tree_map(jnp.conj, self.residual)
@@ -320,6 +300,8 @@ class AbstractSearch(eqx.Module, Generic[Y, _FnInfo, _FnEvalInfo, SearchState]):
     See [this documentation](./introduction.md) for more information.
     """
 
+    info_needed_at_y_eval: AbstractClassVar[type[FunctionInfo]]
+
     @abc.abstractmethod
     def init(self, y: Y, f_info_struct: _FnInfo) -> SearchState:
         """Is called just once, at the very start of the entire optimisation problem.
@@ -363,7 +345,7 @@ class AbstractSearch(eqx.Module, Generic[Y, _FnInfo, _FnEvalInfo, SearchState]):
         - `f_info`: An [`optimistix.FunctionInfo`][] describing information about `f`
             evaluated at `y`, the gradient of `f` at `y`, etc.
         - `f_eval_info`: An [`optimistix.FunctionInfo`][] describing information about
-            `f` evaluated at `y`, the gradient of `f` at `y`, etc.
+            `f` evaluated at `y_eval`, the gradient of `f` at `y_eval`, etc.
         - `state`: the evolving state of the repeated searches.
 
         **Returns:**

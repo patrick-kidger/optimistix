@@ -183,7 +183,9 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
     atol: float
     norm: Callable[[PyTree], Scalar]
     descent: NonlinearCGDescent[Y]
-    search: AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
+    search: AbstractSearch[
+        Y, FunctionInfo.EvalGrad, FunctionInfo.Eval | FunctionInfo.EvalGrad, Any
+    ]
 
     def __init__(
         self,
@@ -193,7 +195,10 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
         method: Callable[[Y, Y, Y], Scalar] = polak_ribiere,
         # TODO(raderj): replace the default line search with something better.
         search: AbstractSearch[
-            Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any
+            Y,
+            FunctionInfo.EvalGrad,
+            FunctionInfo.Eval | FunctionInfo.EvalGrad,
+            Any,
         ] = BacktrackingArmijo(decrease_factor=0.5, slope=0.1),
     ):
         """**Arguments:**

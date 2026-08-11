@@ -13,7 +13,6 @@ from .._minimise import AbstractMinimiser
 from .._misc import (
     cauchy_termination,
     filter_cond,
-    lin_to_grad,
     max_norm,
     tree_full_like,
     tree_where,
@@ -24,6 +23,7 @@ from .._search import (
     FunctionInfo,
 )
 from .._solution import RESULTS
+from ._f_eval_info_helpers import make_eval_info_for_search, promote_to_eval_grad
 from .learning_rate import LearningRate
 
 
@@ -132,7 +132,9 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
     norm: AbstractVar[Callable[[PyTree], Scalar]]
     descent: AbstractVar[AbstractDescent[Y, FunctionInfo.EvalGrad, Any]]
     search: AbstractVar[
-        AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
+        AbstractSearch[
+            Y, FunctionInfo.EvalGrad, FunctionInfo.Eval | FunctionInfo.EvalGrad, Any
+        ]
     ]
 
     def init(
@@ -171,20 +173,30 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         f_eval, lin_fn, aux_eval = jax.linearize(
             lambda _y: fn(_y, args), state.y_eval, has_aux=True
         )
+        f_eval_info = make_eval_info_for_search(
+            self.search.info_needed_at_y_eval,
+            state.y_eval,
+            f_eval,
+            lin_fn,
+            autodiff_mode,
+        )
+
         step_size, accept, search_result, search_state = self.search.step(
             state.first_step,
             y,
             state.y_eval,
             state.f_info,
-            FunctionInfo.Eval(f_eval),
+            f_eval_info,
             state.search_state,
         )
 
         def accepted(descent_state):
-            grad = lin_to_grad(lin_fn, state.y_eval, autodiff_mode, f_eval.dtype)
-
-            f_eval_info = FunctionInfo.EvalGrad(f_eval, grad)
-            descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
+            accepted_f_eval_info = promote_to_eval_grad(
+                f_eval_info, state.y_eval, f_eval, lin_fn, autodiff_mode
+            )
+            descent_state = self.descent.query(
+                state.y_eval, accepted_f_eval_info, descent_state
+            )
             y_diff = (state.y_eval**ω - y**ω).ω
             f_diff = (f_eval**ω - state.f_info.f**ω).ω
             terminate = cauchy_termination(
@@ -193,7 +205,13 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
             terminate = jnp.where(
                 state.first_step, jnp.array(False), terminate
             )  # Skip termination on first step
-            return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
+            return (
+                state.y_eval,
+                accepted_f_eval_info,
+                aux_eval,
+                descent_state,
+                terminate,
+            )
 
         def rejected(descent_state):
             return y, state.f_info, state.aux, descent_state, jnp.array(False)
