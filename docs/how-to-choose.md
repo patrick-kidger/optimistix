@@ -26,7 +26,7 @@ If your problem is particularly messy, as discussed above, then use a first-orde
 
 ## Root-finding problems
 
-For one-dimensional problems, use [`optimistix.Bisection`][].
+For one-dimensional problems, use [`optimistix.Bisection`][] or [`optimistix.NewtonBisection`][].
 
 For relatively "well-behaved" problems, then either [`optimistix.Newton`][] or [`optimistix.Chord`][] are recommended.
 
