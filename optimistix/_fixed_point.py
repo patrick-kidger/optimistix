@@ -12,6 +12,7 @@ from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver
 from ._minimise import AbstractMinimiser
 from ._misc import inexact_asarray, NoneAux, OutAsArray
+from ._progress_meter import AbstractProgressMeter, NoProgressMeter
 from ._root_find import AbstractRootFinder, root_find
 from ._solution import Solution
 
@@ -63,6 +64,7 @@ def fixed_point(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
+    progress_meter: AbstractProgressMeter = NoProgressMeter(),
 ) -> Solution[Y, Aux]:
     """Find a fixed-point of a function.
 
@@ -102,6 +104,8 @@ def fixed_point(
         is, the structure of the matrix `dfn/dy - I`.) Used with
         [`optimistix.ImplicitAdjoint`][] to implement the implicit function theorem as
         efficiently as possible. Keyword only argument.
+    - `progress_meter`: A progress meter to display the progress of the solve. Defaults
+        to [`optimistix.NoProgressMeter`][]. Keyword only argument.
 
     **Returns:**
 
@@ -126,6 +130,7 @@ def fixed_point(
             max_steps=max_steps,
             adjoint=adjoint,
             throw=throw,
+            progress_meter=progress_meter,
         )
     else:
         y0 = jtu.tree_map(inexact_asarray, y0)
@@ -151,4 +156,5 @@ def fixed_point(
             f_struct=f_struct,
             aux_struct=aux_struct,
             rewrite_fn=_rewrite_fn,
+            progress_meter=progress_meter,
         )

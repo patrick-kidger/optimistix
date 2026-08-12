@@ -10,6 +10,7 @@ from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Aux, Fn, MaybeAuxFn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._misc import inexact_asarray, NoneAux, OutAsArray
+from ._progress_meter import AbstractProgressMeter, NoProgressMeter
 from ._solution import Solution
 
 
@@ -48,6 +49,7 @@ def minimise(
     adjoint: AbstractAdjoint = ImplicitAdjoint(),
     throw: bool = True,
     tags: frozenset[object] = frozenset(),
+    progress_meter: AbstractProgressMeter = NoProgressMeter(),
 ) -> Solution[Y, Aux]:
     """Minimise a function.
 
@@ -78,6 +80,8 @@ def minimise(
         any structure of the Hessian of `fn` with respect to `y`. Used with
         [`optimistix.ImplicitAdjoint`][] to implement the implicit function theorem as
         efficiently as possible. Keyword only argument.
+    - `progress_meter`: A progress meter to display the progress of the solve. Defaults
+        to [`optimistix.NoProgressMeter`][]. Keyword only argument.
 
     **Returns:**
 
@@ -116,4 +120,5 @@ def minimise(
         aux_struct=aux_struct,
         f_struct=f_struct,
         rewrite_fn=_rewrite_fn,
+        progress_meter=progress_meter,
     )
