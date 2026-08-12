@@ -29,6 +29,13 @@
 
 ---
 
+::: optimistix.AndersonAcceleration
+    options:
+        members:
+            - __init__
+
+---
+
 ::: optimistix.BestSoFarFixedPoint
     options:
         members:
