@@ -4,9 +4,11 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+from equinox import AbstractVar
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
+from ._convergence import AbstractConvergence
 from ._custom_types import Aux, Fn, MaybeAuxFn, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._misc import inexact_asarray, NoneAux, OutAsArray
@@ -15,6 +17,8 @@ from ._solution import Solution
 
 class AbstractMinimiser(AbstractIterativeSolver[Y, Scalar, Aux, SolverState]):
     """Abstract base class for all minimisers."""
+
+    convergence: AbstractVar[AbstractConvergence[Y, Any]]
 
 
 def _rewrite_fn(minimum, _, inputs):

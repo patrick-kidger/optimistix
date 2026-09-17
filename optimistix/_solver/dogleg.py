@@ -8,6 +8,7 @@ import lineax as lx
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Scalar
 
+from .._convergence import CauchyConvergence
 from .._custom_types import Aux, Out, Y
 from .._misc import (
     default_verbose,
@@ -235,11 +236,9 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
     descent: DoglegDescent[Y]
     search: ClassicalTrustRegion[Y]
+    convergence: CauchyConvergence[Y]
     verbose: Callable[..., None]
 
     def __init__(
@@ -253,9 +252,7 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         # We don't expose root_finder to the default API for Dogleg because
         # we assume the `trust_region_norm` norm is `two_norm`, which has
         # an analytic formula for the intersection with the dogleg path.
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
+        self.convergence = CauchyConvergence(rtol=rtol, atol=atol, norm=norm)
         self.descent = DoglegDescent(linear_solver=linear_solver)
         self.search = ClassicalTrustRegion()
         self.verbose = default_verbose(verbose)

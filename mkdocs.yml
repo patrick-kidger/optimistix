@@ -118,10 +118,11 @@ nav:
     - Advanced API:
         - 'api/norms.md'
         - 'api/adjoints.md'
-        - Searches and descents:
+        - Searches, descents and convergence:
             - 'api/searches/introduction.md'
             - 'api/searches/searches.md'
             - 'api/searches/descents.md'
+            - 'api/searches/convergence.md'
             - 'api/searches/function_info.md'
     - Misc:
         - 'faq.md'

@@ -3,9 +3,11 @@ from typing import Any, cast, Generic
 import equinox as eqx
 import jax
 import jax.tree_util as jtu
+from equinox import AbstractVar
 from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
+from ._convergence import AbstractConvergence
 from ._custom_types import Args, Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._minimise import AbstractMinimiser, minimise
@@ -15,6 +17,8 @@ from ._solution import Solution
 
 class AbstractLeastSquaresSolver(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
     """Abstract base class for all least squares solvers."""
+
+    convergence: AbstractVar[AbstractConvergence[Y, Any]]
 
 
 def _rewrite_fn(optimum, _, inputs):

@@ -10,6 +10,7 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree, Scalar
 
+from .._convergence import CauchyConvergence
 from .._custom_types import Aux, Y
 from .._misc import (
     default_verbose,
@@ -563,12 +564,11 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
+    convergence: CauchyConvergence
     use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
+
     history_length: int
     verbose: Callable[..., None]
 
@@ -581,9 +581,7 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         history_length: int = 10,
         verbose: bool | Callable[..., None] = False,
     ):
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
+        self.convergence = CauchyConvergence(rtol=rtol, atol=atol, norm=norm)
         self.use_inverse = use_inverse
         self.descent = NewtonDescent()
         self.search = BacktrackingArmijo()

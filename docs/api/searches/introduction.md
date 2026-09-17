@@ -41,9 +41,14 @@ Thus, we refer to "accepted" steps as being those at which we re-evaluate the de
 
     This is simply a minimisation problem for $f(y) = 0.5 \sum_i r(y)_i^2$. Evaluations $f(y)$ can be obtained directly. Gradients $\nabla f(y) = r(y) \nabla r(y)$, which can be computed efficiently as a vector-Jacobian product. Hessians may be approximated via the Gauss--Newton approximation $\nabla^2 f(y) \approx (\nabla r(y))^{T} (\nabla r(y))$.
 
+**Convergence criteria**
+
+Convergence criteria decide whether the solve has converged. They consume the most recently accepted iterate, the [`optimistix.FunctionInfo`][] evaluated there, and how much the iterate and the function value changed over the last accepted step. The default is [`optimistix.CauchyConvergence`][], which checks that both changes are small relative to `rtol` and `atol`. Custom criteria can use different tolerances for `y` and `f`, apply per-parameter tolerances, or test the gradient.
+
 **API**
 
 All searches inherit from [`optimistix.AbstractSearch`][], and all descents inherit from [`optimistix.AbstractDescent`][]. See the [searches](./searches.md) and [descents](./descents.md) pages.
+All convergence criteria inherit from [`optimistix.AbstractConvergence`][]. See the [convergence](./convergence.md) page.
 
 The varying evaluation/gradient/Hessian/Jacobian information is passed to these as an [`optimistix.FunctionInfo`][]. See the [function info](./function_info.md) page.
 
@@ -52,15 +57,15 @@ The varying evaluation/gradient/Hessian/Jacobian information is passed to these 
 Finally, the really cool thing about these abstractions is how these can now be mix-and-match'd! For example,
 ```python
 from collections.abc import Callable
+
 import optimistix as optx
 
-class HybridSolver(optx.AbstractQuasiNewton):
-    rtol: float
-    atol: float
-    norm: Callable
+class HybridSolver(optx.AbstractBFGS):
+    convergence: optx.AbstractConvergence = optx.CauchyConvergence(rtol=1e-4, atol=1e-4)
     descent: optx.AbstractDescent = optx.DoglegDescent()
-    hessian_update: optx.AbstractQuasiNewtonUpdate = optx.BFGSUpdate(use_inverse=True)
     search: optx.AbstractSearch = optx.LearningRate(0.1)
+    use_inverse: bool = False
+    verbose: Callable[..., None] = lambda **kwargs: None
 ```
 will at each step:
 

@@ -11,10 +11,10 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
+from .._convergence import AbstractConvergence, CauchyConvergence
 from .._custom_types import Aux, DescentState, Fn, HessianUpdateState, SearchState, Y
 from .._minimise import AbstractMinimiser
 from .._misc import (
-    cauchy_termination,
     default_verbose,
     filter_cond,
     lin_to_grad,
@@ -134,9 +134,7 @@ class AbstractQuasiNewton(
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: AbstractVar[float]
-    atol: AbstractVar[float]
-    norm: AbstractVar[Callable[[PyTree], Scalar]]
+    convergence: AbstractVar[AbstractConvergence[Y, _Hessian]]
     use_inverse: AbstractVar[bool]
     descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
     search: AbstractVar[AbstractSearch[Y, _Hessian, FunctionInfo.Eval, Any]]
@@ -241,8 +239,8 @@ class AbstractQuasiNewton(
             )
             y_diff = (state.y_eval**ω - y**ω).ω
             f_diff = (f_eval**ω - state.f_info.f**ω).ω
-            terminate = cauchy_termination(
-                self.rtol, self.atol, self.norm, state.y_eval, y_diff, f_eval, f_diff
+            terminate = self.convergence.check(
+                state.y_eval, f_eval_info, y_diff, f_diff
             )
             terminate = jnp.where(
                 state.first_step, jnp.array(False), terminate
@@ -410,9 +408,15 @@ class AbstractBFGS(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
         # the `use_inverse` attribute.
         # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
         if self.use_inverse:
-            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore
+            return (
+                FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian),  # pyright: ignore
+                None,
+            )
         else:
-            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore
+            return (
+                FunctionInfo.EvalGradHessian(f_eval, grad, hessian),  # pyright: ignore
+                None,
+            )
 
 
 class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
@@ -432,12 +436,10 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
     use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
+    convergence: CauchyConvergence
     verbose: Callable[..., None]
 
     def __init__(
@@ -448,13 +450,11 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
         use_inverse: bool = True,
         verbose: bool | Callable[..., None] = False,
     ):
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
         self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
+        self.convergence = CauchyConvergence(rtol=rtol, atol=atol, norm=norm)
         self.verbose = default_verbose(verbose)
 
 
@@ -568,9 +568,15 @@ class AbstractDFP(AbstractQuasiNewton[Y, Aux, _Hessian, None]):
         # the `use_inverse` attribute.
         # https://github.com/patrick-kidger/optimistix/pull/135#discussion_r2155452558
         if self.use_inverse:
-            return FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian), None  # pyright: ignore
+            return (
+                FunctionInfo.EvalGradHessianInv(f_eval, grad, hessian),  # pyright: ignore
+                None,
+            )
         else:
-            return FunctionInfo.EvalGradHessian(f_eval, grad, hessian), None  # pyright: ignore
+            return (
+                FunctionInfo.EvalGradHessian(f_eval, grad, hessian),  # pyright: ignore
+                None,
+            )
 
 
 class DFP(AbstractDFP[Y, Aux, _Hessian]):
@@ -593,9 +599,7 @@ class DFP(AbstractDFP[Y, Aux, _Hessian]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
+    convergence: CauchyConvergence
     use_inverse: bool
     descent: NewtonDescent
     search: BacktrackingArmijo
@@ -609,13 +613,11 @@ class DFP(AbstractDFP[Y, Aux, _Hessian]):
         use_inverse: bool = True,
         verbose: bool | Callable[..., None] = False,
     ):
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
         self.use_inverse = use_inverse
         self.descent = NewtonDescent(linear_solver=lx.Cholesky())
         # TODO(raderj): switch out `BacktrackingArmijo` with a better line search.
         self.search = BacktrackingArmijo()
+        self.convergence = CauchyConvergence(rtol=rtol, atol=atol, norm=norm)
         self.verbose = default_verbose(verbose)
 
 

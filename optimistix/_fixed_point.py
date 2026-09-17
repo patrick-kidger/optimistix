@@ -1,10 +1,12 @@
+from collections.abc import Callable
 from typing import Any, cast, Generic
 
 import equinox as eqx
 import jax
 import jax.tree_util as jtu
+from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import PyTree
+from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Args, Aux, Fn, MaybeAuxFn, SolverState, Y
@@ -18,6 +20,10 @@ from ._solution import Solution
 
 class AbstractFixedPointSolver(AbstractIterativeSolver[Y, Y, Aux, SolverState]):
     """Abstract base class for all fixed point solvers."""
+
+    rtol: AbstractVar[float]
+    atol: AbstractVar[float]
+    norm: AbstractVar[Callable[[PyTree], Scalar]]
 
 
 def _rewrite_fn(fixed_point, _, inputs):

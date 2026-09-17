@@ -9,10 +9,10 @@ from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import Array, Bool, Int, PyTree, Scalar
 
+from .._convergence import AbstractConvergence, CauchyConvergence
 from .._custom_types import Args, Aux, DescentState, Fn, Out, SearchState, Y
 from .._least_squares import AbstractLeastSquaresSolver
 from .._misc import (
-    cauchy_termination,
     default_verbose,
     filter_cond,
     max_norm,
@@ -30,9 +30,11 @@ from .learning_rate import LearningRate
 
 
 def newton_step(
-    f_info: FunctionInfo.EvalGradHessian
-    | FunctionInfo.EvalGradHessianInv
-    | FunctionInfo.ResidualJac,
+    f_info: (
+        FunctionInfo.EvalGradHessian
+        | FunctionInfo.EvalGradHessianInv
+        | FunctionInfo.ResidualJac
+    ),
     linear_solver: lx.AbstractLinearSolver,
 ) -> tuple[PyTree[Array], RESULTS]:
     """Compute a Newton step.
@@ -112,9 +114,11 @@ class NewtonDescent(
     def query(
         self,
         y: Y,
-        f_info: FunctionInfo.EvalGradHessian
-        | FunctionInfo.EvalGradHessianInv
-        | FunctionInfo.ResidualJac,
+        f_info: (
+            FunctionInfo.EvalGradHessian
+            | FunctionInfo.EvalGradHessianInv
+            | FunctionInfo.ResidualJac
+        ),
         state: _NewtonDescentState,
     ) -> _NewtonDescentState:
         del state
@@ -189,9 +193,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
 
     Subclasses must provide the following attributes, with the following types:
 
-    - `rtol`: `float`
-    - `atol`: `float`
-    - `norm`: `Callable[[PyTree], Scalar]`
+    - `convergence`: `AbstractConvergence`
     - `descent`: `AbstractDescent`
     - `search`: `AbstractSearch`
     - `verbose`: `Callable[..., None]`
@@ -204,9 +206,7 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
-    rtol: AbstractVar[float]
-    atol: AbstractVar[float]
-    norm: AbstractVar[Callable[[PyTree], Scalar]]
+    convergence: AbstractVar[AbstractConvergence[Y, FunctionInfo.ResidualJac]]
     descent: AbstractVar[AbstractDescent[Y, FunctionInfo.ResidualJac, Any]]
     search: AbstractVar[
         AbstractSearch[Y, FunctionInfo.ResidualJac, FunctionInfo.ResidualJac, Any]
@@ -277,14 +277,8 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
             descent_state = self.descent.query(state.y_eval, f_eval_info, descent_state)
             y_diff = (state.y_eval**ω - y**ω).ω
             f_diff = (f_eval_info.residual**ω - state.f_info.residual**ω).ω
-            terminate = cauchy_termination(
-                self.rtol,
-                self.atol,
-                self.norm,
-                state.y_eval,
-                y_diff,
-                f_eval_info.residual,
-                f_diff,
+            terminate = self.convergence.check(
+                state.y_eval, f_eval_info, y_diff, f_diff
             )
             return state.y_eval, f_eval_info, aux_eval, descent_state, terminate
 
@@ -372,11 +366,9 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar]
     descent: NewtonDescent[Y]
     search: LearningRate[Y]
+    convergence: CauchyConvergence[Y]
     verbose: Callable[..., None]
 
     def __init__(
@@ -387,11 +379,9 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
         verbose: bool | Callable[..., None] = False,
     ):
-        self.rtol = rtol
-        self.atol = atol
-        self.norm = norm
         self.descent = NewtonDescent(linear_solver=linear_solver)
         self.search = LearningRate(1.0)
+        self.convergence = CauchyConvergence(rtol=rtol, atol=atol, norm=norm)
         self.verbose = default_verbose(verbose)
 
 

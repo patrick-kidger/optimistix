@@ -6,6 +6,10 @@ from ._adjoint import (
     ImplicitAdjoint as ImplicitAdjoint,
     RecursiveCheckpointAdjoint as RecursiveCheckpointAdjoint,
 )
+from ._convergence import (
+    AbstractConvergence as AbstractConvergence,
+    CauchyConvergence as CauchyConvergence,
+)
 from ._fixed_point import (
     AbstractFixedPointSolver as AbstractFixedPointSolver,
     fixed_point as fixed_point,

@@ -10,9 +10,11 @@ import jax.tree_util as jtu
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
 
+from .._convergence import CauchyConvergence
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
 from .._misc import max_norm, tree_full_like, tree_where
+from .._search import FunctionInfo
 from .._solution import RESULTS
 
 
@@ -101,11 +103,21 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
     Comparable to `scipy.optimize.minimize(method="Nelder-Mead")`.
     """
 
-    rtol: float
-    atol: float
-    norm: Callable[[PyTree], Scalar] = max_norm
+    convergence: CauchyConvergence
     rdelta: float = 5e-2
     adelta: float = 2.5e-4
+
+    def __init__(
+        self,
+        rtol: float,
+        atol: float,
+        norm: Callable[[PyTree], Scalar] = max_norm,
+        rdelta: float = 5e-2,
+        adelta: float = 2.5e-4,
+    ):
+        self.convergence = CauchyConvergence(rtol=rtol, atol=atol, norm=norm)
+        self.rdelta = rdelta
+        self.adelta = adelta
 
     def init(
         self,
@@ -421,12 +433,11 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
     ) -> tuple[Bool[Array, ""], RESULTS]:
         # TODO(raderj): only check terminate every k
         f_best, best, best_index = state.best
-        x_scale = (self.atol + self.rtol * ω(best)[None].call(jnp.abs)).ω
-        x_diff = jtu.tree_map(lambda a, b: jnp.abs(a - b[None]), state.simplex, best)
-        x_converged = self.norm((x_diff**ω / x_scale**ω).ω) < 1
-        f_scale = (self.atol + self.rtol * ω(f_best).call(jnp.abs)).ω
-        f_diff = (state.f_simplex**ω - f_best**ω).call(jnp.abs).ω
-        f_converged = self.norm((f_diff**ω / f_scale**ω).ω) < 1
+        y_diff = jtu.tree_map(lambda a, b: a - b[None], state.simplex, best)
+        f_diff = (state.f_simplex**ω - f_best**ω).ω
+        converged = self.convergence.check(
+            ω(best)[None].ω, FunctionInfo.Eval(f_best), y_diff, f_diff
+        )
         #
         # minpack does a further test here where it takes for each unit vector e_i a
         # perturbation "delta" and asserts that f(x + delta e_i) > f(x) and
@@ -434,7 +445,6 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         # minimum. If it fails the algo resets completely. thus process scales as
         # O(dim(y) * T(f)), where T(f) is the cost of evaluating f.
         #
-        converged = x_converged & f_converged
         diverged = jnp.any(jnp.invert(jnp.isfinite(f_best)))
         terminate = converged | diverged
         result = RESULTS.where(

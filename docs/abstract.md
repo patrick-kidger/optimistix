@@ -26,6 +26,10 @@ These may be defined by subclassing [`optimistix.AbstractSearch`][]. See also th
 
 These may be defined by subclassing [`optimistix.AbstractDescent`][]. See also the [introduction to searches and descent](./api/searches/introduction.md)
 
+**Convergence criteria**
+
+These may be defined by subclassing [`optimistix.AbstractConvergence`][]. See also the [introduction to searches and descent](./api/searches/introduction.md)
+
 **Adjoints**
 
 These denote custom autodifferentiation strategies. These may be defined by subclassing [`optimistix.AbstractAdjoint`][].

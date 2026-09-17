@@ -1,10 +1,11 @@
+from collections.abc import Callable
 from typing import Any, cast
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox import AbstractVar
-from jaxtyping import PyTree
+from jaxtyping import PyTree, Scalar
 
 from ._adjoint import AbstractAdjoint, ImplicitAdjoint
 from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
@@ -12,11 +13,16 @@ from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver
 from ._minimise import AbstractMinimiser, minimise
 from ._misc import inexact_asarray, NoneAux, OutAsArray, tree_full_like
+from ._search import FunctionInfo
 from ._solution import Solution
 
 
 class AbstractRootFinder(AbstractIterativeSolver[Y, Out, Aux, SolverState]):
     """Abstract base class for all root finders."""
+
+    rtol: AbstractVar[float]
+    atol: AbstractVar[float]
+    norm: AbstractVar[Callable[[PyTree], Scalar]]
 
 
 def _rewrite_fn(root, _, inputs):
@@ -43,19 +49,7 @@ def _to_lstsq_fn(root_fn, y, args):
 
 # Adds an additional termination condition, that `fn(y, args)` be near zero.
 class _ToRoot(AbstractIterativeSolver):
-    solver: AbstractVar[AbstractIterativeSolver]
-
-    @property
-    def rtol(self):
-        return self.solver.rtol
-
-    @property
-    def atol(self):
-        return self.solver.atol
-
-    @property
-    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        return self.solver.norm
+    solver: AbstractVar[AbstractMinimiser | AbstractLeastSquaresSolver]
 
     def init(self, fn, y, args, options, f_struct, aux_struct, tags):
         orig_f_struct, _ = aux_struct
@@ -71,8 +65,11 @@ class _ToRoot(AbstractIterativeSolver):
     def terminate(self, fn, y, args, options, state, tags):
         state, f = state
         terminate, result = self.solver.terminate(fn, y, args, options, state, tags)
-        # No rtol, because `rtol * 0 = 0`.
-        near_zero = self.norm(f) < self.atol
+        # Checks that `f` is within tolerance of zero: a step from the current
+        # iterate to a root, with no change in `y`, counts as converged.
+        near_zero = self.solver.convergence.check(
+            y, FunctionInfo.Residual(tree_full_like(f, 0)), tree_full_like(y, 0), f
+        )
         return terminate & near_zero, result
 
     def postprocess(self, fn, y, aux, args, options, state, tags, result):
@@ -83,37 +80,17 @@ class _ToRoot(AbstractIterativeSolver):
 class _MinimToRoot(AbstractMinimiser, _ToRoot):
     solver: AbstractMinimiser
 
-    # Redeclare these three to work around the Equinox bug fixed here:
-    # https://github.com/patrick-kidger/equinox/pull/544
     @property
-    def rtol(self):
-        return self.solver.rtol
-
-    @property
-    def atol(self):
-        return self.solver.atol
-
-    @property
-    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        return self.solver.norm
+    def convergence(self):
+        return self.solver.convergence
 
 
 class _LstsqToRoot(AbstractLeastSquaresSolver, _ToRoot):
     solver: AbstractLeastSquaresSolver
 
-    # Redeclare these three to work around the Equinox bug fixed here:
-    # https://github.com/patrick-kidger/equinox/pull/544
     @property
-    def rtol(self):
-        return self.solver.rtol
-
-    @property
-    def atol(self):
-        return self.solver.atol
-
-    @property
-    def norm(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        return self.solver.norm
+    def convergence(self):
+        return self.solver.convergence
 
 
 @eqx.filter_jit
@@ -179,7 +156,7 @@ def root_find(
     if isinstance(solver, AbstractMinimiser):
         del tags
         sol = minimise(
-            eqx.Partial(_to_minimise_fn, fn, solver.norm),
+            eqx.Partial(_to_minimise_fn, fn, solver.convergence.norm),
             _MinimToRoot(solver),  # pyright: ignore
             y0,
             args,

@@ -1,6 +1,5 @@
 import math
-from collections.abc import Callable
-from typing import Any, ClassVar
+from typing import Any
 
 import equinox as eqx
 import jax
@@ -8,9 +7,11 @@ import jax.lax as lax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, PyTree
 
+from .._convergence import CauchyConvergence
 from .._custom_types import Aux, Fn
 from .._minimise import AbstractMinimiser
-from .._misc import cauchy_termination, tree_where
+from .._misc import tree_where
+from .._search import FunctionInfo
 from .._solution import RESULTS
 
 
@@ -47,10 +48,11 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
     between interval segments is always maintained.
     """
 
-    rtol: float
-    atol: float
-    # All norms are the same for scalars.
-    norm: ClassVar[Callable[[PyTree], Float[Array, ""]]] = jnp.abs
+    convergence: CauchyConvergence
+
+    def __init__(self, rtol: float, atol: float):
+        # All norms are the same for scalars.
+        self.convergence = CauchyConvergence(rtol, atol, norm=jnp.abs)
 
     def init(
         self,
@@ -115,14 +117,8 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
         # since that is always the point closest to the current `y_`.
         y_diff = state.middle - y_
         f_diff = state.f_middle - f
-        terminate = cauchy_termination(
-            self.rtol,
-            self.atol,
-            jnp.abs,
-            state.middle,
-            y_diff,
-            state.f_middle,
-            f_diff,
+        terminate = self.convergence.check(
+            state.middle, FunctionInfo.Eval(state.f_middle), y_diff, f_diff
         )
 
         # y is either a new candidate minimum point (if the function value at `y_` is
