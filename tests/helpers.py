@@ -241,6 +241,8 @@ _lsqr_only = (
     optx.GaussNewton(rtol, atol, linear_solver=lx.AutoLinearSolver(well_posed=False)),
     optx.Dogleg(rtol, atol, linear_solver=lx.AutoLinearSolver(well_posed=False)),
     DoglegMax(rtol, atol),
+    optx.TRF(rtol, atol),
+    optx.TRF(rtol, atol, x_scale=1.0),
 )
 
 

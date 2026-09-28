@@ -55,6 +55,13 @@
 
 ---
 
+::: optimistix.TRF
+    options:
+        members:
+            - __init__
+
+---
+
 ::: optimistix.BestSoFarLeastSquares
     options:
         members:

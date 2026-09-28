@@ -22,6 +22,8 @@ These are an important special case of minimisation problems.
 
 Either [`optimistix.LevenbergMarquardt`][] or [`optimistix.Dogleg`][] are recommended for most problems.
 
+If your unknowns are on very different scales, or the problem is ill-conditioned and [`optimistix.LevenbergMarquardt`][] stalls with a shrinking trust region, then try [`optimistix.TRF`][]. It is the method behind SciPy's `least_squares(method="trf")`, and scales its trust region by the Jacobian.
+
 If your problem is particularly messy, as discussed above, then use a first-order gradient algorithm, e.g. `optimistix.OptaxMinimiser(optax.adabelief(...), ...)`. These are compatible with `optimistix.least_squares`.
 
 ## Root-finding problems
