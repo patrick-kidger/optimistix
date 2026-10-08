@@ -6,7 +6,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import lineax as lx
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Scalar
+from jaxtyping import Array, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Out, Y
 from .._misc import (
@@ -235,8 +235,8 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     descent: DoglegDescent[Y]
     search: ClassicalTrustRegion[Y]
@@ -244,8 +244,8 @@ class Dogleg(AbstractGaussNewton[Y, Out, Aux]):
 
     def __init__(
         self,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
         verbose: bool | Callable[..., None] = False,

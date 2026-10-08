@@ -8,7 +8,7 @@ import jax.tree_util as jtu
 import lineax as lx
 from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Float, PyTree, Scalar
+from jaxtyping import Array, Float, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Y
 from .._misc import (
@@ -563,8 +563,8 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     use_inverse: bool
     descent: NewtonDescent
@@ -574,8 +574,8 @@ class LBFGS(AbstractLBFGS[Y, Aux, _Hessian, _LBFGSUpdateState]):
 
     def __init__(
         self,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree], Scalar] = max_norm,
         use_inverse: bool = True,
         history_length: int = 10,

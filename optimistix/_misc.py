@@ -289,8 +289,8 @@ _F = TypeVar("_F")
 
 
 def cauchy_termination(
-    rtol: float,
-    atol: float,
+    rtol: ScalarLike,
+    atol: ScalarLike,
     norm: Callable[[PyTree], Scalar],
     y: Y,
     y_diff: Y,

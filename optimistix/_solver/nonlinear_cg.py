@@ -4,7 +4,7 @@ from typing import Any, cast, Generic
 import equinox as eqx
 import jax.numpy as jnp
 from equinox.internal import ω
-from jaxtyping import Array, PyTree, Scalar
+from jaxtyping import Array, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Y
 from .._misc import (
@@ -179,16 +179,16 @@ class NonlinearCG(AbstractGradientDescent[Y, Aux]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     descent: NonlinearCGDescent[Y]
     search: AbstractSearch[Y, FunctionInfo.EvalGrad, FunctionInfo.Eval, Any]
 
     def __init__(
         self,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree[Array]], Scalar] = max_norm,
         method: Callable[[Y, Y, Y], Scalar] = polak_ribiere,
         # TODO(raderj): replace the default line search with something better.

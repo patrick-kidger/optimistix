@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Literal
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, Float, PyTree, Scalar
+from jaxtyping import Array, Bool, Float, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Fn
 from .._root_find import AbstractRootFinder
@@ -98,8 +98,8 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
     function is monotonic.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     flip: bool | Literal["detect"] = "detect"
     expand_if_necessary: bool = False
     # All norms are the same for scalars.

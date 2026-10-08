@@ -9,7 +9,7 @@ import jax.tree_util as jtu
 import lineax as lx
 from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, Int, PyTree, Scalar
+from jaxtyping import Array, Bool, Int, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, DescentState, Fn, HessianUpdateState, SearchState, Y
 from .._minimise import AbstractMinimiser
@@ -134,8 +134,8 @@ class AbstractQuasiNewton(
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: AbstractVar[float]
-    atol: AbstractVar[float]
+    rtol: AbstractVar[ScalarLike]
+    atol: AbstractVar[ScalarLike]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
     use_inverse: AbstractVar[bool]
     descent: AbstractVar[AbstractDescent[Y, _Hessian, Any]]
@@ -432,8 +432,8 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     use_inverse: bool
     descent: NewtonDescent
@@ -442,8 +442,8 @@ class BFGS(AbstractBFGS[Y, Aux, _Hessian]):
 
     def __init__(
         self,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree], Scalar] = max_norm,
         use_inverse: bool = True,
         verbose: bool | Callable[..., None] = False,
@@ -593,8 +593,8 @@ class DFP(AbstractDFP[Y, Aux, _Hessian]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     use_inverse: bool
     descent: NewtonDescent
@@ -603,8 +603,8 @@ class DFP(AbstractDFP[Y, Aux, _Hessian]):
 
     def __init__(
         self,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree], Scalar] = max_norm,
         use_inverse: bool = True,
         verbose: bool | Callable[..., None] = False,

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 else:
     from equinox import AbstractClassVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Fn, Out, Y
 from .._misc import cauchy_termination, max_norm, tree_dtype, tree_full_like
@@ -57,8 +57,8 @@ class _NoAux(eqx.Module):
 
 
 class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]):
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar] = max_norm
     kappa: float = 1e-2
     linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None)
