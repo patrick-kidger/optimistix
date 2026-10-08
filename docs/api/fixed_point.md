@@ -2,6 +2,8 @@
 
 ::: optimistix.fixed_point
 
+See [iterative linear solves for large fixed points](./adjoints.md#iterative-linear-solves-for-large-fixed-points) for choosing a linear solver when differentiating through a fixed point.
+
 ---
 
 [`optimistix.fixed_point`][] supports any of the following fixed-point solvers.
