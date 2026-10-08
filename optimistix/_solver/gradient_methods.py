@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, DescentState, Fn, Out, SearchState, Y
 from .._minimise import AbstractMinimiser
@@ -113,8 +113,8 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
 
     Subclasses must provide the following abstract attributes, with the following types:
 
-    - `rtol: float`
-    - `atol: float`
+    - `rtol: ScalarLike`
+    - `atol: ScalarLike`
     - `norm: Callable[[PyTree], Scalar]`
     - `descent: AbstractDescent`
     - `search: AbstractSearch`
@@ -127,8 +127,8 @@ class AbstractGradientDescent(AbstractMinimiser[Y, Aux, _GradientDescentState]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: AbstractVar[float]
-    atol: AbstractVar[float]
+    rtol: AbstractVar[ScalarLike]
+    atol: AbstractVar[ScalarLike]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
     descent: AbstractVar[AbstractDescent[Y, FunctionInfo.EvalGrad, Any]]
     search: AbstractVar[
@@ -257,8 +257,8 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
         function does not support reverse-mode automatic differentiation.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     descent: SteepestDescent[Y]
     search: LearningRate[Y]
@@ -266,8 +266,8 @@ class GradientDescent(AbstractGradientDescent[Y, Aux]):
     def __init__(
         self,
         learning_rate: float,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree], Scalar] = max_norm,
     ):
         """**Arguments:**

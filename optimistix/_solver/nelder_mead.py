@@ -8,7 +8,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
@@ -101,8 +101,8 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
     Comparable to `scipy.optimize.minimize(method="Nelder-Mead")`.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar] = max_norm
     rdelta: float = 5e-2
     adelta: float = 2.5e-4

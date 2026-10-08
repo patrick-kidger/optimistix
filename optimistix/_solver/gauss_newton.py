@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import lineax as lx
 from equinox import AbstractVar
 from equinox.internal import ω
-from jaxtyping import Array, Bool, Int, PyTree, Scalar
+from jaxtyping import Array, Bool, Int, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Args, Aux, DescentState, Fn, Out, SearchState, Y
 from .._least_squares import AbstractLeastSquaresSolver
@@ -204,8 +204,8 @@ class AbstractGaussNewton(AbstractLeastSquaresSolver[Y, Out, Aux, _GaussNewtonSt
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
-    rtol: AbstractVar[float]
-    atol: AbstractVar[float]
+    rtol: AbstractVar[ScalarLike]
+    atol: AbstractVar[ScalarLike]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
     descent: AbstractVar[AbstractDescent[Y, FunctionInfo.ResidualJac, Any]]
     search: AbstractVar[
@@ -372,8 +372,8 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     descent: NewtonDescent[Y]
     search: LearningRate[Y]
@@ -381,8 +381,8 @@ class GaussNewton(AbstractGaussNewton[Y, Out, Aux]):
 
     def __init__(
         self,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=None),
         verbose: bool | Callable[..., None] = False,

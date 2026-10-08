@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Fn, Y
 from .._fixed_point import AbstractFixedPointSolver
@@ -31,8 +31,8 @@ class FixedPointIteration(AbstractFixedPointSolver[Y, Aux, _FixedPointState]):
     frequently preferred in practice.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar] = max_norm
     damp: float = 0.0
 

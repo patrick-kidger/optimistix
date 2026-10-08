@@ -271,8 +271,8 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     descent: DampedNewtonDescent[Y]
     search: ClassicalTrustRegion[Y]
@@ -280,8 +280,8 @@ class LevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
 
     def __init__(
         self,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree], Scalar] = max_norm,
         linear_solver: lx.AbstractLinearSolver = lx.QR(),
         verbose: bool | Callable[..., None] = False,
@@ -331,8 +331,8 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
         a `jax.custom_vjp`, and so does not support forward-mode autodifferentiation.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     descent: IndirectDampedNewtonDescent[Y]
     search: ClassicalTrustRegion[Y]
@@ -340,8 +340,8 @@ class IndirectLevenbergMarquardt(AbstractGaussNewton[Y, Out, Aux]):
 
     def __init__(
         self,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree], Scalar] = max_norm,
         lambda_0: ScalarLike = 1.0,
         linear_solver: lx.AbstractLinearSolver = lx.AutoLinearSolver(well_posed=False),

@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox import AbstractVar
-from jaxtyping import Array, Bool, PyTree, Scalar
+from jaxtyping import Array, Bool, PyTree, Scalar, ScalarLike
 
 from ._adjoint import AbstractAdjoint
 from ._custom_types import Aux, Fn, Out, SolverState, Y
@@ -24,10 +24,14 @@ else:
 
 
 class AbstractIterativeSolver(eqx.Module, Generic[Y, Out, Aux, SolverState]):
-    """Abstract base class for all iterative solvers."""
+    """Abstract base class for all iterative solvers.
 
-    rtol: AbstractVar[float]
-    atol: AbstractVar[float]
+    The tolerances `rtol` and `atol` may be Python scalars or scalar JAX arrays,
+    including traced scalars. They are held fixed throughout each solve.
+    """
+
+    rtol: AbstractVar[ScalarLike]
+    atol: AbstractVar[ScalarLike]
     norm: AbstractVar[Callable[[PyTree], Scalar]]
 
     @abc.abstractmethod

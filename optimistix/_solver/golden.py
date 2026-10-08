@@ -6,7 +6,7 @@ import equinox as eqx
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, Float, PyTree
+from jaxtyping import Array, Bool, Float, PyTree, ScalarLike
 
 from .._custom_types import Aux, Fn
 from .._minimise import AbstractMinimiser
@@ -47,8 +47,8 @@ class GoldenSearch(AbstractMinimiser[Float[Array, ""], Aux, _GoldenSearchState])
     between interval segments is always maintained.
     """
 
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     # All norms are the same for scalars.
     norm: ClassVar[Callable[[PyTree], Float[Array, ""]]] = jnp.abs
 

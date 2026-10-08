@@ -5,7 +5,7 @@ import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, Int, PyTree, Scalar
+from jaxtyping import Array, Bool, Int, PyTree, Scalar, ScalarLike
 
 from .._custom_types import Aux, Fn, Y
 from .._minimise import AbstractMinimiser
@@ -26,16 +26,16 @@ class OptaxMinimiser(AbstractMinimiser[Y, Aux, _OptaxState]):
     """
 
     optim: "optax.GradientTransformation"  # pyright: ignore  # noqa: F821
-    rtol: float
-    atol: float
+    rtol: ScalarLike
+    atol: ScalarLike
     norm: Callable[[PyTree], Scalar]
     verbose: Callable[..., None]
 
     def __init__(
         self,
         optim,
-        rtol: float,
-        atol: float,
+        rtol: ScalarLike,
+        atol: ScalarLike,
         norm: Callable[[PyTree], Scalar] = max_norm,
         verbose: bool | Callable[..., None] = False,
     ):
