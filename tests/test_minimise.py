@@ -173,6 +173,27 @@ def test_nonlinear_cg_methods(method):
     assert tree_allclose(sol.value, jnp.array([29.5, 9.0]), rtol=1e-5, atol=1e-5)
 
 
+def test_nonlinear_cg_betas_agree_after_exact_line_search():
+    # On a quadratic, after an exact line search along d0 = -g0, all four formulas for
+    # beta coincide: beta = |g1|^2 / |g0|^2 > 0. `y_diff_prev` is the previous search
+    # direction d0, as stored by `NonlinearCGDescent`.
+    A = jnp.array([[3.0, 1.0, 0.0], [1.0, 2.0, 0.5], [0.0, 0.5, 1.0]])
+    b = jnp.array([1.0, -2.0, 0.5])
+    x0 = jnp.array([0.3, -0.7, 1.2])
+    g0 = A @ x0 - b
+    d0 = -g0
+    alpha = -jnp.dot(g0, d0) / jnp.dot(d0, A @ d0)
+    g1 = A @ (x0 + alpha * d0) - b
+    expected = jnp.dot(g1, g1) / jnp.dot(g0, g0)
+    for method in (
+        optx.polak_ribiere,
+        optx.fletcher_reeves,
+        optx.hestenes_stiefel,
+        optx.dai_yuan,
+    ):
+        assert tree_allclose(method(g1, g0, d0), expected), method.__name__
+
+
 def test_optax_recompilation():
     optim1 = optax.chain(
         optax.adam(jnp.array(1e-3)),
