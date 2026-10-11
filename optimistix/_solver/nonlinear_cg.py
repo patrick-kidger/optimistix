@@ -52,7 +52,7 @@ def hestenes_stiefel(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     [`optimistix.NonlinearCGDescent`][]."""
     grad_diff = (grad**ω - grad_prev**ω).ω
     numerator = tree_dot(grad, grad_diff)
-    denominator = -tree_dot(y_diff_prev, grad_diff)
+    denominator = tree_dot(y_diff_prev, grad_diff)
     # Triggers at initialisation and convergence, as above.
     pred = jnp.abs(denominator) > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
@@ -63,7 +63,7 @@ def dai_yuan(grad: Y, grad_prev: Y, y_diff_prev: Y) -> Scalar:
     """The Dai--Yuan formula for β. Used with [`optimistix.NonlinearCG`][] and
     [`optimistix.NonlinearCGDescent`][]."""
     numerator = sum_squares(grad)
-    denominator = -tree_dot(y_diff_prev, (grad**ω - grad_prev**ω).ω)
+    denominator = tree_dot(y_diff_prev, (grad**ω - grad_prev**ω).ω)
     # Triggers at initialisation and convergence, as above.
     pred = jnp.abs(denominator) > jnp.finfo(denominator.dtype).eps
     safe_denom = jnp.where(pred, denominator, 1)
