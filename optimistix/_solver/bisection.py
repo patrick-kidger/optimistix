@@ -148,7 +148,9 @@ class Bisection(AbstractRootFinder[Scalar, Scalar, Aux, _BisectionState]):
             else:
                 lower_neg = lower_val < 0
                 upper_neg = upper_val < 0
-                root_not_contained = lower_neg == upper_neg
+                root_not_contained = (
+                    (lower_neg == upper_neg) & (lower_val != 0) & (upper_val != 0)
+                )
                 flip = eqx.error_if(
                     flip,
                     root_not_contained,
