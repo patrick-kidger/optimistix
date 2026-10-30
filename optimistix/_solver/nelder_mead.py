@@ -384,8 +384,8 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
         f_best = -f_best_neg
         (f_worst, f_second_worst), (worst_index, _) = lax.top_k(f_new_simplex, 2)
         _structured_index = lambda a, b: jtu.tree_map(lambda _, x: x[b], y, a)
-        best = _structured_index(simplex, best_index)
-        worst = _structured_index(simplex, worst_index)
+        best = _structured_index(new_simplex, best_index)
+        worst = _structured_index(new_simplex, worst_index)
         new_state = _NelderMeadState(
             simplex=new_simplex,
             f_simplex=f_new_simplex,
@@ -404,7 +404,7 @@ class NelderMead(AbstractMinimiser[Y, Aux, _NelderMeadState[Y, Aux]]):
             y0_simplex = False
 
         if y0_simplex:
-            out = simplex
+            out = new_simplex
         else:
             out = best
 
