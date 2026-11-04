@@ -82,8 +82,12 @@ class _AbstractNewtonChord(AbstractRootFinder[Y, Out, Aux, _NewtonChordState[Y]]
         else:
             jac = lx.JacobianLinearOperator(_NoAux(fn), y, args, tags=tags)
             jac = lx.linearise(jac)
-            init_later_state = self.linear_solver.init(jac, options={})
-            init_later_state = lax.stop_gradient(init_later_state)
+            # Stop gradients before calling `init`, not after: some factorisations
+            # (e.g. the one used by `lx.QR`) have no differentiation rule, and
+            # `lx.linear_solve` discards any gradient through the state anyway.
+            dynamic_jac, static_jac = eqx.partition(jac, eqx.is_array)
+            stopped_jac = eqx.combine(lax.stop_gradient(dynamic_jac), static_jac)
+            init_later_state = self.linear_solver.init(stopped_jac, options={})
             linear_state = (jac, init_later_state)
         if self.cauchy_termination:
             f_val = tree_full_like(f_struct, jnp.inf)
