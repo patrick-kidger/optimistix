@@ -166,6 +166,9 @@ class IndirectDampedNewtonDescent(
     Toint: "Trust-Region Methods" section 7.3. λ is interpreted as a Lagrange
     multiplier. This involves solving a one-dimensional root-finding problem for λ at
     each descent.
+
+    If this root solve fails, then a negative-gradient step at the requested
+    trust-region radius is used instead.
     """
 
     lambda_0: ScalarLike = 1.0
@@ -217,7 +220,7 @@ class IndirectDampedNewtonDescent(
             return self.trust_region_norm(step) - scaled_step_size
 
         def reject_newton():
-            lambda_out = root_find(
+            lambda_sol = root_find(
                 fn=comparison_fn,
                 has_aux=False,
                 solver=self.root_finder,
@@ -225,11 +228,32 @@ class IndirectDampedNewtonDescent(
                 options=dict(lower=1e-5),
                 max_steps=32,
                 throw=False,
-            ).value
-            y_diff, result = damped_newton_step(
-                1 / lambda_out, state.f_info, self.linear_solver
             )
-            return y_diff, result
+
+            def accept_root():
+                return damped_newton_step(
+                    1 / lambda_sol.value, state.f_info, self.linear_solver
+                )
+
+            def fallback_gradient():
+                # Keep a failed inner solve from producing a spurious tiny step.
+                if isinstance(state.f_info, FunctionInfo.EvalGradHessian):
+                    grad = state.f_info.grad
+                else:
+                    grad = state.f_info.compute_grad()
+                # Convert JAX's complex gradient to the Euclidean gradient.
+                grad = jtu.tree_map(jnp.conj, grad)
+                with jax.numpy_dtype_promotion("standard"):
+                    grad_norm = self.trust_region_norm(grad)
+                    safe_norm = jnp.where(grad_norm > 0, grad_norm, 1)
+                    direction = (grad**ω / safe_norm).ω
+                    return (scaled_step_size * direction**ω).ω, state.result
+
+            return lax.cond(
+                lambda_sol.result == RESULTS.successful,
+                accept_root,
+                fallback_gradient,
+            )
 
         def accept_newton():
             return state.newton, state.result
