@@ -97,14 +97,14 @@ def minimize(
     else:
         options = dict(options)
     max_steps = options.pop("maxiter", None)
-    options.pop("norm", max_norm)
+    norm = options.pop("norm", max_norm)
     if len(options) != 0:
         raise ValueError(f"Unsupported options: {set(options.keys())}")
 
     def wrapped_fn(y, args):
         return fun(y, *args)
 
-    solver = BFGS(rtol=tol, atol=tol, norm=max_norm)
+    solver = BFGS(rtol=tol, atol=tol, norm=norm)
     sol = minimise(wrapped_fn, solver, x0, args, max_steps=max_steps, throw=False)
     status = jnp.where(
         sol.result == RESULTS.successful,
