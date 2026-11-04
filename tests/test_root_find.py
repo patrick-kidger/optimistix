@@ -2,6 +2,7 @@ import contextlib
 import random
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
@@ -243,3 +244,24 @@ def test_newton_chord_small_diff(solver_cls):
     solver = solver_cls(rtol=1e-5, atol=1e-5, cauchy_termination=False)
     sol = optx.root_find(f, solver, 0.0, throw=False)
     assert sol.result == optx.RESULTS.successful
+
+
+@pytest.mark.parametrize(
+    "adjoint", (optx.ImplicitAdjoint(), optx.RecursiveCheckpointAdjoint())
+)
+def test_root_via_min_gradient(adjoint):
+    # A minimiser used for root finding minimises sum(fn(y, args)^2). Its root has
+    # dy/da = -y / (1 - tanh(y)^2 + a) by the implicit function theorem.
+    def f(y, a):
+        return jnp.tanh(y) + a * y - jnp.array([1.0, 2.0, -0.5])
+
+    solver = optx.BFGS(rtol=1e-10, atol=1e-10)
+
+    def run(a):
+        return optx.root_find(f, solver, jnp.zeros(3), args=a, adjoint=adjoint).value
+
+    a = jnp.array(2.0)
+    root = run(a)
+    expected = -root / (1 - jnp.tanh(root) ** 2 + a)
+    grad = jax.jacobian(run)(a)
+    assert tree_allclose(grad, expected, rtol=1e-6, atol=1e-6)
