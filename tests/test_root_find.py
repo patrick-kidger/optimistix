@@ -2,9 +2,11 @@ import contextlib
 import random
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import lineax as lx
 import optimistix as optx
 import pytest
 from equinox.internal import ω
@@ -243,3 +245,25 @@ def test_newton_chord_small_diff(solver_cls):
     solver = solver_cls(rtol=1e-5, atol=1e-5, cauchy_termination=False)
     sol = optx.root_find(f, solver, 0.0, throw=False)
     assert sol.result == optx.RESULTS.successful
+
+
+@pytest.mark.parametrize("linear_solver", (lx.LU(), lx.QR()))
+def test_chord_differentiable_through_init(linear_solver):
+    # Chord factorises the Jacobian in `init`. That factorisation must not be
+    # differentiated: `lx.QR` has no differentiation rule for it.
+    def f(y, a):
+        return jnp.tanh(y) + a * y - jnp.array([1.0, 2.0])
+
+    solver = optx.Chord(rtol=1e-10, atol=1e-10, linear_solver=linear_solver)
+    adjoint = optx.RecursiveCheckpointAdjoint()
+
+    def run(a):
+        sol = optx.root_find(f, solver, jnp.zeros(2), args=a, adjoint=adjoint)
+        return sol.value
+
+    a = jnp.array(2.0)
+    root = run(a)
+    # Implicit function theorem: (1 - tanh(y)^2 + a) dy/da = -y.
+    expected = -root / (1 - jnp.tanh(root) ** 2 + a)
+    grad = jax.grad(lambda a: jnp.sum(run(a)))(a)
+    assert jnp.allclose(grad, jnp.sum(expected), rtol=1e-6, atol=1e-6)
