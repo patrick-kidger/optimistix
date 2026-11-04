@@ -58,3 +58,14 @@ def test_compare():
     assert tree_allclose(jax_out.hess_inv, optx_out.hess_inv, atol=1e-2, rtol=1e-2)
     # Don't compare number of iterations -- these may different between the two
     # implementations.
+
+
+def test_norm():
+    fun, args, x0 = _setup()
+    default = optx.compat.minimize(fun, x0, args, method="bfgs")
+    # A norm that is always zero makes every step look converged.
+    zero_norm = optx.compat.minimize(
+        fun, x0, args, method="bfgs", options=dict(norm=lambda x: jnp.array(0.0))
+    )
+    assert zero_norm.nit < default.nit
+    assert not tree_allclose(zero_norm.x, default.x)
