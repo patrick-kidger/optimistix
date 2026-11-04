@@ -11,7 +11,7 @@ from ._custom_types import Aux, Fn, MaybeAuxFn, Out, SolverState, Y
 from ._iterate import AbstractIterativeSolver, iterative_solve
 from ._least_squares import AbstractLeastSquaresSolver
 from ._minimise import AbstractMinimiser, minimise
-from ._misc import inexact_asarray, NoneAux, OutAsArray, tree_full_like
+from ._misc import inexact_asarray, NoneAux, OutAsArray, sum_squares, tree_full_like
 from ._solution import Solution
 
 
@@ -31,9 +31,9 @@ if _rewrite_fn.__globals__["__name__"].startswith("jaxtyping"):
     _rewrite_fn = _rewrite_fn.__wrapped__  # pyright: ignore[reportFunctionMemberAccess]
 
 
-def _to_minimise_fn(root_fn, norm, y, args):
+def _to_minimise_fn(root_fn, y, args):
     root, aux = root_fn(y, args)
-    return norm(root), (root, aux)
+    return sum_squares(root), (root, aux)
 
 
 def _to_lstsq_fn(root_fn, y, args):
@@ -179,7 +179,7 @@ def root_find(
     if isinstance(solver, AbstractMinimiser):
         del tags
         sol = minimise(
-            eqx.Partial(_to_minimise_fn, fn, solver.norm),
+            eqx.Partial(_to_minimise_fn, fn),
             _MinimToRoot(solver),  # pyright: ignore
             y0,
             args,
